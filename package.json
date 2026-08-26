@@ -1,0 +1,26 @@
+{
+  "name": "administrasi-sekolah",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build:css": "tailwindcss -i web/css/input.css -o web/css/style.css --minify",
+    "dev:css": "tailwindcss -i web/css/input.css -o web/css/style.css --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BrazaMuzti/Administrasi-Sekolah.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/BrazaMuzti/Administrasi-Sekolah/issues"
+  },
+  "homepage": "https://github.com/BrazaMuzti/Administrasi-Sekolah#readme",
+  "devDependencies": {
+    "@google/clasp": "^3.4.0",
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

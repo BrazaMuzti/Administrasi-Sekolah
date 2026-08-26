@@ -1,0 +1,10 @@
+# Dependensi npm
+node_modules/
+
+# Log & OS
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Hasil kompilasi CSS (aktifkan bila build dilakukan via CI saja)
+# web/css/style.css

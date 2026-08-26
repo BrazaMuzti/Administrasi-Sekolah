@@ -1,3 +1,15 @@
+@import "tailwindcss";
+
+/* Sumber konten utk deteksi kelas Tailwind (HTML & JS).
+   Sebenarnya CLI v4 sudah mendeteksi otomatis, dibuat eksplisit agar jelas. */
+@source "../**/*.{html,js}";
+
+/* ============================================================
+   CSS KUSTOM (Glassmorphism, Tabel Sticky, Scrollbar, Animasi)
+   Dulu terpisah di web/style.css — kini digabung di sini sehingga
+   hasil kompilasi cukup satu file: web/css/style.css
+   ============================================================ */
+
 /* Glassmorphism Utilities */
 .glass-card {
   background: rgba(255, 255, 255, 0.05);
@@ -40,7 +52,7 @@ main { flex: 1; min-width: 0; }
   overflow-y: auto;
   max-height: 62vh;
   position: relative;
-  -webkit-overflow-scrolling: touch; 
+  -webkit-overflow-scrolling: touch;
 }
 
 table {

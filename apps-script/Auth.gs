@@ -41,42 +41,54 @@ function handleLogin(payload) {
     return { status: 'error', message: 'Username dan password wajib diisi.' };
   }
 
-  const user = findUser(username);
-  // Hash password yang tersimpan di spreadsheet.
-  // Jika masih plain text, migrasikan sekali dengan migratePasswords() di bawah.
-  const storedHash = user ? String(user.Password || '').toLowerCase() : '';
-  const inputHash = hashPassword(password);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // Dukung transisi: jika tersimpan plain text, cocokkan langsung lalu otomatis hash.
-  let ok = false;
-  if (storedHash === inputHash) {
-    ok = true;
-  } else if (storedHash === String(password)) {
-    updatePasswordHash(user.__rowName, user.Username, inputHash);
-    ok = true;
+  // 1) GURU → login pakai NIP atau ID Akun Guru
+  const guruData = getSheetDataAsObjects(ss, 'Data Akun Guru');
+  const guru = guruData.find(g =>
+    (g.NIP && String(g.NIP).trim() === String(username).trim()) ||
+    (g['ID Akun Guru'] && String(g['ID Akun Guru']).trim() === String(username).trim())
+  );
+  if (guru && passwordMatch(guru.Password, password)) {
+    const role = String(guru['Jabatan'] || '').toLowerCase().includes('admin') ? 'admin' : 'guru';
+    return buildLoginSession(role, guru, guru['Nama Guru'] || guru['NIP'], username);
   }
 
-  if (!ok || !user) {
-    return { status: 'error', message: 'Username atau password salah.' };
+  // 2) MURID → login pakai NIS atau NISN
+  const muridData = getSheetDataAsObjects(ss, 'Data Akun Murid');
+  const murid = muridData.find(m =>
+    (m.NIS && String(m.NIS).trim() === String(username).trim()) ||
+    (m.NISN && String(m.NISN).trim() === String(username).trim())
+  );
+  if (murid && passwordMatch(murid.Password, password)) {
+    return buildLoginSession('murid', murid, murid['Nama Lengkap'] || murid['NIS'], username);
   }
 
+  return { status: 'error', message: 'NIP/NIS atau password salah.' };
+}
+
+/** Cocokkan password input dengan yang tersimpan (mendukung plain string & hash SHA-256) */
+function passwordMatch(stored, provided) {
+  const s = String(stored || '');
+  if (s === String(provided)) return true;
+  try { return s.toLowerCase() === hashPassword(provided); } catch (e) { return false; }
+}
+
+/** Respons login sukses: token sesi + role + objek user PENUH (dipakai frontend sbg currentUser.user) */
+function buildLoginSession(role, row, nama, username) {
   const token = Utilities.getUuid();
-  const cache = CacheService.getScriptCache();
-  cache.put('sess_' + token, JSON.stringify({
-    username: user.Username,
-    role: user.__role,
-    nama: user['Nama Lengkap'] || user.Username,
+  CacheService.getScriptCache().put('sess_' + token, JSON.stringify({
+    username: username,
+    role: role,
+    nama: nama,
     expires: Date.now() + SESSION_DURATION
-  }), 21600); // maksimal cache 6 jam; diperpanjang saat validasi
+  }), 21600); // cache maks 6 jam; diperpanjang saat validasi
 
   return {
     status: 'success',
     token: token,
-    user: {
-      username: user.Username,
-      role: user.__role,
-      nama: user['Nama Lengkap'] || user.Username
-    }
+    role: role,   // 'admin' | 'guru' | 'murid'
+    user: row     // user penuh dari spreadsheet (untuk currentUser.user)
   };
 }
 

@@ -1,10 +1,3 @@
-/**
- * SISTEM INFORMASI HADIR TATAP MUKA DAN NILAI MURID
- * FRONTEND CORE APPLICATION LOGIC (HEADER DINAMIS & SMART FAB)
- */
-
-const GAS_URL = "https://script.google.com/macros/s/AKfycbz6CurBkgycNL5lFr_pDATaab2B9o8R_v2OPBATdXPaWfm9kO6xrLKaLJl6Efnu1eFu/exec"; // <-- GANTI DENGAN URL WEB APP ANDA
-let currentUser = JSON.parse(localStorage.getItem('siakad_user')) || null;
 let html5QrcodeScanner = null;
 let clockInterval = null;
 
@@ -22,13 +15,36 @@ let cacheListEkskul = [];
 // Konfigurasi Default Libur Akhir Pekan
 let liburConfigCache = { sabtu: true, minggu: true, customList: [] };
 
+// Objek sesi aktif (global). Diisi dari hasil getCurrentUser() / hasil login.
+let currentUser = null;
+
+/**
+ * Entry point utama setelah login:
+ * 1) simpan user ke global `currentUser`,
+ * 2) buat FAB menu navigasi,
+ * 3) tampilkan dashboard & muat data sesuai peran (checkAuth → setupDashboard).
+ */
+function initApp(user) {
+  currentUser = user !== undefined ? user : (currentUser || null);
+  try { setupSmartFAB(); }
+  catch (e) { console.error('initApp › setupSmartFAB:', e); }
+  try { checkAuth(); }
+  catch (e) { console.error('initApp › checkAuth:', e); }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const user = getCurrentUser();
+  const loginView = document.getElementById('view-login');
+  const dashboardView = document.getElementById('view-dashboard');
+
   if (!user) {
-    document.getElementById('halaman-login')?.classList.remove('hidden');
-    return; // stop — jangan render dashboard
+    // Belum login → hanya tampilkan halaman login
+    if (dashboardView) dashboardView.classList.add('hidden');
+    if (loginView) loginView.classList.remove('hidden');
+    return; // jangan render dashboard
   }
-  initApp(user); // fungsi render utama Anda
+
+  initApp(user); // sesi tersimpan → langsung boot dashboard
 });
 
 
@@ -45,7 +61,7 @@ async function setupDashboard() {
   // FETCH MASTER DATA (Untuk Logo 1 & Nama Sekolah)
   if (masterDataCache.length === 0) {
     try { 
-        const res = await fetch(`${GAS_URL}?action=get_master_data`); 
+        const res = await fetch(`${API_URL}?action=get_master_data`); 
         const json = await res.json(); 
         if (json.status === 'success') masterDataCache = json.data; 
     } catch (e) { console.error("Gagal memuat master data"); }
@@ -303,36 +319,48 @@ async function checkAuth() {
   }
 }
 
-async function handleLoginSubmit(e) {
-  e.preventDefault(); // cegah reload halaman
+async function handleLoginSubmit() {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses...`;
 
-  if (!username || !password) {
-    showToast('warning', 'Username dan password wajib diisi');
-    return;
-  }
-
-  showLoading('Memeriksa kredensial...');
   try {
     const res = await apiCall('login', { username, password });
-    hideLoading();
-
     if (res.status === 'success') {
-      setSession(res.token, res.user);          // simpan token + profil
-      showToast('success', `Selamat datang, ${res.user.nama}!`);
-      setTimeout(() => location.reload(), 800); // atau panggil renderDashboard()
+      // Backend mengembalikan { token, role, user:<objek penuh> }.
+      // App.js memakai currentUser.role & currentUser.user, jadi dibungkus bertingkat.
+      const sessionUser = { role: res.role, user: res.user };
+      setSession(res.token, sessionUser);
+      const nama = (res.user && (res.user['Nama Guru'] || res.user['Nama Lengkap'])) || 'Anda';
+      showToast('success', `Selamat datang, ${nama}!`);
+      // LANGSUNG boot aplikasi (tanpa reload). Lebih andal: tidak bergantung pada
+      // cache/reload browser, sesi tetap tersimpan di localStorage.
+      setTimeout(() => { initApp(sessionUser); }, 500);
     } else {
       showToast('error', res.message || 'Login gagal');
     }
   } catch (err) {
-    hideLoading();
+    console.error(err);
     showToast('error', 'Gagal terhubung ke server');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<span>Masuk</span> <i class="fa-solid fa-arrow-right"></i>`;
   }
 }
 
-// pasang listener:
-document.getElementById('btn-login')?.addEventListener('submit', handleLoginSubmit);
+
+// Listener di FORM (karena tombol type="submit"):
+const form = document.getElementById('form-login');
+if (form) {
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();      // ← WAJIB: cegah reload halaman
+    handleLoginSubmit();
+  });
+}
+
+
 
 function logout() {
   clearSession();
@@ -369,7 +397,7 @@ async function renderAbsensiModule(container) {
 
   if (masterDataCache.length === 0) { 
     try { 
-      const res = await fetch(`${GAS_URL}?action=get_master_data`); 
+      const res = await fetch(`${API_URL}?action=get_master_data`); 
       const json = await res.json(); 
       if (json.status === 'success') masterDataCache = json.data; 
     } catch (e) { console.error(e); } 
@@ -480,7 +508,7 @@ async function submitAbsenMandiri() {
 
   try {
     const payload = { action: 'absen_mandiri', tahun: currentTahun, semester: "Ganjil", bulan: currentBulan, tanggal: new Date().getDate(), kelas: currentUser.user["Tingkat/Kelas"], jenis: mapelRaw[0], mapel: mapelRaw[1], nis: currentUser.user["NIS"], nama: currentUser.user["Nama Lengkap"], captcha: captcha, gps: gpsLokasi };
-    const res = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     const textData = await res.text();
     let json; try { json = JSON.parse(textData); } catch(e) { throw new Error("Terjadi masalah pada server."); }
     
@@ -504,7 +532,7 @@ async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "") {
   const payload = { action: 'save_absen_masal', id_guru: idGuruTarget, tahun: currentTahun, semester: "Ganjil", bulan: currentBulan, tanggal: tanggal, kelas: kelasDipilih, jenis: jenisData, mapel: jenisData === 'Mapel' ? namaMapelEkskul : "", ekskul: jenisData === 'Ekskul' ? namaMapelEkskul : "", metode: "Manual / QR", keterangan_kehadiran_masal: keteranganMasal, gps: gpsLokasi, absenList: absenList };
   
   try {
-    const res = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     const textData = await res.text(); let json; try { json = JSON.parse(textData); } catch(e) { throw new Error("Server Error"); }
     if (json.status === 'success') { Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Data Berhasil Disimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' }); loadDataMuridDanAbsen(); } 
     else { Swal.fire({ icon: 'error', title: 'Ditolak', text: json.message, background: '#1e293b', color: '#fff' }); }
@@ -526,7 +554,7 @@ async function renderAbsensiModule(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Menyiapkan Data...</div>`;
 
   if (masterDataCache.length === 0) {
-    try { const res = await fetch(`${GAS_URL}?action=get_master_data`); const json = await res.json(); if (json.status === 'success') masterDataCache = json.data; } catch (e) {}
+    try { const res = await fetch(`${API_URL}?action=get_master_data`); const json = await res.json(); if (json.status === 'success') masterDataCache = json.data; } catch (e) {}
   }
 
   let listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
@@ -754,7 +782,7 @@ async function loadDataMuridDanAbsen() {
 
   try {
     const payload = JSON.stringify({ action: 'get_dashboard_data', kelas: kelas, mapel: namaMapel, bulan: currentBulan, tahun: currentTahun });
-    const res = await fetch(`${GAS_URL}?action=get_dashboard_data&data=${encodeURIComponent(payload)}`);
+    const res = await fetch(`${API_URL}?action=get_dashboard_data&data=${encodeURIComponent(payload)}`);
     const json = await res.json();
 
       if (json.status === 'success') {
@@ -849,7 +877,7 @@ async function saveKeteranganSiswaAPI(nis, updates) {
   Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
   
   try {
-    const res = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     const textData = await res.text();
     let json; try { json = JSON.parse(textData); } catch(e) { throw new Error("Server Error"); }
     if (json.status === 'success') { Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' }); loadDataMuridDanAbsen(); } 
@@ -906,7 +934,7 @@ async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "") {
   
   Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
   try {
-    const res = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+    const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     const textData = await res.text(); let json; try { json = JSON.parse(textData); } catch(e) { throw new Error("Server Error"); }
     if (json.status === 'success') { Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Data Berhasil Disimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' }); loadDataMuridDanAbsen(); } 
     else { Swal.fire({ icon: 'error', title: 'Ditolak', text: json.message, background: '#1e293b', color: '#fff' }); }
@@ -918,8 +946,9 @@ async function updateKunciServer() {
   if(!newCaptcha) return Swal.fire({toast:true, position:'top-end', icon:'error', title:'Captcha kosong!', showConfirmButton:false, timer:2000});
   try {
     const payload = { action: 'update_kunci', id_guru: currentUser.user["ID Akun Guru"], captcha: newCaptcha, kunci: newKunci };
-    await fetch(`${GAS_URL}?action=update_kunci&data=${encodeURIComponent(JSON.stringify(payload))}`);
-    currentUser.user["Captcha"] = newCaptcha; currentUser.user["Kunci Absen"] = newKunci; localStorage.setItem('siakad_user', JSON.stringify(currentUser));
+    await fetch(`${API_URL}?action=update_kunci&data=${encodeURIComponent(JSON.stringify(payload))}`);
+    currentUser.user["Captcha"] = newCaptcha; currentUser.user["Kunci Absen"] = newKunci;
+    setSession(getToken(), currentUser); // simpan ke key sisip_token/sisip_user yg benar
     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Kunci Diperbarui!', showConfirmButton:false, timer:2000, background: '#1e293b', color: '#fff'});
   } catch (e) {}
 }
@@ -1001,7 +1030,7 @@ async function forceSyncSemuaAbsensi() {
             let absenList = groupedByDate[tgl];
             const payload = { action: 'save_absen_masal', id_guru: idGuruTarget, tahun: currentTahun, semester: "Ganjil", bulan: currentBulan, tanggal: tgl, kelas: kelasDipilih, jenis: jenisData, mapel: jenisData === 'Mapel' ? namaMapelEkskul : "", ekskul: jenisData === 'Ekskul' ? namaMapelEkskul : "", metode: "Form Masal", keterangan_kehadiran_masal: "", absenList: absenList };
             
-            await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+            await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
         }
         Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Seluruh Kehadiran Tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
     } catch (e) {
@@ -1394,7 +1423,7 @@ async function renderNilaiModule(container) {
   // 1. Ambil Data Master untuk Filter
   if (masterDataCache.length === 0) { 
     try { 
-      const res = await fetch(`${GAS_URL}?action=get_master_data`); 
+      const res = await fetch(`${API_URL}?action=get_master_data`); 
       const json = await res.json(); 
       if (json.status === 'success') masterDataCache = json.data; 
     } catch (e) {
@@ -1542,7 +1571,7 @@ async function loadDataNilai() {
 
   try {
     const noCache = new Date().getTime(); 
-    const resKonfig = await fetch(`${GAS_URL}?action=get_konfigurasi_nilai&t=${noCache}&data=${encodeURIComponent(JSON.stringify({sheetName: currentKategoriNilai, mapel: mapel}))}`);
+    const resKonfig = await fetch(`${API_URL}?action=get_konfigurasi_nilai&t=${noCache}&data=${encodeURIComponent(JSON.stringify({sheetName: currentKategoriNilai, mapel: mapel}))}`);
     const jsonKonfig = await resKonfig.json(); configNilaiAktif = jsonKonfig.data;
 
     // Default Config Injector
@@ -1555,7 +1584,7 @@ async function loadDataNilai() {
     }
 
     const payloadDash = JSON.stringify({ action: 'get_dashboard_data', kelas: kelas, mapel: mapel, tahun: currentTahun });
-    const resDash = await fetch(`${GAS_URL}?action=get_dashboard_data&t=${noCache}&data=${encodeURIComponent(payloadDash)}`);
+    const resDash = await fetch(`${API_URL}?action=get_dashboard_data&t=${noCache}&data=${encodeURIComponent(payloadDash)}`);
     const jsonDash = await resDash.json();
     listMuridKelas = jsonDash.status === 'success' ? jsonDash.murid : [];
     // PERBAIKAN: Saring data tabel Nilai berdasarkan kolom "Ekstrakurikuler"
@@ -1569,7 +1598,7 @@ async function loadDataNilai() {
 
     if(jsonDash.status_guru) dataStatusKunciGuru = jsonDash.status_guru; 
 
-    const resNilai = await fetch(`${GAS_URL}?action=get_data_nilai&t=${noCache}&data=${encodeURIComponent(JSON.stringify({sheetName: currentKategoriNilai}))}`);
+    const resNilai = await fetch(`${API_URL}?action=get_data_nilai&t=${noCache}&data=${encodeURIComponent(JSON.stringify({sheetName: currentKategoriNilai}))}`);
     const jsonNilai = await resNilai.json();
     rawDataNilai = jsonNilai.status === 'success' ? jsonNilai.data.filter(d => d["Mata Pelajaran"] == mapel && d["Tahun"] == currentTahun && d["Tingkat/Kelas"] == kelas && d["Semester"] == currentSemesterNilai) : [];
 
@@ -1875,7 +1904,7 @@ function silentSaveNilai(nis, updates) {
   
   const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 1500, timerProgressBar: true, background: '#1e293b', color: '#fff' });
   
-  return fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
+  return fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
     .then(res => res.json())
     .then(data => { if(data.status === 'success') Toast.fire({ icon: 'success', title: 'Tersimpan' }); })
     .catch(() => Toast.fire({ icon: 'error', title: 'Gagal Simpan!' }));
@@ -1998,7 +2027,7 @@ async function forceSyncSemuaNilai() {
         tahun: currentTahun, semester: sem, kelas: kelas, mapel: mapel, dataList: dataList
       };
 
-      const res = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+      const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
       const json = await res.json();
       if(json.status !== 'success') throw new Error(json.message);
     }
@@ -2142,7 +2171,7 @@ function openPengaturanKolomPengetahuan() {
       Swal.fire({ title: 'Menyimpan Pengaturan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
       
       try {
-          const response = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
+          const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
           const result = await response.json();
           if (result.status === 'success') {
               Swal.fire({toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff'});
@@ -2250,7 +2279,7 @@ function openPengaturanKolomKeterampilan() {
       Swal.fire({ title: 'Menyimpan Pengaturan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
       
       try {
-          const response = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
+          const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
           const result = await response.json();
           if (result.status === 'success') {
               Swal.fire({toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff'});
@@ -2324,7 +2353,7 @@ function openPengaturanKolomSikap() {
       
       const mapel = document.getElementById('select-mapel-nilai').value;
       Swal.fire({ title: 'Menyimpan Pengaturan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
-      await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
+      await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'save_konfigurasi_nilai', sheetName: currentKategoriNilai, mapel: mapel, config: configNilaiAktif }) });
       Swal.close(); loadDataNilai();
     }
   });
@@ -3249,7 +3278,7 @@ function silentSaveNilai(nis, updates) {
   };
   
   const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 1500, timerProgressBar: true, background: '#1e293b', color: '#fff' });
-  return fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
+  return fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) })
     .then(res => res.json())
     .then(data => { if(data.status === 'success') Toast.fire({ icon: 'success', title: 'Tersimpan' }); })
     .catch(() => Toast.fire({ icon: 'error', title: 'Gagal Simpan!' }));
@@ -3576,8 +3605,8 @@ async function shareBelumTuntasWA(e) {
     });
 
     try {
-        const getUrl = (sheet) => `${GAS_URL}?action=get_data_nilai&t=${new Date().getTime()}&data=${encodeURIComponent(JSON.stringify({sheetName: sheet}))}`;
-        const getCfg = (sheet) => `${GAS_URL}?action=get_konfigurasi_nilai&t=${new Date().getTime()}&data=${encodeURIComponent(JSON.stringify({sheetName: sheet, mapel: mapel}))}`;
+        const getUrl = (sheet) => `${API_URL}?action=get_data_nilai&t=${new Date().getTime()}&data=${encodeURIComponent(JSON.stringify({sheetName: sheet}))}`;
+        const getCfg = (sheet) => `${API_URL}?action=get_konfigurasi_nilai&t=${new Date().getTime()}&data=${encodeURIComponent(JSON.stringify({sheetName: sheet, mapel: mapel}))}`;
 
         // Fetch seluruh data 3 Sheet secara paralel (Sangat Cepat)
         const [resP, resK, resS, cfgP, cfgK, cfgS] = await Promise.all([
@@ -4004,13 +4033,13 @@ async function renderManajemenMurid(container) {
     try {
         // 1. Ambil Data Master jika belum ada (Untuk Dropdown)
         if (masterDataCache.length === 0) {
-            const resMaster = await fetch(`${GAS_URL}?action=get_master_data`);
+            const resMaster = await fetch(`${API_URL}?action=get_master_data`);
             const jsonMaster = await resMaster.json();
             if (jsonMaster.status === 'success') masterDataCache = jsonMaster.data;
         }
 
         // 2. Ambil Data Murid
-        const res = await fetch(`${GAS_URL}?action=get_akun&tipe=murid`);
+        const res = await fetch(`${API_URL}?action=get_akun&tipe=murid`);
         const json = await res.json();
         cacheAkunMurid = json.status === 'success' ? json.data : [];
         
@@ -4241,7 +4270,7 @@ function openFormAkunMurid(isNew, data = {}) {
             Swal.fire({title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'save_akun', tipe: 'murid', isNew: isNew, data: res.value };
-                const postRes = await fetch(GAS_URL, { 
+                const postRes = await fetch(API_URL, { 
                     method: 'POST', 
                     redirect: 'follow', 
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -4443,7 +4472,7 @@ function deleteAkunMurid(nisKey) {
             Swal.fire({title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'delete_akun', tipe: 'murid', key: nisKey };
-                const postRes = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
+                const postRes = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
                 const json = await postRes.json();
                 if(json.status === 'success') {
                     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
@@ -4467,12 +4496,12 @@ async function renderManajemenGuru(container) {
     
     try {
         if (typeof masterDataCache === 'undefined' || masterDataCache.length === 0) {
-            const resMaster = await fetch(`${GAS_URL}?action=get_master_data`);
+            const resMaster = await fetch(`${API_URL}?action=get_master_data`);
             const jsonMaster = await resMaster.json();
             if (jsonMaster.status === 'success') masterDataCache = jsonMaster.data;
         }
 
-        const res = await fetch(`${GAS_URL}?action=get_akun&tipe=guru`);
+        const res = await fetch(`${API_URL}?action=get_akun&tipe=guru`);
         const json = await res.json();
         cacheAkunGuru = json.status === 'success' ? json.data : [];
         
@@ -4638,7 +4667,7 @@ function openFormAkunGuru(isNew, data = {}) {
             Swal.fire({title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'save_akun', tipe: 'guru', isNew: isNew, data: res.value };
-                const postRes = await fetch(GAS_URL, { 
+                const postRes = await fetch(API_URL, { 
                     method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(sendData) 
                 });
@@ -4661,7 +4690,7 @@ function deleteAkunGuru(idKey) {
             Swal.fire({title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'delete_akun', tipe: 'guru', key: idKey };
-                const postRes = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
+                const postRes = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
                 const json = await postRes.json();
                 if(json.status === 'success') {
                     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
@@ -4745,7 +4774,7 @@ function openFormAkun(tipe, isNew, data = {}) {
             Swal.fire({title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'save_akun', tipe: tipe, isNew: isNew, data: res.value };
-                const postRes = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
+                const postRes = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
                 const json = await postRes.json();
                 if(json.status === 'success') {
                     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Tersimpan!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
@@ -4766,7 +4795,7 @@ function deleteAkun(tipe, idKey) {
             Swal.fire({title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
             try {
                 const sendData = { action: 'delete_akun', tipe: tipe, key: idKey };
-                const postRes = await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
+                const postRes = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
                 const json = await postRes.json();
                 if(json.status === 'success') {
                     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
@@ -4813,12 +4842,12 @@ async function renderJadwalLiburModule(container) {
     
     try {
         if (masterDataCache.length === 0) {
-            const resMaster = await fetch(`${GAS_URL}?action=get_master_data`);
+            const resMaster = await fetch(`${API_URL}?action=get_master_data`);
             const jsonMaster = await resMaster.json();
             if (jsonMaster.status === 'success') masterDataCache = jsonMaster.data;
         }
 
-        const res = await fetch(`${GAS_URL}?action=get_jadwal_libur`);
+        const res = await fetch(`${API_URL}?action=get_jadwal_libur`);
         const json = await res.json();
         
         cacheLibur = json.status === 'success' ? json.libur : [];
@@ -4902,7 +4931,7 @@ function openFormLibur(isNew, data = {}) {
         if(res.isConfirmed) {
             Swal.fire({title: 'Menyimpan...', didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff'});
             try {
-                await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_libur', isNew: isNew, data: res.value }) });
+                await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'save_libur', isNew: isNew, data: res.value }) });
                 renderJadwalLiburModule(document.getElementById('main-content'));
                 Swal.close();
             } catch(e) { Swal.fire('Error', e.message, 'error'); }
@@ -4914,7 +4943,7 @@ function deleteLibur(tgl) {
     Swal.fire({ title: 'Hapus Libur?', icon: 'warning', background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Hapus' })
     .then(async (res) => {
         if(res.isConfirmed) {
-            await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'delete_libur', key: tgl }) });
+            await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'delete_libur', key: tgl }) });
             renderJadwalLiburModule(document.getElementById('main-content'));
         }
     });
@@ -4973,7 +5002,7 @@ function openFormJadwal(isNew, data = {}) {
             try {
                 let payload = { action: 'save_jadwal', isNew: isNew, data: res.value };
                 if (!isNew) payload.oldKey = { guru: data["ID Akun Guru"], waktu: data.Waktu, kelas: data["Tingkat/Kelas"] };
-                await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+                await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
                 renderJadwalLiburModule(document.getElementById('main-content'));
                 Swal.close();
             } catch(e) { Swal.fire('Error', e.message, 'error'); }
@@ -4985,7 +5014,7 @@ function deleteJadwal(keyObj) {
     Swal.fire({ title: 'Hapus Jadwal?', icon: 'warning', background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Hapus' })
     .then(async (res) => {
         if(res.isConfirmed) {
-            await fetch(GAS_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'delete_jadwal', key: keyObj }) });
+            await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'delete_jadwal', key: keyObj }) });
             renderJadwalLiburModule(document.getElementById('main-content'));
         }
     });
@@ -4997,7 +5026,7 @@ function deleteJadwal(keyObj) {
 async function terapkanKunciLiburAbsensi() {
     if(cacheLibur.length === 0) {
         try {
-            const res = await fetch(`${GAS_URL}?action=get_jadwal_libur`);
+            const res = await fetch(`${API_URL}?action=get_jadwal_libur`);
             const json = await res.json();
             if(json.status === 'success') cacheLibur = json.libur;
         } catch(e) { return; }
