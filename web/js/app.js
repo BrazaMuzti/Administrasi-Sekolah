@@ -22,16 +22,15 @@ let cacheListEkskul = [];
 // Konfigurasi Default Libur Akhir Pekan
 let liburConfigCache = { sabtu: true, minggu: true, customList: [] };
 
-document.addEventListener("DOMContentLoaded", () => {
-  checkAuth(); 
-  document.getElementById('form-login').addEventListener('submit', handleLogin);
-  
-  // HAPUS SIDEBAR LAMA SECARA PERMANEN
-  const oldSidebar = document.querySelector('.glass-sidebar');
-  if(oldSidebar) oldSidebar.remove();
-  
-  setupSmartFAB(); // Inisiasi Mesin FAB
+document.addEventListener('DOMContentLoaded', () => {
+  const user = getCurrentUser();
+  if (!user) {
+    document.getElementById('halaman-login')?.classList.remove('hidden');
+    return; // stop — jangan render dashboard
+  }
+  initApp(user); // fungsi render utama Anda
 });
+
 
 // =====================================
 // 1. SETUP DASHBOARD & HEADER DINAMIS (MASTER DATA)
@@ -304,38 +303,42 @@ async function checkAuth() {
   }
 }
 
-async function handleLogin(e) {
-  e.preventDefault();
-  const usernameInput = document.getElementById('username').value, passwordInput = document.getElementById('password').value;
-  const btnSubmit = document.getElementById('btn-login');
-  btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses...`; btnSubmit.disabled = true;
+async function handleLoginSubmit(e) {
+  e.preventDefault(); // cegah reload halaman
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
 
+  if (!username || !password) {
+    showToast('warning', 'Username dan password wajib diisi');
+    return;
+  }
+
+  showLoading('Memeriksa kredensial...');
   try {
-    const response = await fetch(`${GAS_URL}?action=login&data=${encodeURIComponent(JSON.stringify({ username: usernameInput, password: passwordInput }))}`);
-    const result = await response.json();
-    if (result.status === 'success') {
-      currentUser = result; localStorage.setItem('siakad_user', JSON.stringify(result));
-      Swal.fire({ icon: 'success', title: 'Login Berhasil', background: '#1e293b', color: '#fff', timer: 1500, showConfirmButton: false });
-      checkAuth();
-    } else Swal.fire({ icon: 'error', title: 'Gagal', text: result.message, background: '#1e293b', color: '#fff' });
-  } catch (error) { Swal.fire({ icon: 'error', title: 'Error Jaringan', background: '#1e293b', color: '#fff' }); } 
-  finally { btnSubmit.innerHTML = `<span>Masuk</span> <i class="fa-solid fa-arrow-right"></i>`; btnSubmit.disabled = false; }
+    const res = await apiCall('login', { username, password });
+    hideLoading();
+
+    if (res.status === 'success') {
+      setSession(res.token, res.user);          // simpan token + profil
+      showToast('success', `Selamat datang, ${res.user.nama}!`);
+      setTimeout(() => location.reload(), 800); // atau panggil renderDashboard()
+    } else {
+      showToast('error', res.message || 'Login gagal');
+    }
+  } catch (err) {
+    hideLoading();
+    showToast('error', 'Gagal terhubung ke server');
+  }
 }
+
+// pasang listener:
+document.getElementById('btn-login')?.addEventListener('submit', handleLoginSubmit);
 
 function logout() {
-  Swal.fire({ title: 'Keluar?', text: "Sesi akan diakhiri.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Keluar', background: '#1e293b', color: '#fff' }).then((res) => {
-    if (res.isConfirmed) { 
-       localStorage.removeItem('siakad_user'); 
-       currentUser = null; 
-       document.getElementById('form-login').reset(); 
-       
-       const headerEl = document.getElementById('app-dynamic-header');
-       if(headerEl) headerEl.remove(); // Bersihkan Header
-       
-       checkAuth(); 
-    }
-  });
+  clearSession();
+  location.reload();
 }
+
 
 function startRealtimeClock() {
   if (clockInterval) clearInterval(clockInterval);

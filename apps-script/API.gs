@@ -1,7 +1,7 @@
 /**
  * SISTEM INFORMASI HADIR TATAP MUKA DAN NILAI MURID (SIAKAD)
  * BACKEND CORE API (GOOGLE APPS SCRIPT)
- * Versi Lengkap: Absensi, Nilai (Kurmer), Manajemen Akun
+ * Versi Lengkap: Absensi, Nilai (Kurmer), Manajemen Akun tes
  */
 
 // ==========================================
@@ -165,6 +165,30 @@ function doGet(e) {
 // 3. HTTP POST REQUESTS (SIMPAN/UBAH DATA)
 // ==========================================
 function doPost(e) {
+  if (!e || !e.postData) return sendJSON({ status:'error', message:'No payload' });
+
+  let payload;
+  try { payload = JSON.parse(e.postData.contents); }
+  catch { return sendJSON({ status:'error', message:'Payload tidak valid' }); }
+
+  try {
+    // ✅ Login bebas token; sisanya WAJIB token
+    if (payload.action === 'login') {
+      return sendJSON(handleLogin(payload));
+    }
+
+    const auth = requireAuth(payload);
+    if (auth.status !== 'success') return sendJSON(auth);
+
+    switch (payload.action) {
+      // ... handler Anda yang sudah ada, TIDAK berubah ...
+      default:
+        return sendJSON({ status:'error', message:'Action tidak dikenal: ' + payload.action });
+    }
+  } catch (err) {
+    return sendJSON({ status:'error', message:String(err.message || err) });
+  }
+  
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
   try {
