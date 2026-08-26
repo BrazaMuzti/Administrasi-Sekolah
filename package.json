@@ -6,6 +6,9 @@
   "scripts": {
     "build:css": "tailwindcss -i web/css/input.css -o web/css/style.css --minify",
     "dev:css": "tailwindcss -i web/css/input.css -o web/css/style.css --watch",
+    "login:gas": "clasp login",
+    "push:gas": "cd apps-script && clasp push",
+    "deploy": "npm run build:css && cd apps-script && clasp push",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

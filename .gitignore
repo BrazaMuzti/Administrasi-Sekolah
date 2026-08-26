@@ -1,6 +1,11 @@
 # Dependensi npm
 node_modules/
 
+# Login Google Apps Script (clasp) — simpan kredensial di ~/, jangan di repo
+.clasprc.json
+~/.clasprc.json
+.clasp.json.local
+
 # Log & OS
 npm-debug.log*
 .DS_Store
