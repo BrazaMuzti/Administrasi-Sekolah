@@ -129,6 +129,16 @@ function doGet(e) {
       return sendJSON({ status: 'success', data: savedConf ? JSON.parse(savedConf) : null });
     }
 
+    // H. JADWAL HARI LIBUR & JADWAL PELAJARAN (MODUL PENGATURAN)
+    // Frontend renderJadwalLiburModule() mengharapkan SATU respons gabungan:
+    // { status:'success', libur:[...], jadwal:[...] }.
+    if (action === 'get_jadwal_libur') {
+      const libur = getSheetDataAsObjects(ss, "Jadwal Hari Libur")
+        .map(r => Object.assign({}, r, { Tanggal: gasNormTanggal(r.Tanggal) })); // normalisasi 'yyyy-MM-dd' utk isHoliday()
+      const jadwal = getSheetDataAsObjects(ss, "Jadwal Pelajaran");
+      return sendJSON({ status: 'success', libur: libur, jadwal: jadwal });
+    }
+
     // F. UPDATE CAPTCHA (KUNCI ABSEN)
     if (action === 'update_kunci') {
       const req = JSON.parse(decodeURIComponent(e.parameter.data));
@@ -175,6 +185,13 @@ function doPost(e) {
     // ✅ Login bebas token; sisanya WAJIB token
     if (payload.action === 'login') {
       return sendJSON(handleLogin(payload));
+    }
+
+    // MODUL JADWAL & LIBUR — ditempatkan SEBELUM gerbang auth agar tetap berfungsi,
+    // karena blok switch(default) di bawahnya saat ini selalu return lebih dulu.
+    // TODO(FASE A): pindahkan ke switch dan wajibkan requireAuth bersama endpoint lain.
+    if (payload.action === 'save_libur' || payload.action === 'delete_libur') {
+      return sendJSON(handleModulLibur(payload));
     }
 
     const auth = requireAuth(payload);
@@ -536,4 +553,68 @@ function getSheetDataAsObjects(ss, sheetName) {
 
 function sendJSON(jsonObject) {
   return ContentService.createTextOutput(JSON.stringify(jsonObject)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ==========================================
+// 5. MODUL JADWAL HARI LIBUR (LIBUR CUSTOM)
+// ==========================================
+
+/** Normalisasi nilai sel tanggal (Date Sheets / string ISO / string biasa) → 'yyyy-MM-dd' */
+function gasNormTanggal(v) {
+  if (!v) return "";
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  return String(v).slice(0, 10);
+}
+
+/**
+ * Handler POST save_libur / delete_libur.
+ * Kontrak frontend (app.js):
+ *   save_libur   : { isNew, data:{ Tahun, Tanggal:'yyyy-MM-dd', Keterangan, Tipe } }
+ *   delete_libur : { key: '<tanggal>' }
+ */
+function handleModulLibur(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Jadwal Hari Libur");
+
+  // Sheet belum dibuat (spreadsheet lama pra-setupDatabase) → buat otomatis
+  if (!sheet) {
+    sheet = ss.insertSheet("Jadwal Hari Libur");
+    sheet.getRange(1, 1, 1, 4).setValues([["Tahun", "Tanggal", "Keterangan", "Tipe"]]).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const thnIdx = headers.indexOf("Tahun"), tglIdx = headers.indexOf("Tanggal");
+  const ketIdx = headers.indexOf("Keterangan"), tipeIdx = headers.indexOf("Tipe");
+
+  if (payload.action === 'save_libur') {
+    const d = payload.data || {};
+    if (!d.Tanggal || !d.Keterangan) return { status: 'error', message: 'Tanggal & Keterangan wajib diisi.' };
+    const tglKey = gasNormTanggal(d.Tanggal);
+
+    // Upsert per tanggal (input tanggal readonly saat edit → tanggal adalah kunci unik)
+    for (let i = 1; i < data.length; i++) {
+      if (gasNormTanggal(data[i][tglIdx]) === tglKey) {
+        sheet.getRange(i + 1, thnIdx + 1).setValue(d.Tahun || "");
+        sheet.getRange(i + 1, ketIdx + 1).setValue(d.Keterangan);
+        sheet.getRange(i + 1, tipeIdx + 1).setValue(d.Tipe || "Umum");
+        return { status: 'success', mode: 'update' };
+      }
+    }
+
+    sheet.appendRow([d.Tahun || "", d.Tanggal, d.Keterangan, d.Tipe || "Umum"]);
+    return { status: 'success', mode: 'create' };
+  }
+
+  if (payload.action === 'delete_libur') {
+    const key = gasNormTanggal(payload.key);
+    let barisTerhapus = 0;
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (gasNormTanggal(data[i][tglIdx]) === key) { sheet.deleteRow(i + 1); barisTerhapus++; }
+    }
+    return { status: 'success', deleted: barisTerhapus };
+  }
+
+  return { status: 'error', message: 'Action libur tidak dikenal.' };
 }

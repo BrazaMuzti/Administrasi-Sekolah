@@ -30,6 +30,10 @@ function initApp(user) {
   catch (e) { console.error('initApp › setupSmartFAB:', e); }
   try { checkAuth(); }
   catch (e) { console.error('initApp › checkAuth:', e); }
+  // Muat konfigurasi libur dari server (non-blocking) → liburConfigCache terisi nyata.
+  // Sebelumnya isHoliday() selalu memakai default {sabtu:true, minggu:true, customList:[]}.
+  try { muatDataJadwalLibur().catch(e => console.warn('initApp › jadwal/libur:', e)); }
+  catch (e) { console.warn('initApp › jadwal/libur:', e); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -673,6 +677,33 @@ function isHoliday(tanggalNum, bulanStr, tahunStr) {
   return false;
 }
 
+/**
+ * HITUNG HARI EFEKTIF DINAMIS (pengganti pembagi hard-coded /21)
+ * Jumlah hari sekolah bulan tertentu: bukan Minggu/Sabtu (sesuai konfigurasi)
+ * dan tidak masuk daftar libur custom server ("Jadwal Hari Libur").
+ * Bulan berjalan dihitung sampai tanggal hari ini (persentase berjalan);
+ * bulan lainnya dihitung penuh. Memakai isHoliday() agar satu sumber kebenaran.
+ */
+function hitungHariEfektif(bulanStr = currentBulan, tahunStr = currentTahun) {
+  if (!bulanStr || !tahunStr || arrBulan.indexOf(bulanStr) < 0) return 0;
+  const idxBulan = arrBulan.indexOf(bulanStr);
+  const partsTahun = String(tahunStr).split('/');
+  let yearCalc = new Date().getFullYear();
+  if (partsTahun.length === 2) { yearCalc = idxBulan >= 6 ? parseInt(partsTahun[0]) : parseInt(partsTahun[1]); }
+
+  const now = new Date();
+  const hariDalamBulan = new Date(yearCalc, idxBulan + 1, 0).getDate();
+  const batasTgl = (idxBulan === now.getMonth() && yearCalc === now.getFullYear())
+    ? Math.min(now.getDate(), hariDalamBulan)
+    : hariDalamBulan;
+
+  let efektif = 0;
+  for (let d = 1; d <= batasTgl; d++) {
+    if (!isHoliday(d, bulanStr, tahunStr)) efektif++;
+  }
+  return efektif;
+}
+
 function refreshTableAbsenUI() {
   const isEkskul = document.getElementById('select-mapel').value.startsWith('Ekskul');
   const viewMode = document.getElementById('filter-view-mode').value;
@@ -682,7 +713,11 @@ function refreshTableAbsenUI() {
   const partsTahun = currentTahun.split('/');
   let yearCalc = new Date().getFullYear();
   if(partsTahun.length === 2) yearCalc = idxBulan >= 6 ? parseInt(partsTahun[0]) : parseInt(partsTahun[1]);
-  
+
+  // FIX HARD-CODED /21: pembagi % kini hari efektif dinamis (Sabtu/Minggu/libur server)
+  const hariEfektifBulan = hitungHariEfektif(currentBulan, currentTahun);
+  const pembagiPersen = hariEfektifBulan > 0 ? hariEfektifBulan : 1;
+
   const hariArr = ["Mg", "Sn", "Sl", "Rb", "Km", "Jm", "Sb"];
   const getHari = (d) => hariArr[new Date(yearCalc, idxBulan, d).getDay()];
   const isRealToday = (d) => (d === new Date().getDate() && idxBulan === new Date().getMonth() && yearCalc === new Date().getFullYear());
@@ -730,7 +765,7 @@ function refreshTableAbsenUI() {
         }).join('')}
         
         ${rekapModeState >= 1 ? `<td style="${sKanan(w_hsia, rightOffsets.h)}" class="px-1 py-1.5 text-center font-bold text-green-400 border-l border-white/20">${m.totalH}</td><td style="${sKanan(w_hsia, rightOffsets.s)}" class="px-1 py-1.5 text-center font-bold text-blue-400">${m.totalS}</td><td style="${sKanan(w_hsia, rightOffsets.i)}" class="px-1 py-1.5 text-center font-bold text-yellow-400">${m.totalI}</td><td style="${sKanan(w_hsia, rightOffsets.a)}" class="px-1 py-1.5 text-center font-bold text-red-400 border-r border-white/20">${m.totalA}</td>` : ''}
-        ${rekapModeState >= 2 ? `<td style="${sKanan(w_pct, rightOffsets.pct)}" class="px-1 py-1.5 text-center font-bold text-purple-400 border-r border-white/10">${((m.totalH/21)*100).toFixed(1)}%</td>` : ''}
+        ${rekapModeState >= 2 ? `<td style="${sKanan(w_pct, rightOffsets.pct)}" class="px-1 py-1.5 text-center font-bold text-purple-400 border-r border-white/10">${((m.totalH/pembagiPersen)*100).toFixed(1)}%</td>` : ''}
         ${rekapModeState >= 3 ? `<td style="${sKanan(w_ket, rightOffsets.ket)}" class="px-1 py-1.5 text-center border-l border-white/20"><button onclick="openModalKeteranganSiswa('${m.nis}', '${m.nama.replace(/'/g, "\\'")}')" class="w-6 h-6 rounded hover:bg-blue-500 hover:text-white mx-auto flex items-center justify-center transition ${colorBtnKet}"><i class="fa-solid fa-list-check"></i></button></td>` : ''}
         <td style="${sKanan(w_icon, 0)}" class="text-center border-l border-white/10 cursor-pointer" onclick="cycleRekapMode()"></td>
       </tr>
@@ -979,6 +1014,9 @@ window.popupEditKeterangan = function(nis, namaSiswa) {
 
 function generateHTMLReport() {
   const mapelRaw = document.getElementById('select-mapel').value || "", namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : (mapelRaw || "-"), kelas = document.getElementById('select-kelas').value || "Semua Kelas", smt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
+  // FIX HARD-CODED /21: pembagi % laporan cetak kini hari efektif dinamis
+  const hariEfektifReport = hitungHariEfektif();
+  const pembagiPersen = hariEfektifReport > 0 ? hariEfektifReport : 1;
   let theadStr = `<tr><th rowspan="2" style="border:1px solid #000; padding:4px;">No</th><th rowspan="2" style="border:1px solid #000; padding:4px;">NISN</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Nama Siswa</th><th rowspan="2" style="border:1px solid #000; padding:4px;">L/P</th><th colspan="31" style="border:1px solid #000; padding:4px;">Tanggal</th><th colspan="4" style="border:1px solid #000; padding:4px;">Jumlah</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Total</th><th rowspan="2" style="border:1px solid #000; padding:4px;">%</th></tr><tr>`;
   for(let i=1; i<=31; i++) { theadStr += `<th style="border:1px solid #000; padding:2px; font-size:9px; width:15px; text-align:center;">${i}</th>`; }
   theadStr += `<th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">H</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">S</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">I</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">A</th></tr>`;
@@ -986,7 +1024,7 @@ function generateHTMLReport() {
   let tbodyStr = listMuridKelas.map(s => {
     let tdTgl = "";
     for(let i=1; i<=31; i++) { const dataDb = rawAbsenData.find(a => parseInt(a.Tanggal) === i && a.NIS == s.nis); const val = dataDb ? dataDb.Status : ''; tdTgl += `<td style="border:1px solid #000; text-align:center; font-size:10px; font-weight:bold;">${val}</td>`; }
-    const persen = ((s.totalH / 21) * 100).toFixed(1), totalSemua = s.totalH + s.totalS + s.totalI + s.totalA;
+    const persen = ((s.totalH / pembagiPersen) * 100).toFixed(1), totalSemua = s.totalH + s.totalS + s.totalI + s.totalA;
     return `<tr><td style="border:1px solid #000; text-align:center; padding:3px;">${s.no}</td><td style="border:1px solid #000; text-align:center; padding:3px;">${s.nisn}</td><td style="border:1px solid #000; padding:3px 6px; white-space:nowrap;">${s.nama}</td><td style="border:1px solid #000; text-align:center; padding:3px;">${s.jk}</td>${tdTgl}<td style="border:1px solid #000; text-align:center; padding:3px; font-weight:bold;">${s.totalH}</td><td style="border:1px solid #000; text-align:center; padding:3px; font-weight:bold;">${s.totalS}</td><td style="border:1px solid #000; text-align:center; padding:3px; font-weight:bold;">${s.totalI}</td><td style="border:1px solid #000; text-align:center; padding:3px; font-weight:bold;">${s.totalA}</td><td style="border:1px solid #000; text-align:center; padding:3px; font-weight:bold; background-color:#f0f0f0;">${totalSemua}</td><td style="border:1px solid #000; text-align:center; padding:3px;">${persen}%</td></tr>`;
   }).join('');
 
@@ -4870,6 +4908,32 @@ let cacheLibur = [];
 let cacheJadwal = [];
 let currentTabJadwal = 'libur'; // Default tab
 
+/**
+ * Muat modul jadwal & hari libur dari server SEKALIGUS, lalu sinkronkan ke
+ * liburConfigCache sehingga isHoliday()/kalendar absensi memakai data nyata.
+ */
+async function muatDataJadwalLibur() {
+  const res = await fetch(`${API_URL}?action=get_jadwal_libur`);
+  const json = await res.json();
+  if (json.status !== 'success') throw new Error(json.message || 'Gagal memuat jadwal & libur');
+  cacheLibur = json.libur || [];
+  cacheJadwal = json.jadwal || [];
+  sinkronkanKonfigurasiLibur();
+  return { libur: cacheLibur, jadwal: cacheJadwal };
+}
+
+/** Salin daftar libur server ke liburConfigCache.customList (tanggal 'yyyy-MM-dd') */
+function sinkronkanKonfigurasiLibur() {
+  liburConfigCache.customList = (cacheLibur || [])
+    .map(l => ({
+      tahun: String(l.Tahun ?? "").slice(0, 4),
+      tanggal: String(l.Tanggal ?? "").slice(0, 10),
+      keterangan: l.Keterangan || "",
+      tipe: l.Tipe || "Umum"
+    }))
+    .filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l.tanggal));
+}
+
 async function renderJadwalLiburModule(container) {
     container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Data Jadwal & Libur...</div>`;
     
@@ -4880,11 +4944,7 @@ async function renderJadwalLiburModule(container) {
             if (jsonMaster.status === 'success') masterDataCache = jsonMaster.data;
         }
 
-        const res = await fetch(`${API_URL}?action=get_jadwal_libur`);
-        const json = await res.json();
-        
-        cacheLibur = json.status === 'success' ? json.libur : [];
-        cacheJadwal = json.status === 'success' ? json.jadwal : [];
+        await muatDataJadwalLibur();
 
         // UI Tabs & Container
         container.innerHTML = `
