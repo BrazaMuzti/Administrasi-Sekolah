@@ -554,7 +554,7 @@ async function renderAbsensiModule(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Menyiapkan Data...</div>`;
 
   if (masterDataCache.length === 0) {
-    try { const res = await fetch(`${API_URL}?action=get_master_data`); const json = await res.json(); if (json.status === 'success') masterDataCache = json.data; } catch (e) {}
+    try { const res = await fetch(`${API_URL}?action=get_master_data`); const json = await res.json(); if (json.status === 'success') masterDataCache = json.data; } catch (e) { console.error("Gagal memuat master data", e); }
   }
 
   let listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
@@ -824,7 +824,8 @@ window.openEditAbsenMasal = function(tanggal, isHariLibur = false) {
   const isPengurus = currentUser.role === 'murid' && currentUser.user["Jabatan Kelas"]?.match(/Ketua|Sekretaris/i);
   if (currentUser.role === 'murid' && !isPengurus) return Swal.fire({ icon: 'info', title: 'Mode Laporan Saya', text: 'Anda hanya dapat melihat riwayat absensi Anda (Tidak bisa diedit).', background: '#1e293b', color: '#fff' }); 
   
-  const mapelRaw = document.getElementById('select-mapel').value, namaMapel = mapelRaw.split('|')[1];
+  // FIX LOW-BUG: aman jika nilai dropdown tak mengandung '|' (hindari "undefined")
+  const mapelRaw = document.getElementById('select-mapel').value || "", namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : mapelRaw;
   if (currentUser.role === 'admin' || currentUser.role === 'guru') {
     if (!checkHakAkses(mapelRaw)) return Swal.fire({ icon: 'error', title: 'Akses Ditolak', text: 'Hanya Guru Pengampu yang bisa mengubah ini.', background: '#1e293b', color: '#fff' }); 
   } else {
@@ -872,7 +873,8 @@ window.openModalKeteranganSiswa = function(nis, nama) {
 };
 
 async function saveKeteranganSiswaAPI(nis, updates) {
-  const mapelRaw = document.getElementById('select-mapel').value, namaMapel = mapelRaw.split('|')[1];
+  // FIX LOW-BUG: sama seperti openEditAbsenMasal — aman tanpa '|'
+  const mapelRaw = document.getElementById('select-mapel').value || "", namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : mapelRaw;
   const payload = { action: 'save_keterangan_siswa', nis: nis, bulan: currentBulan, mapel: namaMapel, updates: updates };
   Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
   
@@ -917,7 +919,7 @@ function showModalEditAbsen(tanggal) {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => r.checked = true));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
     },
     preConfirm: () => {
       let absenPayload = [];
@@ -946,11 +948,20 @@ async function updateKunciServer() {
   if(!newCaptcha) return Swal.fire({toast:true, position:'top-end', icon:'error', title:'Captcha kosong!', showConfirmButton:false, timer:2000});
   try {
     const payload = { action: 'update_kunci', id_guru: currentUser.user["ID Akun Guru"], captcha: newCaptcha, kunci: newKunci };
-    await fetch(`${API_URL}?action=update_kunci&data=${encodeURIComponent(JSON.stringify(payload))}`);
+    // FIX BUG LOCALSTORAGE: verifikasi respons server SEBELUM menyentuh state/sesi lokal.
+    // Dulu: seolah sukses walau server gagal → localStorage & Google Sheet tidak sinkron.
+    const res = await fetch(`${API_URL}?action=update_kunci&data=${encodeURIComponent(JSON.stringify(payload))}`);
+    const textData = await res.text(); let json; try { json = JSON.parse(textData); } catch(e) { throw new Error("Server Error"); }
+    if (json.status !== 'success') throw new Error(json.message || 'Gagal menyimpan kunci.');
     currentUser.user["Captcha"] = newCaptcha; currentUser.user["Kunci Absen"] = newKunci;
-    setSession(getToken(), currentUser); // simpan ke key sisip_token/sisip_user yg benar
+    // Simpan hanya bila token valid — jangan timpa token sesi dengan string kosong.
+    const tokenAktif = getToken();
+    if (tokenAktif) setSession(tokenAktif, currentUser);
+    else console.warn('updateKunciServer: token sesi kosong, sesi localStorage dilewati.');
     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Kunci Diperbarui!', showConfirmButton:false, timer:2000, background: '#1e293b', color: '#fff'});
-  } catch (e) {}
+  } catch (e) {
+    Swal.fire({toast:true, position:'top-end', icon:'error', title:(e && e.message) || 'Gagal memperbarui kunci', showConfirmButton:false, timer:2500, background: '#1e293b', color: '#fff'});
+  }
 }
 
 window.popupEditKeterangan = function(nis, namaSiswa) {
@@ -967,7 +978,7 @@ window.popupEditKeterangan = function(nis, namaSiswa) {
 };
 
 function generateHTMLReport() {
-  const mapelRaw = document.getElementById('select-mapel').value, namaMapel = mapelRaw.split('|')[1], kelas = document.getElementById('select-kelas').value || "Semua Kelas", smt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
+  const mapelRaw = document.getElementById('select-mapel').value || "", namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : (mapelRaw || "-"), kelas = document.getElementById('select-kelas').value || "Semua Kelas", smt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
   let theadStr = `<tr><th rowspan="2" style="border:1px solid #000; padding:4px;">No</th><th rowspan="2" style="border:1px solid #000; padding:4px;">NISN</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Nama Siswa</th><th rowspan="2" style="border:1px solid #000; padding:4px;">L/P</th><th colspan="31" style="border:1px solid #000; padding:4px;">Tanggal</th><th colspan="4" style="border:1px solid #000; padding:4px;">Jumlah</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Total</th><th rowspan="2" style="border:1px solid #000; padding:4px;">%</th></tr><tr>`;
   for(let i=1; i<=31; i++) { theadStr += `<th style="border:1px solid #000; padding:2px; font-size:9px; width:15px; text-align:center;">${i}</th>`; }
   theadStr += `<th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">H</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">S</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">I</th><th style="border:1px solid #000; padding:3px; font-size:10px; width:20px;">A</th></tr>`;
@@ -984,17 +995,23 @@ function generateHTMLReport() {
 }
 
 window.exportExcel = function() {
-  const mapelName = document.getElementById('select-mapel').value.split('|')[1], className = document.getElementById('select-kelas').value || "Semua_Kelas";
+  // FIX LOW-BUG: mapel tanpa '|' tidak lagi menghasilkan "undefined" di nama file
+  const mapelRaw = document.getElementById('select-mapel').value || "", mapelName = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : (mapelRaw || "Absensi"), className = document.getElementById('select-kelas').value || "Semua_Kelas";
   const fileName = `Daftar_Hadir_${mapelName}_${className}_${currentBulan}.xls`;
   const htmlTable = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body>${generateHTMLReport()}</body></html>`;
   const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  // FIX LOW-BUG: revoke object URL agar tidak bocor memori
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 };
 
 window.exportPDF = function() {
-  const mapelName = document.getElementById('select-mapel').value.split('|')[1], className = document.getElementById('select-kelas').value || "Semua_Kelas";
+  const mapelRaw = document.getElementById('select-mapel').value || "", mapelName = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : (mapelRaw || "Absensi"), className = document.getElementById('select-kelas').value || "Semua_Kelas";
   const docTitle = `Daftar_Hadir_${mapelName}_${className}_${currentBulan}`, htmlContent = generateHTMLReport();
   const printWindow = window.open('', '_blank');
+  // FIX LOW-BUG: popup blocker menyebabkan TypeError null — beri umpan balik
+  if (!printWindow) return Swal.fire({ icon: 'error', title: 'Popup Diblokir', text: 'Izinkan popup untuk mencetak PDF.', background: '#1e293b', color: '#fff' });
   printWindow.document.write(`<html><head><title>${docTitle}</title><style>@media print { @page { size: landscape; margin: 15mm; } body { -webkit-print-color-adjust: exact; margin: 0; } } body { font-family: 'Times New Roman', serif; }</style></head><body>${htmlContent}</body></html>`);
   printWindow.document.close(); printWindow.focus(); setTimeout(() => { printWindow.print(); }, 500);
 };
@@ -1124,17 +1141,20 @@ function getAbsensiHTMLReport() {
 window.exportAbsensiExcel = function() {
   const htmlTable = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body>${getAbsensiHTMLReport()}</body></html>`;
   const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
-  const a = document.createElement('a'); 
-  a.href = URL.createObjectURL(blob); 
-  a.download = `Kehadiran_${currentBulan}.xls`; 
-  document.body.appendChild(a); 
-  a.click(); 
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url;
+  a.download = `Kehadiran_${currentBulan}.xls`;
+  document.body.appendChild(a);
+  a.click();
   document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500); // FIX LOW-BUG: revoke blob URL
 };
 
 window.exportAbsensiPDF = function() {
   const htmlContent = getAbsensiHTMLReport();
   const printWindow = window.open('', '_blank');
+  // FIX LOW-BUG: popup blocker guard
+  if (!printWindow) return Swal.fire({ icon: 'error', title: 'Popup Diblokir', text: 'Izinkan popup untuk mencetak PDF.', background: '#1e293b', color: '#fff' });
   printWindow.document.write(`
     <html><head><title>Cetak PDF</title>
     <style>@media print { @page { size: landscape; margin: 10mm; } }</style>
@@ -2857,8 +2877,16 @@ function getExportHTMLPengetahuan() {
     </div>
   `;
 }  
-window.exportNilaiExcel = function() { const m = document.getElementById('select-mapel-nilai').value, k = document.getElementById('select-kelas-nilai').value; const blob = new Blob([`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body>${getExportHTMLNilai()}</body></html>`], { type: 'application/vnd.ms-excel' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Nilai_${m}_${k}.xls`; a.click(); };
-window.exportNilaiPDF = function() { const printWindow = window.open('', '_blank'); printWindow.document.write(`<html><head><title>Cetak Nilai</title><style>@page { size: landscape; margin: 15mm; } body { margin:0; -webkit-print-color-adjust: exact; }</style></head><body>${getExportHTMLNilai()}</body></html>`); printWindow.document.close(); printWindow.focus(); setTimeout(() => printWindow.print(), 500); };
+// FIX SHADOWING BUG: one-liner `window.exportNilaiPDF = ...` DIHAPUS — ia menimpa
+// fungsi router exportNilaiPDF() (deklarasi di bawah) yang dirutekan per kategori
+// Pengetahuan/Keterampilan/Sikap, sehingga tombol toolbar selalu mencetak versi generik.
+window.exportNilaiExcel = function() {
+  const m = document.getElementById('select-mapel-nilai').value, k = document.getElementById('select-kelas-nilai').value;
+  const blob = new Blob([`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body>${getExportHTMLNilai()}</body></html>`], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = `Nilai_${m}_${k}.xls`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500); // FIX LOW-BUG: revoke blob URL
+};
 
 // ==========================================
 // ROUTER EXPORT PDF
@@ -2885,6 +2913,8 @@ function exportNilaiPDF() {
   
   // Eksekusi Cetak Jendela Baru (Print Preview)
   let printWindow = window.open('', '_blank');
+  // FIX LOW-BUG: popup blocker guard
+  if (!printWindow) { Swal.fire({ icon: 'error', title: 'Popup Diblokir', text: 'Izinkan popup untuk mencetak PDF.', background: '#1e293b', color: '#fff' }); return; }
   printWindow.document.write(`
     <html>
       <head>
@@ -4364,6 +4394,9 @@ function cetakQRMuridTerfilter(config) {
 
     const printWindow = window.open('', '_blank');
     
+    // FIX LOW-BUG: popup blocker guard sebelum menulis ke jendela cetak kartu QR
+    if (!printWindow) return Swal.fire({ icon: 'error', title: 'Popup Diblokir', text: 'Izinkan popup untuk mencetak kartu QR.', background: '#1e293b', color: '#fff' });
+
     let htmlCards = filtered.map(m => {
         let qrDataVal = config.target === 'NISN' ? (m.NISN || m.NIS) : m.NIS;
         // Memperkecil resolusi QR agar load lebih cepat (80x80)
