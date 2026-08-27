@@ -51,6 +51,25 @@ function setupDatabase() {
 }
 
 // ==========================================
+// KEAMANAN DATA: SANITASI RESPON (FASE B)
+// Kolom sensitif dihapus SEBELUM data akun dikirim ke klien,
+// apa pun endpoint-nya (dashboard, CRUD, nilai).
+// ==========================================
+const KOLOM_RAHASIA = ['Password'];
+
+/** Salin objek baris tanpa kolom rahasia */
+function bersihkanBaris(obj) {
+  const o = Object.assign({}, obj || {});
+  KOLOM_RAHASIA.forEach(k => delete o[k]);
+  return o;
+}
+
+/** Terapkan bersihkanBaris ke seluruh daftar baris */
+function bersihkanDaftar(rows) {
+  return (rows || []).map(bersihkanBaris);
+}
+
+// ==========================================
 // 2. HTTP GET REQUESTS (AMBIL DATA)
 // ==========================================
 function doGet(e) {
@@ -64,38 +83,29 @@ function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   try {
-    // A. LOGIN SYSTEM
+    // A. LOGIN SYSTEM (GET legacy) — delegasi penuh ke handleLogin() di Auth.gs:
+    // kini mendukung hash SHA-256 dan ikut MENERBITKAN token sesi.
     if (action === 'login') {
       const data = JSON.parse(decodeURIComponent(e.parameter.data));
-      const { username, password } = data;
-
-      // Cek Guru
-      const guruData = getSheetDataAsObjects(ss, "Data Akun Guru");
-      let user = guruData.find(g => (g.NIP == username || g["ID Akun Guru"] == username) && g.Password == password);
-      if (user) {
-        let role = (user.Jabatan || "").toLowerCase().includes("admin") ? 'admin' : 'guru';
-        return sendJSON({ status: 'success', role: role, user: user });
-      }
-
-      // Cek Murid
-      const muridData = getSheetDataAsObjects(ss, "Data Akun Murid");
-      user = muridData.find(m => (m.NIS == username || m.NISN == username) && m.Password == password);
-      if (user) return sendJSON({ status: 'success', role: 'murid', user: user });
-
-      return sendJSON({ status: 'error', message: 'NIP/NIS atau Password salah!' });
+      return sendJSON(handleLogin({ data: data }));
     }
 
-    // B. AMBIL MASTER DATA
+    // B. MASTER DATA — GET publik SATU-SATUNYA (dipakai layar login: logo & nama sekolah)
     if (action === 'get_master_data') {
-      return sendJSON({ status: 'success', data: getSheetDataAsObjects(ss, "Master Data") });
+      return sendJSON({ status: 'success', data: bersihkanDaftar(getSheetDataAsObjects(ss, "Master Data")) });
     }
+
+    // 🔒 FASE B: SEMUA GET LAIN WAJIB TOKEN SESI (?token=... — disuntik otomatis oleh utils.js)
+    const authGet = requireAuth({ token: e.parameter.token });
+    if (authGet.status !== 'success') return sendJSON(authGet);
 
     // C. DASHBOARD UTAMA (Ambil Murid, Kehadiran, Status Kunci)
     if (action === 'get_dashboard_data') {
       const req = JSON.parse(decodeURIComponent(e.parameter.data));
       
       let muridAll = getSheetDataAsObjects(ss, "Data Akun Murid");
-      let muridKelas = req.kelas === "Semua Kelas" ? muridAll : muridAll.filter(m => m["Tingkat/Kelas"] == req.kelas);
+      // Sanitasi: baris murid TIDAK boleh membawa kolom Password ke klien
+      let muridKelas = bersihkanDaftar(req.kelas === "Semua Kelas" ? muridAll : muridAll.filter(m => m["Tingkat/Kelas"] == req.kelas));
       
       let absenAll = getSheetDataAsObjects(ss, "Data Hadir Tatap Muka");
       let absenFilter = absenAll.filter(a => 
@@ -118,7 +128,13 @@ function doGet(e) {
     // D. DATA NILAI
     if (action === 'get_data_nilai') {
       const req = JSON.parse(decodeURIComponent(e.parameter.data));
-      return sendJSON({ status: 'success', data: getSheetDataAsObjects(ss, req.sheetName) });
+      // 🔒 WHITELIST sheet: dahulu nama sheet dibebaskan (req.sheetName arbitrer),
+      // memungkinkan pembacaan "Data Akun Guru"/"Data Akun Murid" (bocor Password).
+      const SHEET_NILAI_IZINKAN = ["Data Nilai Pengetahuan", "Data Nilai Keterampilan", "Data Nilai Sikap", "Data Nilai Eskul", "Data Rekap Hadir Tatap Muka"];
+      if (!SHEET_NILAI_IZINKAN.includes(req.sheetName)) {
+        return sendJSON({ status: 'error', message: 'Nama sheet tidak diizinkan.' });
+      }
+      return sendJSON({ status: 'success', data: bersihkanDaftar(getSheetDataAsObjects(ss, req.sheetName)) });
     }
 
     // E. KONFIGURASI KOLOM NILAI
@@ -159,10 +175,11 @@ function doGet(e) {
       return sendJSON({ status: 'success' });
     }
 
-    // G. MANAJEMEN AKUN (CRUD READ) - Duplikasi Sudah Dihapus
+    // G. MANAJEMEN AKUN (CRUD READ)
     if (action === 'get_akun') {
       const sheetName = e.parameter.tipe === 'murid' ? 'Data Akun Murid' : 'Data Akun Guru';
-      return sendJSON({ status: 'success', data: getSheetDataAsObjects(ss, sheetName) });
+      // 🔒 Sanitasi: dump akun TANPA kolom Password
+      return sendJSON({ status: 'success', data: bersihkanDaftar(getSheetDataAsObjects(ss, sheetName)) });
     }
 
     return sendJSON({ status: 'error', message: 'Action GET tidak dikenali.' });
@@ -182,35 +199,25 @@ function doPost(e) {
   catch { return sendJSON({ status:'error', message:'Payload tidak valid' }); }
 
   try {
-    // ✅ Login bebas token; sisanya WAJIB token
+    // ✅ Login bebas token; sisanya WAJIB token sesi (FASE A — restrukturisasi).
+    // Token dapat tiba di BODY (payload.token) atau QUERY STRING (?token=, disuntik
+    // otomatis oleh pembungkus fetch di web/js/utils.js — GAS menyatukan keduanya
+    // di e.parameter untuk POST juga).
     if (payload.action === 'login') {
       return sendJSON(handleLogin(payload));
     }
 
-    // MODUL JADWAL & LIBUR — ditempatkan SEBELUM gerbang auth agar tetap berfungsi,
-    // karena blok switch(default) di bawahnya saat ini selalu return lebih dulu.
-    // TODO(FASE A): pindahkan ke switch dan wajibkan requireAuth bersama endpoint lain.
-    if (payload.action === 'save_libur' || payload.action === 'delete_libur') {
-      return sendJSON(handleModulLibur(payload));
-    }
-
-    const auth = requireAuth(payload);
+    const auth = requireAuth({ token: (payload && payload.token) || (e.parameter && e.parameter.token) });
     if (auth.status !== 'success') return sendJSON(auth);
 
-    switch (payload.action) {
-      // ... handler Anda yang sudah ada, TIDAK berubah ...
-      default:
-        return sendJSON({ status:'error', message:'Action tidak dikenal: ' + payload.action });
-    }
-  } catch (err) {
-    return sendJSON({ status:'error', message:String(err.message || err) });
-  }
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  try {
-    const payload = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
     const action = payload.action;
+
+    // MODUL JADWAL & LIBUR — kini DI DALAM wilayah ter-autentikasi
+    // dan TERJANGKAU karena blok switch(default) usang telah dihapus.
+    if (action === 'save_libur' || action === 'delete_libur') {
+      return sendJSON(handleModulLibur(payload));
+    }
 
     // A. ABSENSI MANDIRI (Siswa)
     if (action === 'absen_mandiri') {
@@ -409,7 +416,7 @@ function doPost(e) {
         let sheet = ss.getSheetByName(sheetName);
         
         if (!sheet) {
-          return sendJSON({ status: 'error', message: 'Sheet "' + sheetName + ' jargon" tidak ditemukan di Spreadsheet!' });
+          return sendJSON({ status: 'error', message: 'Sheet "' + sheetName + '" tidak ditemukan di Spreadsheet!' });
         }
         
         const lastRow = sheet.getLastRow();
@@ -443,7 +450,13 @@ function doPost(e) {
            for (let i = 0; i < data.length; i++) {
               if (data[i][keyColIndex] == keyVal) {
                  // Petakan data baru sesuai urutan header di spreadsheet
-                 let updateRow = headers.map((h, idx) => payload.data[h] !== undefined && payload.data[h] !== null ? payload.data[h] : data[i][idx]);
+                 // Petakan data baru sesuai urutan header di spreadsheet.
+                  // 🔒 EDIT AKUN: kolom Password JANGAN ditimpa bila input kosong —
+                  // nilai lama dipertahankan (form edit mengirim "" sbg "tidak diubah").
+                  let updateRow = headers.map((h, idx) => {
+                      if (h === "Password" && (payload.data[h] === undefined || payload.data[h] === null || String(payload.data[h]).trim() === "")) return data[i][idx];
+                      return payload.data[h] !== undefined && payload.data[h] !== null ? payload.data[h] : data[i][idx];
+                  });
                  sheet.getRange(i + 2, 1, 1, headers.length).setValues([updateRow]);
                  found = true;
                  break;
@@ -478,45 +491,7 @@ function doPost(e) {
       return sendJSON({status: 'success'});
     }
 
-    // C. Handler POST di dalam doPost(e)
-  if (payload.action === 'save_akun') {
-  const sheetName = payload.tipe === 'murid' ? 'Data Akun Murid' : 'Data Akun Guru';
-  const sheet = ss.getSheetByName(sheetName);
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const keyColIndex = payload.tipe === 'murid' ? headers.indexOf("NIS") : headers.indexOf("ID Akun Guru");
-  
-  if (payload.isNew) {
-     let newRow = headers.map(h => payload.data[h] !== undefined ? payload.data[h] : "");
-     sheet.appendRow(newRow);
-  } else {
-     const keyVal = payload.tipe === 'murid' ? payload.data["NIS"] : payload.data["ID Akun Guru"];
-     for (let i = 1; i < data.length; i++) {
-        if (data[i][keyColIndex] == keyVal) {
-           let updateRow = headers.map((h, idx) => payload.data[h] !== undefined ? payload.data[h] : data[i][idx]);
-           sheet.getRange(i + 1, 1, 1, headers.length).setValues([updateRow]);
-           break;
-        }
-     }
-  }
-  return sendJSON({status: 'success'});
-}
 
-if (payload.action === 'delete_akun') {
-  const sheetName = payload.tipe === 'murid' ? 'Data Akun Murid' : 'Data Akun Guru';
-  const sheet = ss.getSheetByName(sheetName);
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const keyColIndex = payload.tipe === 'murid' ? headers.indexOf("NIS") : headers.indexOf("ID Akun Guru");
-  
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][keyColIndex] == payload.key) {
-       sheet.deleteRow(i + 1); 
-       break;
-    }
-  }
-  return sendJSON({status: 'success'});
-}
 
     return sendJSON({ status: 'error', message: 'Action POST tidak dikenali.' });
   } catch (err) {

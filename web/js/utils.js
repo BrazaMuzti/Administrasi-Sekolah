@@ -87,6 +87,53 @@ function hideLoading() {
 
 /* ---------- Utilitas umum ---------- */
 
+/* ---------- 🔒 Pembungkus fetch global (FASE B, sisi klien) ----------
+ * Setiap fetch yang menuju API_URL otomatis diberi ?token=<sesi> — GET maupun
+ * POST — sehingga TIDAK ADA call site yang perlu diedit satu per satu.
+ * Bonus: respons {code:'SESSION_EXPIRED'|'NO_TOKEN'} langsung dipaketkan ke
+ * alur logout → login ulang, sama seperti perilaku apiCall().
+ */
+(function pasangPembungkusFetch() {
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  if (window._sisipFetchAsli) return; // jangan dobel-bungkus
+
+  window._sisipFetchAsli = window.fetch.bind(window);
+
+  window.fetch = async function sisipFetch(input, init) {
+    // 1) Suntik token ke URL
+    try {
+      let url = (typeof input === 'string') ? input : ((input && input.url) || '');
+      if (url.indexOf(API_URL) === 0) {
+        const sep = (url.indexOf('?') >= 0) ? '&' : '?';
+        const urlBerToken = url + sep + 'token=' + encodeURIComponent(getToken());
+        input = (typeof input === 'string')
+          ? urlBerToken
+          : new Request(urlBerToken, input);
+      }
+    } catch (e) { console.warn('sisipFetch › suntik token:', e); }
+
+    const res = await window._sisipFetchAsli(input, init);
+
+    // 2) Intersep sesi kedaluwarsa (aman-diam jika bukan JSON / bukan kasus itu)
+    try {
+      const ct = (res.headers && res.headers.get('content-type')) || '';
+      const diHalamanLogin = document.getElementById('view-login') &&
+                             !document.getElementById('view-login').classList.contains('hidden');
+      if (ct.indexOf('application/json') >= 0 && !diHalamanLogin) {
+        const peek = await res.clone().json();
+        if (peek && (peek.code === 'SESSION_EXPIRED' || peek.code === 'NO_TOKEN')) {
+          clearSession();
+          showToast('warning', peek.message || 'Sesi berakhir. Silakan login ulang.');
+          setTimeout(() => location.reload(), 1500);
+          return new Response(JSON.stringify(peek), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+    } catch (e) { /* body JSON bermasalah / bukan JSON — biarkan lewat */ }
+
+    return res;
+  };
+})();
+
 function formatTanggal(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
