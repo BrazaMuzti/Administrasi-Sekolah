@@ -1,158 +1,263 @@
 /**
- * utils.js — Helper bersama SISIP (dimuat sebelum app.js)
+ * utils.js — Adapter Supabase untuk SIAKAD
  */
 
-/* ---------- API: satu pintu ke server ---------- */
+// 1. Inisialisasi Supabase
+const SUPABASE_URL = 'https://lkhuyoihrrnzvrmhquln.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_o_pUNncXPyOmV2yhhOevcw_58aUM3pB';
 
-// Ganti sesuai URL Web App Apps Script Anda:
-const API_URL = 'https://script.google.com/macros/s/AKfycbyy0CEj__h7DfMZ2mEetcH2_X55szRRO_V0eiddKnY7ZNxO8u6xSCML3qBJ31-8QrTP/exec';
+// PERBAIKAN: Gunakan nama 'supaClient' agar tidak bentrok dengan library bawaan CDN
+const supaClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Simpan token sesi di localStorage
-function getToken() { return localStorage.getItem('sisip_token') || ''; }
+
+// Manajemen Sesi Lokal (Harus ada di utils.js)
+function getToken() { 
+  return localStorage.getItem('sisip_token') || ''; 
+}
+
 function setSession(token, user) {
   localStorage.setItem('sisip_token', token);
   localStorage.setItem('sisip_user', JSON.stringify(user));
 }
+
 function clearSession() {
   localStorage.removeItem('sisip_token');
   localStorage.removeItem('sisip_user');
 }
+
+// INI FUNGSI YANG ERROR KARENA HILANG:
 function getCurrentUser() {
-  try { return JSON.parse(localStorage.getItem('sisip_user') || 'null'); }
-  catch { return null; }
+  try { 
+    return JSON.parse(localStorage.getItem('sisip_user') || 'null'); 
+  } catch (e) { 
+    return null; 
+  }
 }
 
-/**
- * Panggil server (POST). Otomatis menyertakan token.
- * @returns {Promise<Object>} respons JSON
- */
+// 3. Pengganti apiCall (Router Request Backend)
+
+/** Bangun respons sesi dari profil tabel 'akun' + user Auth.
+ *  Dipakai bersama oleh login password dan sesi OAuth (GitHub). */
+function bangunResponsSesi(prof, emailFallback, token) {
+  const tipe = (prof && prof.tipe) || 'murid';
+  const nama = (prof && prof.nama_lengkap) || emailFallback || 'Pengguna';
+  const mappedUser = {
+    "Nama Lengkap": nama,
+    "Nama Guru": nama,
+    "NIS": tipe === 'murid' ? ((prof && prof.nis_nip) || "") : "",
+    "NIP": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
+    "ID Akun Guru": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
+    "Email": (prof && prof.email) || emailFallback || "",
+    "Tingkat/Kelas": (prof && prof.tingkat_kelas) || "",
+    "Jabatan": (prof && prof.jabatan) || "",
+    "Custom Teks Mata Pelajaran": "",
+    "Ekstrakurikuler": "",
+    "ID Tahun Pelajaran": ""
+  };
+  return { status: 'success', role: tipe, user: mappedUser, token };
+}
+
 async function apiCall(action, data = {}) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // hindari preflight CORS GAS
-    body: JSON.stringify({ action, data, token: getToken() })
-  });
-  const json = await res.json();
+  try {
+    if (action === 'login') {
+      const identifier = String(data.username || '').trim();
+      const password = String(data.password || '');
+      if (!identifier || !password) return { status: 'error', message: 'Isi NIS/NIP/Email dan Password.' };
 
-  // Sesi habis → arahkan ke login
-  if (json.code === 'SESSION_EXPIRED' || json.code === 'NO_TOKEN') {
-    clearSession();
-    showToast('warning', json.message);
-    setTimeout(() => location.reload(), 1500);
-    throw new Error(json.message);
-  }
-  return json;
-}
-
-/* ---------- Keamanan: XSS guard ---------- */
-
-/** Escape semua karakter berbahaya sebelum dimasukkan ke HTML */
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/** Escape khusus atribut onclick="..." */
-function escapeAttr(str) {
-  return escapeHtml(String(str)).replace(/`/g, '&#96;');
-}
-
-/* ---------- UI: Toast & Loading ---------- */
-
-function showToast(icon = 'success', title = '') {
-  if (typeof Swal !== 'undefined') {
-    Swal.fire({ toast: true, position: 'top-end', icon, title,
-                showConfirmButton: false, timer: 2500, timerProgressBar: true });
-  } else {
-    console.log(`[${icon}] ${title}`);
-  }
-}
-
-let loadingCount = 0;
-function showLoading(msg = 'Memproses...') {
-  loadingCount++;
-  if (typeof Swal !== 'undefined') {
-    Swal.fire({ title: msg, allowOutsideClick: false,
-                didOpen: () => Swal.showLoading() });
-  }
-}
-function hideLoading() {
-  loadingCount = Math.max(0, loadingCount - 1);
-  if (loadingCount === 0 && typeof Swal !== 'undefined') Swal.close();
-}
-
-/* ---------- Utilitas umum ---------- */
-
-/* ---------- 🔒 Pembungkus fetch global (FASE B, sisi klien) ----------
- * Setiap fetch yang menuju API_URL otomatis diberi ?token=<sesi> — GET maupun
- * POST — sehingga TIDAK ADA call site yang perlu diedit satu per satu.
- * Bonus: respons {code:'SESSION_EXPIRED'|'NO_TOKEN'} langsung dipaketkan ke
- * alur logout → login ulang, sama seperti perilaku apiCall().
- */
-(function pasangPembungkusFetch() {
-  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
-  if (window._sisipFetchAsli) return; // jangan dobel-bungkus
-
-  window._sisipFetchAsli = window.fetch.bind(window);
-
-  window.fetch = async function sisipFetch(input, init) {
-    // 1) Suntik token ke URL
-    try {
-      let url = (typeof input === 'string') ? input : ((input && input.url) || '');
-      if (url.indexOf(API_URL) === 0) {
-        const sep = (url.indexOf('?') >= 0) ? '&' : '?';
-        const urlBerToken = url + sep + 'token=' + encodeURIComponent(getToken());
-        input = (typeof input === 'string')
-          ? urlBerToken
-          : new Request(urlBerToken, input);
+      // Skema DB saat ini: tabel 'akun' (user_id → auth.users, tipe = role).
+      // Password TIDAK tersimpan di tabel 'akun', jadi autentikasi memakai Supabase Auth.
+      let emailAuth = identifier;
+      if (!identifier.includes('@')) {
+        // Login memakai NIS/NIP → cari email akun terkait
+        const { data: byNis, error: errNis } = await supaClient
+          .from('akun')
+          .select('email')
+          .eq('nis_nip', identifier)
+          .maybeSingle();
+        if (errNis) return { status: 'error', message: 'Gagal mencari akun: ' + errNis.message };
+        if (!byNis || !byNis.email) return { status: 'error', message: 'NIS/NIP tidak terdaftar.' };
+        emailAuth = byNis.email;
       }
-    } catch (e) { console.warn('sisipFetch › suntik token:', e); }
 
-    const res = await window._sisipFetchAsli(input, init);
+      const { data: authRes, error: authErr } = await supaClient.auth.signInWithPassword({ email: emailAuth, password });
+      if (authErr || !authRes || !authRes.session) {
+        return { status: 'error', message: 'Email/NIS atau Password salah. Jika akun Anda terdaftar via Google, gunakan tombol "Masuk dengan Google".' };
+      }
 
-    // 2) Intersep sesi kedaluwarsa (aman-diam jika bukan JSON / bukan kasus itu)
-    try {
-      const ct = (res.headers && res.headers.get('content-type')) || '';
-      const diHalamanLogin = document.getElementById('view-login') &&
-                             !document.getElementById('view-login').classList.contains('hidden');
-      if (ct.indexOf('application/json') >= 0 && !diHalamanLogin) {
-        const peek = await res.clone().json();
-        if (peek && (peek.code === 'SESSION_EXPIRED' || peek.code === 'NO_TOKEN')) {
-          clearSession();
-          showToast('warning', peek.message || 'Sesi berakhir. Silakan login ulang.');
-          setTimeout(() => location.reload(), 1500);
-          return new Response(JSON.stringify(peek), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+      let { data: prof, error: profErr } = await supaClient
+        .from('akun')
+        .select('*')
+        .eq('user_id', authRes.user.id)
+        .maybeSingle();
+
+      // Profil belum tertaut user_id → cocokkan lewat email lalu tautkan (best-effort).
+      // Berguna untuk akun yang dibuat manual lewat Supabase Dashboard (mis. admin).
+      if (!profErr && !prof && authRes.user.email) {
+        const { data: byEmail } = await supaClient
+          .from('akun')
+          .select('*')
+          .eq('email', authRes.user.email)
+          .maybeSingle();
+        if (byEmail) {
+          prof = byEmail;
+          supaClient.from('akun').update({ user_id: authRes.user.id }).eq('id', byEmail.id)
+            .then(r => { if (r.error) console.warn('Taut user_id gagal:', r.error.message); })
+            .catch(() => {});
         }
       }
-    } catch (e) { /* body JSON bermasalah / bukan JSON — biarkan lewat */ }
+      if (profErr) return { status: 'error', message: 'Gagal memuat profil: ' + profErr.message };
+      if (!prof) {
+        await supaClient.auth.signOut();
+        return { status: 'error', message: 'Akun Auth belum terhubung ke tabel akun. Hubungi admin.' };
+      }
 
-    return res;
-  };
-})();
+      return bangunResponsSesi(prof, authRes.user.email || "", authRes.session.access_token);
+    }
 
-function formatTanggal(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    if (action === 'sesi_auth') {
+      // Sesi OAuth (GitHub) — supabase-js otomatis menukar kode redirect saat load;
+      // cukup baca sesi aktif lalu bangun sessionUser dari profil tabel 'akun'.
+      const { data } = await supaClient.auth.getSession();
+      const sesi = data && data.session;
+      if (!sesi || !sesi.user) return { status: 'no_session' };
+
+      let { data: prof } = await supaClient
+        .from('akun')
+        .select('*')
+        .eq('user_id', sesi.user.id)
+        .maybeSingle();
+
+      if (!prof && sesi.user.email) {
+        // Profil belum tertaut user_id → coba cocokkan lewat email, lalu tautkan (best-effort)
+        const { data: byEmail } = await supaClient
+          .from('akun')
+          .select('*')
+          .eq('email', sesi.user.email)
+          .maybeSingle();
+        if (byEmail) {
+          prof = byEmail;
+          supaClient.from('akun').update({ user_id: sesi.user.id }).eq('id', byEmail.id)
+            .then(r => { if (r.error) console.warn('Taut user_id gagal:', r.error.message); })
+            .catch(() => {});
+        }
+      }
+
+      if (!prof) {
+        await supaClient.auth.signOut();
+        return { status: 'error', message: 'Akun Auth belum terhubung ke tabel akun. Hubungi admin.' };
+      }
+      return bangunResponsSesi(prof, sesi.user.email || '', sesi.access_token);
+    }
+
+    if (action === 'save_absen_masal') {
+      // Adaptasi simpan absensi masal
+      const insertData = data.absenList.map(absen => ({
+        nis: absen.nis,
+        tanggal: data.tanggal,
+        status: absen.status,
+        keterangan: absen.keterangan || data.keterangan_kehadiran_masal || "",
+        mapel: data.mapel,
+        kelas: data.kelas
+      }));
+
+      const { error } = await supaClient.from('absensi').upsert(insertData);
+      
+      if (error) throw error;
+      return { status: 'success' };
+    }
+
+    throw new Error(`Action '${action}' tidak dikenali oleh Supabase Adapter`);
+    
+  } catch (error) {
+    console.error(`Error on apiCall [${action}]:`, error);
+    return { status: 'error', message: error.message || "Terjadi kesalahan koneksi" };
+  }
 }
 
-function confirmDialog(title, text = 'Tindakan ini tidak bisa dibatalkan.') {
-  return Swal.fire({
-    title, text, icon: 'warning',
-    showCancelButton: true,
-    confirmButtonText: 'Ya, lanjutkan',
-    cancelButtonText: 'Batal',
-    confirmButtonColor: '#d33'
-  }).then(r => r.isConfirmed);
+// 2. UI login & listener form ditangani app.js (menghindari submit ganda).
+
+/** Kelola akun (buat/hapus user Auth + profil) via Edge Function 'buat-akun'.
+ *  Token pemanggil diverifikasi di server — hanya admin yang diizinkan. */
+async function kelolaAkunAuth(payload = {}) {
+  try {
+    const { data: sesi } = await supaClient.auth.getSession();
+    const token = sesi && sesi.session && sesi.session.access_token;
+    if (!token) return { status: 'error', message: 'Sesi habis. Silakan login ulang.' };
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/buat-akun`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  } catch (e) {
+    console.error('kelolaAkunAuth:', e);
+    return { status: 'error', message: e.message || 'Gagal menghubungi server.' };
+  }
 }
 
-/** Debounce untuk pencarian */
-function debounce(fn, delay = 300) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+// 4. Pengganti fetch global khusus untuk mengambil data (GET)
+// Karena di app.js Anda banyak menggunakan `fetch(API_URL + '?action=get_master_data')`
+async function supabaseFetch(action, payload = {}) {
+    try {
+        if (action === 'get_master_data') {
+            const { data, error } = await supaClient.from(tableName).select('*');
+            if (error) throw error;
+            
+            // Format ulang keys agar sesuai format Google Sheets yang ada spasi/huruf besar
+            const formattedData = data.map(item => ({
+                "Tahun Pelajaran": item.tahun_pelajaran,
+                "Tingkat/Kelas": item.tingkat_kelas,
+                "Mata Pelajaran": item.mata_pelajaran,
+                "Ekstrakurikuler": item.ekstrakurikuler,
+                "Nama Sekolah": item.nama_sekolah,
+                "URL LOGO 1": item.url_logo
+            }));
+            
+            return { status: 'success', data: formattedData };
+        }
+
+        if (action === 'get_dashboard_data') {
+             // Ambil data murid berdasarkan kelas
+             const { data: murid, error: errMurid } = await supabase
+                .from('users')
+                .select('nis, nama_lengkap, tingkat_kelas')
+                .eq('role', 'murid')
+                .eq('tingkat_kelas', payload.kelas);
+             
+             // Ambil absensi bulan/tahun ini
+             const { data: absen, error: errAbsen } = await supabase
+                .from('absensi')
+                .select('*')
+                .eq('kelas', payload.kelas)
+                .eq('mapel', payload.mapel);
+
+             if (errMurid || errAbsen) throw new Error("Gagal mengambil data dashboard");
+
+             return {
+                 status: 'success',
+                 murid: murid.map(m => ({ "NIS": m.nis, "Nama Lengkap": m.nama_lengkap, "Tingkat/Kelas": m.tingkat_kelas })),
+                 absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan }))
+             };
+        }
+
+    } catch (error) {
+        console.error("Supabase Fetch Error:", error);
+        return { status: 'error', data: [] };
+    }
+}
+
+// Utilities pendukung bawaan Anda
+function escapeHtml(str) { /*...*/ }
+function showToast(icon = 'success', title = '') {
+  if (typeof Swal === 'undefined') { console.log(`[${icon}] ${title}`); return; }
+  Swal.fire({
+    toast: true, position: 'top-end', icon, title,
+    showConfirmButton: false, timer: 2500,
+    background: '#1e293b', color: '#fff'
+  });
 }

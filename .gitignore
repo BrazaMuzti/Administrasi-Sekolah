@@ -6,6 +6,16 @@ node_modules/
 ~/.clasprc.json
 .clasp.json.local
 
+# Supabase CLI (state lokal & kredensial)
+supabase/.temp/
+supabase/.branches/
+
+# Artefak verifikasi deno (lockfile root dihasilkan saat deno check)
+deno.lock
+
+# Konfigurasi tool lokal per mesin
+opencode.json
+
 # Log & OS
 npm-debug.log*
 .DS_Store

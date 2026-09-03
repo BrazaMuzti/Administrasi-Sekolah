@@ -4,13 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SIAKAD - SMKN 2 Banjar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%222563eb%22/><text x=%2250%22 y=%2268%22 font-size=%2252%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22 font-weight=%22bold%22>S</text></svg>">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/utils.js?v=20260903c"></script>
+  <script src="js/app.js?v=20260903c" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/app.js" defer></script>
 </head>
 <body class="bg-gradient-to-br from-blue-900 via-slate-800 to-slate-900 text-slate-100 min-h-screen flex font-sans overflow-hidden">
 
@@ -46,9 +48,21 @@
         <button type="submit" id="btn-login" class="w-full py-2.5 mt-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm transition-all shadow-lg flex justify-center items-center gap-2">
           <span>Masuk</span> <i class="fa-solid fa-arrow-right"></i>
         </button>
+
+        <div class="flex items-center gap-2 pt-1">
+          <span class="flex-1 h-px bg-white/20"></span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">atau</span>
+          <span class="flex-1 h-px bg-white/20"></span>
+        </div>
+
+        <button type="button" id="btn-login-google" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/20 text-white rounded-lg font-semibold text-sm transition-all shadow-lg flex justify-center items-center gap-2">
+          <i class="fa-brands fa-google text-lg"></i> <span>Masuk dengan Google</span>
+        </button>
       </form>
     </div>
   </div>
+
+
 
   <!-- ================= VIEW: DASHBOARD ================= -->
   <div id="view-dashboard" class="hidden w-full h-screen flex">
@@ -81,5 +95,7 @@
       <div id="main-content" class="flex-1 p-3 sm:p-5 overflow-y-auto z-0"></div>
     </main>
   </div>
+
+  
 </body>
 </html>

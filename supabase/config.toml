@@ -1,0 +1,4 @@
+project_id = "administrasi-sekolah"
+
+[functions.buat-akun]
+verify_jwt = true
