@@ -20,7 +20,6 @@ do $$
 declare
   r record;
   v_tabel text;
-  v_has_def boolean;
   v_is_identity text;
 begin
   foreach v_tabel in array array['master_data', 'akun'] loop
@@ -34,11 +33,13 @@ begin
         and c.data_type = 'uuid'
         and c.column_default is null
     loop
-      -- Lewati jika kolom sudah berupa identity
+      -- Lewati jika kolom sudah berupa identity (column_default-nya memang null)
       select a.attidentity::text into v_is_identity
       from pg_attribute a
-      where a.attrelid = (v_tabel)::regclass
-        and a.attname = 'id';
+      where a.attrelid = to_regclass('public.' || v_tabel)
+        and a.attname = 'id'
+        and a.attnum > 0
+        and not a.attisdropped;
       if coalesce(v_is_identity, '') = '' then
         execute format('alter table %I alter column id set default gen_random_uuid();', v_tabel);
         raise notice 'id.% diberi default gen_random_uuid()', v_tabel;
