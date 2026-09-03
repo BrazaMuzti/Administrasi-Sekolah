@@ -4313,9 +4313,9 @@ async function renderManajemenMurid(container) {
                         <thead class="sticky top-0 bg-slate-900 z-10 text-[10px] uppercase text-slate-400 shadow-md">
                             <tr>
                                 <th class="px-4 py-3 border-b border-white/10 text-center">No</th>
-                                <th class="px-4 py-3 border-b border-white/10">NIS / NISN</th>
+                                <th class="px-4 py-3 border-b border-white/10">NIS</th>
                                 <th class="px-4 py-3 border-b border-white/10">Nama Lengkap</th>
-                                <th class="px-4 py-3 border-b border-white/10 text-center">Kelas & Tahun</th>
+                                <th class="px-4 py-3 border-b border-white/10 text-center">Kelas</th>
                                 <th class="px-4 py-3 border-b border-white/10">Email Login</th>
                                 <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
                             </tr>
@@ -4335,29 +4335,28 @@ async function renderManajemenMurid(container) {
 
 function generateTbodyMurid(data) {
     if (!data || data.length === 0) return `<tr><td colspan="6" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
-    
+
     return data.map((d, i) => {
-        let nis = d.NIS || d.nis || d.nis_nip || "-";
-        let nisn = d.NISN || d.nisn || "-";
-        let nama = d["Nama Lengkap"] || d.Nama || d.nama || d.nama_lengkap || "Tanpa Nama";
-        let kelas = d["Tingkat/Kelas"] || d.Kelas || d.tingkat_kelas || "-";
-        let tahun = d["ID Tahun Pelajaran"] || d.tahun_pelajaran || "-";
-        let email = d.Email || d.email || "-";
-        let ekskulData = (d.Ekstrakurikuler || d.ekskul || d.ekstrakurikuler || "").replace(/"/g, '&quot;'); 
+        let nis = d.nis_nip || d.NIS || d.nis || "-";
+        let nama = d.nama_lengkap || d["Nama Lengkap"] || d.Nama || d.nama || "Tanpa Nama";
+        let kelas = d.tingkat_kelas || d["Tingkat/Kelas"] || d.Kelas || "-";
+        let jabatan = d.jabatan || d["Jabatan Kelas"] || "";
+        let email = d.email || d.Email || "-";
+        let ekskulData = (d.ekstrakurikuler || d.Ekstrakurikuler || d.ekskul || "").replace(/"/g, '&quot;');
 
         return `
-            <tr class="hover:bg-white/5 border-b border-white/5 transition row-murid" data-ekskul="${ekskulData}" data-tahun="${tahun}">
+            <tr class="hover:bg-white/5 border-b border-white/5 transition row-murid" data-ekskul="${ekskulData}" data-tahun="">
                 <td class="px-4 py-3 text-center">${i+1}</td>
-                <td class="px-4 py-3 font-mono text-blue-300 search-target">${nis}<br><span class="text-[9px] text-slate-500">${nisn}</span></td>
-                <td class="px-4 py-3 font-bold search-target">${nama}</td>
+                <td class="px-4 py-3 font-mono text-blue-300 search-target">${nis}</td>
+                <td class="px-4 py-3 font-bold search-target">${nama}${jabatan ? `<span class="ml-1 text-[9px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">${escapeHtml(jabatan)}</span>` : ''}</td>
                 <td class="px-4 py-3 text-center search-target">
-                    <span class="bg-indigo-900/50 text-indigo-300 px-2 py-1 rounded text-[10px]">${kelas}</span><br>
-                    <span class="text-[9px] text-slate-400">${tahun}</span>
+                    <span class="bg-indigo-900/50 text-indigo-300 px-2 py-1 rounded text-[10px]">${kelas}</span>
                 </td>
                 <td class="px-4 py-3"><div class="text-[10px] text-slate-400"><i class="fa-solid fa-envelope"></i> ${email}</div></td>
-                <td class="px-4 py-3 text-center">
+                <td class="px-4 py-3 text-center whitespace-nowrap">
                     <button onclick='openFormAkunMurid(false, ${JSON.stringify(d).replace(/'/g, "&#39;")})' class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                    <button onclick="deleteAkunMurid('${nis}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+                    <button onclick="resetPasswordMurid('${escJs(nis)}', '${escJs(nama)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>
+                    <button onclick="deleteAkunMurid('${escJs(nis)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
                 </td>
             </tr>
         `;
@@ -4384,80 +4383,54 @@ function filterTabelMurid() {
 }
 
 function openFormAkunMurid(isNew, data = {}) {
-    // Ambil Data dari Master Data
+    // Ambil pilihan dari Master Data (nama kolom = nama persis gaya Sheets)
     const listKelas = [...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))];
-    const listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
     const listEkskul = [...new Set(masterDataCache.map(m => m["Ekstrakurikuler"]).filter(Boolean))];
-    const listJabatan = [...new Set(masterDataCache.map(m => m["Jabatan Kelas"]).filter(Boolean))]; // <--- TARIK DARI MASTER DATA
+    const listJabatan = [...new Set(masterDataCache.map(m => m["Jabatan Kelas"]).filter(Boolean))];
 
-    // 2. Format HTML Dropdowns
-    const optKelas = listKelas.map(k => `<option value="${k}" ${(data["Tingkat/Kelas"] || data.Kelas) === k ? 'selected' : ''}>${k}</option>`).join('');
-    const optTahun = listTahun.map(t => `<option value="${t}" ${data["ID Tahun Pelajaran"] === t ? 'selected' : ''}>${t}</option>`).join('');
-    const optJabatan = listJabatan.map(j => `<option value="${j}" ${data["Jabatan Kelas"] === j ? 'selected' : ''}>${j}</option>`).join(''); // <--- RENDER OPSI JABATAN
-    
-    // Format Checkboxes untuk Ekskul (Karena siswa bisa ikut lebih dari 1)
-    let ekskulArr = (data.Ekstrakurikuler || "").split(',').map(e => e.trim());
-    let chkEkskulHTML = listEkskul.map(e => `
+    // Nilai existing (snake_case dulu, fallback gaya Sheets)
+    const nisV = data.nis_nip || data.NIS || data.nis || "";
+    const namaV = data.nama_lengkap || data["Nama Lengkap"] || data.nama || "";
+    const kelasV = data.tingkat_kelas || data["Tingkat/Kelas"] || "";
+    const jabatanV = data.jabatan || data["Jabatan Kelas"] || "";
+    const emailV = data.email || data.Email || "";
+    const waV = data.no_telepon || data["No HP/WA"] || "";
+    const ekskulV = data.ekstrakurikuler || data.Ekstrakurikuler || "";
+
+    const optKelas = listKelas.map(k => `<option value="${escJs(k)}" ${kelasV === k ? 'selected' : ''}>${k}</option>`).join('');
+    const optJabatan = listJabatan.map(j => `<option value="${escJs(j)}" ${jabatanV === j ? 'selected' : ''}>${j}</option>`).join('');
+
+    const ekskulArr = ekskulV.split(',').map(e => e.trim()).filter(Boolean);
+    const chkEkskulHTML = listEkskul.map(e => `
         <label class="flex items-center gap-1.5 cursor-pointer hover:text-white bg-slate-800 p-1.5 rounded border border-white/10">
-            <input type="checkbox" class="chk-ekskul-form" value="${e}" ${ekskulArr.includes(e) ? 'checked' : ''}>
+            <input type="checkbox" class="chk-ekskul-form" value="${escJs(e)}" ${ekskulArr.includes(e) ? 'checked' : ''}>
             <span class="truncate">${e}</span>
         </label>
     `).join('');
 
-    // Format Date (Tanggal Lahir)
-    let tglLahirVal = data["Tgl Lahir"] || '';
-    if (tglLahirVal.match(/^\d{2}-\d{2}-\d{4}$/)) {
-        let p = tglLahirVal.split('-'); tglLahirVal = `${p[2]}-${p[1]}-${p[0]}`;
-    } else if (tglLahirVal.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
-        let p = tglLahirVal.split('/'); tglLahirVal = `${p[2]}-${p[1]}-${p[0]}`;
-    }
-
-    let formHTML = `
+    const formHTML = `
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[11px] text-slate-300 mt-2 max-h-[65vh] overflow-y-auto custom-scrollbar p-1 pr-2">
-            <div><label class="font-bold text-blue-300">ID Tahun Pelajaran</label>
-                <select id="f_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${optTahun}</select>
-            </div>
-            <div><label class="font-bold text-blue-300">ID Akun Murid</label><input id="f_idakun" value="${data["ID Akun Murid"] || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
-            <div><label class="font-bold text-blue-300">NIS *</label><input id="f_nis" value="${data.NIS || data.nis || ''}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">NISN</label><input id="f_nisn" value="${data.NISN || data.nisn || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Nama Lengkap *</label><input id="f_nama" value="${data["Nama Lengkap"] || data.Nama || data.nama || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
+            <div><label class="font-bold text-blue-300">NIS *</label><input id="f_nis" value="${escJs(nisV)}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500 disabled:opacity-50"></div>
+            <div><label class="font-bold text-blue-300">No HP/WA</label><input id="f_wa" value="${escJs(waV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
+
+            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Nama Lengkap *</label><input id="f_nama" value="${escJs(namaV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
+
             <div><label class="font-bold text-blue-300">Tingkat/Kelas</label>
                 <select id="f_kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${optKelas}</select>
             </div>
-            <div><label class="font-bold text-blue-300">Jenis Kelamin</label>
-                <select id="f_jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
-                    <option value="L" ${((data["Jenis Kelamin"] || data.JenisKelamin) === 'L')?'selected':''}>Laki-laki</option>
-                    <option value="P" ${((data["Jenis Kelamin"] || data.JenisKelamin) === 'P')?'selected':''}>Perempuan</option>
-                </select>
+            <div><label class="font-bold text-blue-300">Jabatan Kelas</label>
+                <select id="f_jabatan" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Tidak Ada --</option>${optJabatan}</select>
             </div>
-            
-            <div><label class="font-bold text-blue-300">Tanggal Lahir</label><input id="f_tgllahir" type="date" value="${tglLahirVal}" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500" style="color-scheme: dark;"></div>
-            <div><label class="font-bold text-blue-300">Nama Ortu/Wali</label><input id="f_ortu" value="${data["Nama Ortu/Wali"] || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Alamat Lengkap</label><input id="f_alamat" value="${data.Alamat || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
-            <div><label class="font-bold text-blue-300">No HP/WA</label><input id="f_wa" value="${data["No HP/WA"] || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Email Login</label><input id="f_email" type="email" value="${data.Email || data.email || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
+
+            <div><label class="font-bold text-blue-300">Email Login (opsional)</label><input id="f_email" type="email" value="${escJs(emailV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="font-bold text-blue-300">Password ${isNew ? '*' : '(kosong = tidak diubah)'}</label><input id="f_pass" type="text" value="${isNew ? '123456' : ''}" placeholder="${isNew ? '' : 'biarkan kosong'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"><p class="text-[9px] text-slate-400 mt-1">Disimpan sebagai hash (password lokal, tanpa Google). Minimal 6 karakter.</p></div>
+
             <div class="sm:col-span-2">
                 <label class="font-bold text-blue-300 mb-1 block">Ekstrakurikuler (Bisa pilih lebih dari satu)</label>
                 <div class="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded border border-white/10 max-h-32 overflow-y-auto">
                     ${chkEkskulHTML}
                 </div>
             </div>
-
-            <!-- TAMPILAN DROPDOWN JABATAN KELAS -->
-            <div><label class="font-bold text-blue-300">Jabatan Kelas</label>
-                <select id="f_jabatan" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Tidak Ada --</option>${optJabatan}</select>
-            </div>
-            
-            <div><label class="font-bold text-blue-300">ID Jadwal Pelajaran Murid</label><input id="f_jadwal" value="${data["ID Jadwal Pelajaran Murid"] || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Password</label><input id="f_pass" value="${data.Password || data.password || '123456'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Catatan Khusus</label><input id="f_catatan" value="${data["Catatan Khusus"] || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
         </div>
     `;
 
@@ -4466,61 +4439,73 @@ function openFormAkunMurid(isNew, data = {}) {
         html: formHTML, width: 600, background: '#1e293b', color: '#fff',
         showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan Data',
         preConfirm: () => {
-            let nisVal = document.getElementById('f_nis').value.trim();
-            let namaVal = document.getElementById('f_nama').value.trim();
-            if(!nisVal || !namaVal) { Swal.showValidationMessage('NIS dan Nama Lengkap wajib diisi!'); return false; }
-            
-            let ekskulChecked = [];
+            const nisVal = document.getElementById('f_nis').value.trim();
+            const namaVal = document.getElementById('f_nama').value.trim();
+            if (!nisVal || !namaVal) { Swal.showValidationMessage('NIS dan Nama Lengkap wajib diisi!'); return false; }
+            const passVal = document.getElementById('f_pass').value.trim();
+            if (passVal && passVal.length < 6) { Swal.showValidationMessage('Password minimal 6 karakter!'); return false; }
+            if (isNew && !passVal) { Swal.showValidationMessage('Password wajib untuk murid baru!'); return false; }
+
+            const ekskulChecked = [];
             document.querySelectorAll('.chk-ekskul-form:checked').forEach(el => ekskulChecked.push(el.value));
-            
-            let dateInput = document.getElementById('f_tgllahir').value;
-            let formattedDate = dateInput;
-            if (dateInput && dateInput.includes('-') && dateInput.split('-')[0].length === 4) {
-                let p = dateInput.split('-'); formattedDate = `${p[2]}-${p[1]}-${p[0]}`; 
-            }
 
             return {
-                "ID Tahun Pelajaran": document.getElementById('f_tahun').value,
-                "Semester": data.Semester || "Ganjil",
-                "ID Akun Murid": document.getElementById('f_idakun').value.trim(),
-                "NIS": nisVal,
-                "NISN": document.getElementById('f_nisn').value.trim(),
-                "Nama Lengkap": namaVal,
-                "Tingkat/Kelas": document.getElementById('f_kelas').value,
-                "Jenis Kelamin": document.getElementById('f_jk').value,
-                "Tgl Lahir": formattedDate, 
-                "Ekstrakurikuler": ekskulChecked.join(', '), 
-                "Nama Ortu/Wali": document.getElementById('f_ortu').value.trim(),
-                "Alamat": document.getElementById('f_alamat').value.trim(),
-                "No HP/WA": document.getElementById('f_wa').value.trim(),
-                "Email": document.getElementById('f_email').value.trim(),
-                "Jabatan Kelas": document.getElementById('f_jabatan').value,
-                "Catatan Khusus": document.getElementById('f_catatan').value.trim(),
-                "ID Jadwal Pelajaran Murid": document.getElementById('f_jadwal').value.trim(),
-                "Password": document.getElementById('f_pass').value.trim()
+                nis: nisVal,
+                nama_lengkap: namaVal,
+                tingkat_kelas: document.getElementById('f_kelas').value,
+                jabatan: document.getElementById('f_jabatan').value,
+                email: document.getElementById('f_email').value.trim(),
+                no_telepon: document.getElementById('f_wa').value.trim(),
+                ekstrakurikuler: ekskulChecked.join(', '),
+                password: passVal
             };
         }
     }).then(async (res) => {
-        if(res.isConfirmed) {
-            Swal.fire({title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
-            try {
-                const sendData = { action: 'save_akun', tipe: 'murid', isNew: isNew, data: res.value };
-                const postRes = await fetch(API_URL, { 
-                    method: 'POST', 
-                    redirect: 'follow', 
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(sendData) 
-                });
-                
-                const json = await postRes.json();
-                if(json.status === 'success') {
-                    Swal.fire({toast:true, position:'top-end', icon:'success', title:'Data Tersimpan!', showConfirmButton:false, timer:2000, background: '#1e293b', color: '#fff'});
-                    renderManajemenMurid(document.getElementById('main-content'));
-                } else throw new Error(json.message);
-            } catch(e) { 
-                console.error("Save Error:", e);
-                Swal.fire('Error', 'Gagal menyimpan. Pastikan internet stabil dan Web App URL valid.', 'error'); 
-            }
+        if (!res.isConfirmed) return;
+        await simpanAkunMurid(res.value, isNew);
+    });
+}
+
+/** Simpan tambah/edit murid via RPC (hash password ditangani server). */
+async function simpanAkunMurid(formData, isNew) {
+  Swal.fire({ title: 'Menyimpan Data...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+
+  const p_data = { ...formData };
+  if (!isNew && !p_data.password) delete p_data.password; // kosong = tidak diubah
+
+  const { data, error } = await supaClient.rpc('buat_akun_murid', { p_data });
+
+  if (error || !data || data.status !== 'success') {
+    const pesan = (data && data.message) || (error && error.message) || 'Gagal menyimpan.';
+    console.error("Error simpan akun murid:", error || data);
+    Swal.fire({ icon: 'error', title: 'Gagal', text: pesan, background: '#1e293b', color: '#fff' });
+    return;
+  }
+  Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: data.message || 'Data murid tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+  if (typeof renderManajemenMurid === 'function') {
+    renderManajemenMurid(document.getElementById('main-content'));
+  }
+}
+
+/** Reset password murid (default 123456) via RPC — hash ditangani server. */
+function resetPasswordMurid(nis, nama) {
+    Swal.fire({
+        title: 'Reset Password',
+        html: `Password baru untuk <b>${nama}</b>:`,
+        input: 'text',
+        inputValue: '123456',
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-key"></i> Reset',
+        background: '#1e293b', color: '#fff',
+        inputValidator: (v) => (!v || v.trim().length < 6) ? 'Password minimal 6 karakter!' : null
+    }).then(async (res) => {
+        if (!res.isConfirmed) return;
+        Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+        const { data, error } = await supaClient.rpc('set_password_murid', { p_nis: nis, p_password: res.value.trim() });
+        if (!error && data && data.status === 'success') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: data.message, showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+        } else {
+            Swal.fire({ icon: 'error', title: 'Gagal', text: (data && data.message) || (error && error.message) || 'Gagal reset.', background: '#1e293b', color: '#fff' });
         }
     });
 }
@@ -4701,46 +4686,26 @@ function cetakQRMuridTerfilter(config) {
     printWindow.document.close();
 }
 
-async function simpanAkunMurid(formData) {
-  // formData diasumsikan berupa objek { nis: '12345', nama: 'Budi', kelas: 'X RPL 1', password: '***' }
-  
-  Swal.fire({ title: 'Menyimpan Data...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-  const { data, error } = await supaClient
-    .from('siswa') // Nama tabel data induk siswa
-    .upsert(formData, { onConflict: 'nis' }); // 'nis' adalah Primary Key di tabel Supabase
-
-  if (error) {
-    console.error("Error simpan akun murid:", error);
-    Swal.fire({ icon: 'error', title: 'Gagal', text: error.message, background: '#1e293b', color: '#fff' });
-  } else {
-    Swal.fire({ icon: 'success', title: 'Berhasil', text: 'Data murid berhasil disimpan', background: '#1e293b', color: '#fff' });
-    
-    // Refresh tabel/list manajemen murid setelah simpan
-    if (typeof renderManajemenMurid === 'function') {
-      renderManajemenMurid(document.getElementById('main-content'));
-    }
-  }
-}
-
 function deleteAkunMurid(nisKey) {
+    const d = (cacheAkunMurid || []).find(r => (r.nis_nip || r.NIS || r.nis) === nisKey);
+    if (!d) { showToast('error', 'Data murid tidak ditemukan di cache.'); return; }
+    const nama = d.nama_lengkap || d["Nama Lengkap"] || nisKey;
     Swal.fire({
-        title: 'Yakin Hapus?', text: "Data akun murid akan dihapus permanen dari Google Sheets.", icon: 'warning',
+        title: 'Yakin Hapus?', html: `Akun murid <b>${nama}</b> akan dihapus permanen.`, icon: 'warning',
         background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Hapus'
     }).then(async (result) => {
-        if (result.isConfirmed) {
-            Swal.fire({title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
-            try {
-                const sendData = { action: 'delete_akun', tipe: 'murid', key: nisKey };
-                const postRes = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(sendData) });
-                const json = await postRes.json();
-                if(json.status === 'success') {
-                    Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
-                    renderManajemenMurid(document.getElementById('main-content'));
-                } else throw new Error(json.message);
-            } catch(e) { 
-                Swal.fire({icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff'}); 
-            }
+        if (!result.isConfirmed) return;
+        Swal.fire({title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading()});
+        // Tertaut user Auth → hapus Auth + profil via Edge Function; baris lokal → hapus profil saja
+        const payload = d.user_id
+          ? { action: 'hapus_akun', user_id: d.user_id }
+          : { action: 'hapus_akun', profil_id: d.id };
+        const hasil = await kelolaAkunAuth(payload);
+        if (hasil.status === 'success') {
+            Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
+            renderManajemenMurid(document.getElementById('main-content'));
+        } else {
+            Swal.fire({icon:'error', title:'Gagal', text: hasil.message || 'Terjadi kesalahan.', background:'#1e293b', color:'#fff'});
         }
     });
 }
@@ -4773,17 +4738,13 @@ function openImportMurid() {
 
 function downloadTemplateMurid() {
     if (typeof XLSX === 'undefined') return Swal.fire('Error', 'Library SheetJS tidak ditemukan.', 'error');
-    
-    // Sesuaikan header dengan skema database akun murid
-    const headers = [
-        "ID Tahun Pelajaran", "Semester", "ID Akun Murid", "NIS", "NISN", "Nama Lengkap", "Tingkat/Kelas", 
-        "Jenis Kelamin", "Tgl Lahir", "Nama Ortu/Wali", "Alamat", "No HP/WA", 
-        "Email", "Ekstrakurikuler", "Jabatan Kelas", "ID Jadwal Pelajaran Murid", "Password", "Catatan Khusus"
-    ];
-    
+
+    // Header sesuai kolom tabel akun yang didukung import
+    const headers = ["NIS", "Nama Lengkap", "Tingkat/Kelas", "Email", "No HP/WA", "Ekstrakurikuler", "Jabatan Kelas", "Password"];
+
     const dataRows = [
         ["FORMAT IMPORT DATA MURID"],
-        ["INFO", "Isi baris di bawah header dengan data murid. Kolom NIS dan Nama Lengkap wajib diisi."],
+        ["INFO", "Isi baris di bawah header dengan data murid. Kolom NIS dan Nama Lengkap wajib diisi. Password kosong = otomatis 123456."],
         headers
     ];
 
@@ -4800,29 +4761,38 @@ function prosesImportDataMurid(file) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, {type: 'array'});
             const ws = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonArray = XLSX.utils.sheet_to_json(ws, {header: 1}); 
+            const jsonArray = XLSX.utils.sheet_to_json(ws, {header: 1});
 
             if(jsonArray.length < 3) throw new Error("Format template tidak dikenali.");
-            
-            const headers = jsonArray[2]; 
-            let validData = [];
-            
-            for(let i=3; i<jsonArray.length; i++) {
-                let row = jsonArray[i];
-                if(!row || !row[3]) continue; // Skip jika kolom NIS (index 3) kosong
-                
-                let obj = {};
-                headers.forEach((h, idx) => {
-                    obj[h] = row[idx] !== undefined ? row[idx] : "";
-                });
-                
-                obj["tipe"] = "murid";
-                validData.push(obj);
-            }
-            
-            if(validData.length === 0) throw new Error("Tidak ada data murid yang ditemukan untuk diimport.");
 
-            simpanMasalAkunMurid(validData);
+            const headers = jsonArray[2].map(h => String(h || '').trim());
+            const idxOf = (nama) => headers.findIndex(h => h.toLowerCase() === nama.toLowerCase());
+            const idxNis = idxOf('NIS');
+            if (idxNis === -1) throw new Error("Kolom 'NIS' tidak ditemukan di template.");
+
+            const ambil = (row, nama) => {
+                const i = idxOf(nama);
+                return (i !== -1 && row[i] !== undefined) ? String(row[i]).trim() : '';
+            };
+
+            let rows = [];
+            for(let i=3; i<jsonArray.length; i++) {
+                const row = jsonArray[i];
+                if (!row || !row[idxNis]) continue; // Skip jika NIS kosong
+                rows.push({
+                    nis: String(row[idxNis]).trim(),
+                    nama_lengkap: ambil(row, 'Nama Lengkap'),
+                    tingkat_kelas: ambil(row, 'Tingkat/Kelas'),
+                    email: ambil(row, 'Email'),
+                    no_telepon: ambil(row, 'No HP/WA'),
+                    ekstrakurikuler: ambil(row, 'Ekstrakurikuler'),
+                    password: ambil(row, 'Password')
+                });
+            }
+
+            if(rows.length === 0) throw new Error("Tidak ada data murid yang ditemukan untuk diimport.");
+
+            simpanMasalAkunMurid(rows);
 
         } catch(err) {
             Swal.fire('Error Import', err.message, 'error');
@@ -4831,17 +4801,21 @@ function prosesImportDataMurid(file) {
     reader.readAsArrayBuffer(file);
 }
 
-async function simpanMasalAkunMurid(dataMurid) {
-    Swal.fire({ title: 'Menyimpan Data...', html: `Memproses ${dataMurid.length} murid`, allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
+async function simpanMasalAkunMurid(rows) {
+    Swal.fire({ title: 'Menyimpan Data...', html: `Memproses ${rows.length} murid...`, allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
 
     try {
-        const { error } = await supaClient
-            .from('akun')
-            .upsert(dataMurid, { onConflict: 'NIS' }); // Sesuaikan dengan Primary Key/Unique key constraint database Anda
-
+        const { data, error } = await supaClient.rpc('import_akun_murid', { p_rows: rows, p_default_password: '123456' });
         if (error) throw error;
-        
-        Swal.fire({ icon: 'success', title: 'Berhasil', text: `${dataMurid.length} Data murid berhasil diimport!`, background: '#1e293b', color: '#fff' });
+        if (!data || data.status !== 'success') throw new Error((data && data.message) || 'Import gagal.');
+
+        const detailGagal = (data.detail_gagal || []).slice(0, 5).map(t => `<li class="text-left">${escapeHtml(t)}</li>`).join('');
+        Swal.fire({
+            icon: 'success',
+            title: 'Import Selesai',
+            html: `<div class="text-sm text-left">Ditambahkan: <b>${data.ditambahkan}</b><br>Diperbarui: <b>${data.diperbarui}</b><br>Gagal: <b>${data.gagal}</b>${detailGagal ? `<ul class="text-[10px] text-red-300 mt-2 list-disc list-inside">${detailGagal}</ul>` : ''}</div>`,
+            background: '#1e293b', color: '#fff', confirmButtonColor: '#0ea5e9'
+        });
         renderManajemenMurid(document.getElementById('main-content'));
     } catch (error) {
         console.error("Error import masal murid:", error);
@@ -4998,15 +4972,27 @@ function deleteAkunAdmin(userId, nama, profilId) {
 
 // ==========================================
 // MASTER DATA (FRONTEND)
-// Identitas sekolah (baris tunggal) + daftar tahun/kelas/mapel/ekskul.
-// Kolom tabel master_data: nama_sekolah, url_logo, tahun_pelajaran,
-// tingkat_kelas, mata_pelajaran, ekstrakurikuler.
+// Kolom tabel master_data = nama persis gaya Sheets:
+//   "Nama Dinas", "Nama Sekolah", "URL LOGO 1", "URL LOGO 2", "Ket. Nama Dinas",
+//   "Alamat Sekolah", "Semester", "Tahun Pelajaran", "Tingkat/Kelas",
+//   "Mata Pelajaran", "Ekstrakurikuler", "Jabatan Kelas", "Jabatan Guru"
+// Tab Identitas: 6 field sekolah (baris tunggal).
+// Tab Daftar: 7 section terpisah (isian masing-masing kategori).
 // ==========================================
 
 let currentTabMaster = 'identitas';
 
+const MASTER_DAFTAR_SECTIONS = [
+    { kolom: "Tahun Pelajaran", icon: 'fa-calendar-days', ph: '2026/2027' },
+    { kolom: "Semester", icon: 'fa-repeat', ph: 'Ganjil' },
+    { kolom: "Tingkat/Kelas", icon: 'fa-school', ph: 'X RPL 1' },
+    { kolom: "Mata Pelajaran", icon: 'fa-book', ph: 'Matematika' },
+    { kolom: "Ekstrakurikuler", icon: 'fa-futbol', ph: 'Pramuka' },
+    { kolom: "Jabatan Kelas", icon: 'fa-user-tie', ph: 'Ketua Kelas' },
+    { kolom: "Jabatan Guru", icon: 'fa-chalkboard-user', ph: 'Kepala Sekolah' }
+];
+
 function renderMasterDataModule(container) {
-    const tab = currentTabMaster;
     const tabBtn = (id, label, icon) => `
         <button onclick="gantiTabMaster('${id}')" class="px-4 py-2 rounded-lg text-xs font-bold transition ${currentTabMaster === id ? 'bg-blue-600 text-white shadow-md' : 'bg-white/10 text-slate-300 hover:bg-white/20'}">
             <i class="fa-solid ${icon} mr-1"></i> ${label}
@@ -5017,8 +5003,8 @@ function renderMasterDataModule(container) {
             <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
                 <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-database text-purple-400 mr-2"></i> Master Data</h2>
                 <div class="flex gap-2">
-                    ${tabBtn('identitas', 'Identitas', 'fa-school')}
-                    ${tabBtn('daftar', 'Tahun / Kelas / Mapel / Ekskul', 'fa-list')}
+                    ${tabBtn('identitas', 'Identitas Sekolah', 'fa-school')}
+                    ${tabBtn('daftar', 'Daftar (7 Kategori)', 'fa-list')}
                 </div>
             </div>
             <div id="content-master" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a] p-4"></div>
@@ -5035,7 +5021,7 @@ function gantiTabMaster(tab) {
 async function ambilMasterData() {
     const { data, error } = await supaClient.from('master_data').select('*');
     if (error) throw error;
-    masterDataCache = data || []; // refresh cache bersama
+    masterDataCache = data || []; // refresh cache bersama (format kunci = nama kolom)
     return masterDataCache;
 }
 
@@ -5044,12 +5030,19 @@ async function renderTabIdentitas() {
     box.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>`;
     try {
         const rows = await ambilMasterData();
-        const idn = rows.find(r => r.nama_sekolah) || rows[0] || {};
+        const idn = rows.find(r => r["Nama Sekolah"]) || {};
+        const F = [
+            { id: 'nama_dinas', kol: 'Nama Dinas', ph: 'DINAS PENDIDIKAN...' },
+            { id: 'nama_sekolah', kol: 'Nama Sekolah', ph: 'SMKN 2 BANJAR' },
+            { id: 'url_logo1', kol: 'URL LOGO 1', ph: 'https://...' },
+            { id: 'url_logo2', kol: 'URL LOGO 2', ph: 'https://...' },
+            { id: 'ket_dinas', kol: 'Ket. Nama Dinas', ph: 'Provinsi Jawa Barat' },
+            { id: 'alamat', kol: 'Alamat Sekolah', ph: 'Jl. ...' }
+        ];
         box.innerHTML = `
             <div class="max-w-lg mx-auto space-y-3 text-left text-[11px] text-slate-300">
-                <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info"></i> Baris identitas dipakai header aplikasi (logo & nama sekolah). Simpan hanya satu baris identitas.</p>
-                <div><label class="font-bold text-purple-300">Nama Sekolah</label><input id="m_nama_sekolah" value="${idn.nama_sekolah || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-purple-500"></div>
-                <div><label class="font-bold text-purple-300">URL Logo</label><input id="m_url_logo" value="${idn.url_logo || ''}" placeholder="https://..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-purple-500"></div>
+                <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info"></i> Baris identitas dipakai header aplikasi (logo &amp; nama sekolah). Simpan hanya satu baris identitas.</p>
+                ${F.map(f => `<div><label class="font-bold text-purple-300">${f.kol}</label><input id="mi_${f.id}" value="${escJs(idn[f.kol] || '')}" placeholder="${f.ph}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-purple-500"></div>`).join('')}
                 <div class="pt-2"><button onclick="simpanIdentitasMaster('${idn.id ?? ''}')" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-save"></i> Simpan Identitas</button></div>
             </div>
         `;
@@ -5059,11 +5052,16 @@ async function renderTabIdentitas() {
 }
 
 async function simpanIdentitasMaster(rowId) {
+    const ambil = id => (document.getElementById('m_' + id)?.value || '').trim();
     const payload = {
-        nama_sekolah: document.getElementById('m_nama_sekolah').value.trim(),
-        url_logo: document.getElementById('m_url_logo').value.trim()
+        "Nama Dinas": ambil('nama_dinas'),
+        "Nama Sekolah": ambil('nama_sekolah'),
+        "URL LOGO 1": ambil('url_logo1'),
+        "URL LOGO 2": ambil('url_logo2'),
+        "Ket. Nama Dinas": ambil('ket_dinas'),
+        "Alamat Sekolah": ambil('alamat')
     };
-    if (!payload.nama_sekolah) { showToast('error', 'Nama sekolah wajib diisi.'); return; }
+    if (!payload["Nama Sekolah"]) { showToast('error', 'Nama sekolah wajib diisi.'); return; }
     Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
     try {
         const { error } = rowId
@@ -5083,34 +5081,32 @@ async function renderTabDaftar() {
     box.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>`;
     try {
         const rows = await ambilMasterData();
-        const daftar = rows.filter(r => r.tahun_pelajaran || r.tingkat_kelas || r.mata_pelajaran || r.ekstrakurikuler);
-        box.innerHTML = `
-            <div class="max-w-3xl mx-auto">
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4 text-[11px]">
-                    <input id="m_tahun" placeholder="Tahun (2026/2027)" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
-                    <input id="m_kelas" placeholder="Kelas (X RPL 1)" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
-                    <input id="m_mapel" placeholder="Mata Pelajaran" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
-                    <div class="flex gap-2">
-                        <input id="m_ekskul" placeholder="Ekstrakurikuler" class="flex-1 bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
-                        <button onclick="tambahBarisMaster()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 rounded-lg font-bold shadow-md"><i class="fa-solid fa-plus"></i></button>
+        // Kelompokkan nilai per kolom (baris bisa berisi campuran; tampilkan per kategori)
+        const sectionHTML = MASTER_DAFTAR_SECTIONS.map(s => {
+            const items = rows
+              .filter(r => (r[s.kolom] || '').trim() !== '')
+              .map(r => ({ id: r.id, val: (r[s.kolom] || '').trim() }));
+            const idInput = 'mi_' + s.kolom.replace(/[^A-Za-z]/g, '');
+            return `
+                <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <h3 class="text-[11px] font-bold text-purple-300 uppercase tracking-wide mb-2"><i class="fa-solid ${s.icon} mr-1"></i> ${s.kolom}</h3>
+                    <div class="flex gap-2 mb-2">
+                        <input id="${idInput}" placeholder="${s.ph}" onkeydown="if(event.key==='Enter')tambahMasterDaftar('${escJs(s.kolom)}')" class="flex-1 bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none focus:border-purple-500">
+                        <button onclick="tambahMasterDaftar('${escJs(s.kolom)}')" class="bg-purple-600 hover:bg-purple-700 text-white px-3 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-plus"></i></button>
                     </div>
-                </div>
-                <table class="w-full text-left text-xs text-slate-200">
-                    <thead class="text-[10px] uppercase text-slate-400 border-b border-white/10">
-                        <tr><th class="py-2">Tahun</th><th class="py-2">Kelas</th><th class="py-2">Mapel</th><th class="py-2">Ekskul</th><th class="py-2 text-center">Aksi</th></tr>
-                    </thead>
-                    <tbody>
-                        ${daftar.length === 0 ? `<tr><td colspan="5" class="py-6 text-center text-slate-500">Belum ada data. Isi form di atas lalu klik +.</td></tr>` :
-                          daftar.map(r => `
-                            <tr class="border-b border-white/5 hover:bg-white/5">
-                                <td class="py-2">${r.tahun_pelajaran || '-'}</td>
-                                <td class="py-2">${r.tingkat_kelas || '-'}</td>
-                                <td class="py-2">${r.mata_pelajaran || '-'}</td>
-                                <td class="py-2">${r.ekstrakurikuler || '-'}</td>
-                                <td class="py-2 text-center"><button onclick="hapusBarisMaster(${r.id ?? 0}, '${escJs(JSON.stringify(r)).replace(/"/g, '&quot;')}')" class="w-6 h-6 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button></td>
-                            </tr>`).join('')}
-                    </tbody>
-                </table>
+                    ${items.length === 0
+                      ? `<p class="text-[10px] text-slate-500 italic">Belum ada data.</p>`
+                      : `<div class="flex flex-wrap gap-1.5">${items.map(it => `
+                            <span class="inline-flex items-center gap-1.5 bg-slate-800 border border-white/10 rounded-full pl-2.5 pr-1 py-1 text-[10px] text-slate-200">
+                                ${escapeHtml(it.val)}
+                                <button onclick="hapusMasterDaftar('${r_id(it.id)}', '${escJs(s.kolom)}')" class="w-4 h-4 flex items-center justify-center bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-full" title="Hapus"><i class="fa-solid fa-xmark text-[8px]"></i></button>
+                            </span>`).join('')}
+                        </div>`}
+                </div>`;
+        });
+        box.innerHTML = `
+            <div class="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+                ${sectionHTML.join('')}
             </div>
         `;
     } catch (e) {
@@ -5118,42 +5114,37 @@ async function renderTabDaftar() {
     }
 }
 
-async function tambahBarisMaster() {
-    const payload = {
-        tahun_pelajaran: document.getElementById('m_tahun').value.trim(),
-        tingkat_kelas: document.getElementById('m_kelas').value.trim(),
-        mata_pelajaran: document.getElementById('m_mapel').value.trim(),
-        ekstrakurikuler: document.getElementById('m_ekskul').value.trim()
-    };
-    if (!payload.tahun_pelajaran && !payload.tingkat_kelas && !payload.mata_pelajaran && !payload.ekstrakurikuler) {
-        showToast('error', 'Isi minimal satu kolom.'); return;
-    }
+// helper id aman utk atribut onclick
+function r_id(v) { return v == null ? '' : String(v); }
+
+async function tambahMasterDaftar(kolom) {
+    const idInput = 'mi_' + kolom.replace(/[^A-Za-z]/g, '');
+    const nilai = (document.getElementById(idInput)?.value || '').trim();
+    if (!nilai) { showToast('error', 'Isi nilai terlebih dahulu.'); return; }
+    // Hindari duplikat pada kolom yang sama (cek cache terakhir)
+    const dup = (masterDataCache || []).some(r => (r[kolom] || '').trim().toLowerCase() === nilai.toLowerCase());
+    if (dup) { showToast('error', `"${nilai}" sudah ada di ${kolom}.`); return; }
     Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
     try {
+        const payload = {};
+        payload[kolom] = nilai;
         const { error } = await supaClient.from('master_data').insert(payload);
         if (error) throw error;
         await ambilMasterData();
-        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Baris ditambahkan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Ditambahkan!', showConfirmButton: false, timer: 1200, background: '#1e293b', color: '#fff' });
         renderTabDaftar();
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff' });
     }
 }
 
-async function hapusBarisMaster(rowId, jsonRow) {
+async function hapusMasterDaftar(rowId, kolom) {
     Swal.fire({ title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
     try {
-        let error;
-        if (rowId) {
-            ({ error } = await supaClient.from('master_data').delete().eq('id', rowId));
-        } else {
-            // Tabel tanpa id → hapus dengan mencocokkan seluruh nilai baris
-            const match = JSON.parse(jsonRow);
-            ({ error } = await supaClient.from('master_data').delete().match(match));
-        }
+        const { error } = await supaClient.from('master_data').delete().eq('id', rowId);
         if (error) throw error;
         await ambilMasterData();
-        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Terhapus!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Terhapus!', showConfirmButton: false, timer: 1200, background: '#1e293b', color: '#fff' });
         renderTabDaftar();
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff' });
