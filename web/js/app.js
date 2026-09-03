@@ -149,10 +149,10 @@ async function setupDashboard() {
       { id: 'laporan-absen', icon: 'fa-clipboard-list', text: 'Laporan Saya' } 
     ];
   if (role === 'admin') {
+      menus.push({ id: 'akun-admin', icon: 'fa-user-shield', text: 'Data Akun Admin' });
       menus.push({ id: 'akun-guru', icon: 'fa-chalkboard-user', text: 'Data Akun Guru' });
-      // TAMBAHKAN BARIS INI
       menus.push({ id: 'jadwal-libur', icon: 'fa-calendar-days', text: 'Jadwal & Libur' });
-       
+      menus.push({ id: 'master-data', icon: 'fa-database', text: 'Master Data' });
   }
   // Guru dan Admin bisa akses Manajemen Murid
   if (role === 'admin' || role === 'guru') {
@@ -175,9 +175,11 @@ function changeMenu(menuId, menuText) {
   else if (menuId === 'dashboard-murid') renderDashboardMurid(mainContent);
   else if (menuId === 'nilai') renderNilaiModule(mainContent);
   // TAMBAHKAN DUA BARIS INI:
+  else if (menuId === 'akun-admin') renderManajemenAdmin(mainContent);
   else if (menuId === 'akun-murid') renderManajemenMurid(mainContent);
   else if (menuId === 'akun-guru') renderManajemenGuru(mainContent);
   else if (menuId === 'jadwal-libur') renderJadwalLiburModule(mainContent);
+  else if (menuId === 'master-data') renderMasterDataModule(mainContent);
   else {
     mainContent.innerHTML = `<div class="glass-card p-6 rounded-xl flex flex-col items-center justify-center h-[70vh] text-slate-400">...</div>`;
   }
@@ -4844,6 +4846,317 @@ async function simpanMasalAkunMurid(dataMurid) {
     } catch (error) {
         console.error("Error import masal murid:", error);
         Swal.fire({ icon: 'error', title: 'Gagal', text: error.message || 'Terjadi kesalahan saat import data.', background: '#1e293b', color: '#fff' });
+    }
+}
+
+// ==========================================
+// MANAJEMEN AKUN ADMIN (FRONTEND)
+// Akun dibuat via Edge Function 'buat-akun' → user Auth + profil tabel 'akun'
+// ==========================================
+
+let cacheAkunAdmin = [];
+
+async function renderManajemenAdmin(container) {
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Data Admin...</div>`;
+
+    try {
+        const { data, error } = await supaClient
+          .from('akun')
+          .select('*')
+          .eq('tipe', 'admin')
+          .order('nama_lengkap', { ascending: true });
+        if (error) throw error;
+        cacheAkunAdmin = data || [];
+
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-shield text-amber-400 mr-2"></i> Manajemen Akun Admin</h2>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <input type="text" id="search-admin" placeholder="Cari NIP / Nama / Email..." class="w-full sm:w-48 bg-black/40 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-500" onkeyup="filterTabelAdmin()">
+                        <button onclick="openFormAkunAdmin(true)" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-plus"></i> Tambah Admin</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <table class="w-full text-left whitespace-nowrap">
+                        <thead class="sticky top-0 bg-slate-900 z-10 text-[10px] uppercase text-slate-400 shadow-md">
+                            <tr>
+                                <th class="px-4 py-3 border-b border-white/10 text-center">No</th>
+                                <th class="px-4 py-3 border-b border-white/10">NIP</th>
+                                <th class="px-4 py-3 border-b border-white/10">Nama Admin</th>
+                                <th class="px-4 py-3 border-b border-white/10">Email Login</th>
+                                <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-admin" class="text-xs text-slate-200">
+                            ${generateTbodyAdmin(cacheAkunAdmin)}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-slate-800/60 px-4 py-2 border-t border-white/10 text-[10px] text-slate-400">
+                    <i class="fa-solid fa-shield-halved"></i> Password disimpan terenkripsi di Supabase Auth (tidak tampil & tidak bisa dilihat siapa pun).
+                </div>
+            </div>
+        `;
+    } catch(e) {
+        console.error("Error renderManajemenAdmin:", e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat data admin. Periksa koneksi jaringan.</div>`;
+    }
+}
+
+function generateTbodyAdmin(data) {
+    if (!data || data.length === 0) return `<tr><td colspan="5" class="p-6 text-center text-slate-500">Belum ada admin. Klik "Tambah Admin" untuk membuat.</td></tr>`;
+    return data.map((d, i) => `
+        <tr class="hover:bg-white/5 border-b border-white/5 transition row-admin">
+            <td class="px-4 py-3 text-center">${i+1}</td>
+            <td class="px-4 py-3 font-mono text-amber-300 search-target">${d.nis_nip || '-'}</td>
+            <td class="px-4 py-3 search-target font-bold text-white">${d.nama_lengkap || 'Tanpa Nama'}</td>
+            <td class="px-4 py-3 search-target"><div class="text-[11px] text-slate-300"><i class="fa-solid fa-envelope"></i> ${d.email || '-'}</div></td>
+            <td class="px-4 py-3 text-center whitespace-nowrap">
+                <button onclick='openFormAkunAdmin(false, ${JSON.stringify(d).replace(/'/g, "&#39;")})' class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                ${d.user_id ? `<button onclick="resetPasswordGuru('${escJs(d.user_id)}', '${escJs(d.nama_lengkap || '')}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>` : ''}
+                <button onclick="deleteAkunAdmin('${escJs(d.user_id || '')}', '${escJs(d.nama_lengkap || '')}', '${escJs(d.id || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterTabelAdmin() {
+    const query = (document.getElementById('search-admin')?.value || '').toLowerCase();
+    document.querySelectorAll('.row-admin').forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none';
+    });
+}
+
+function openFormAkunAdmin(isNew, data = {}) {
+    Swal.fire({
+        title: `<div class="text-lg font-bold">${isNew ? 'Tambah' : 'Edit'} Akun Admin</div>`,
+        html: `
+            <div class="grid grid-cols-1 gap-3 text-left text-[11px] text-slate-300 mt-2">
+                <div><label class="font-bold text-amber-300">Nama Lengkap *</label><input id="f_nama_admin" value="${data.nama_lengkap || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-amber-500"></div>
+                <div><label class="font-bold text-amber-300">NIP (opsional)</label><input id="f_nip_admin" value="${data.nis_nip || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-amber-500"></div>
+                <div><label class="font-bold text-amber-300">Email Login *</label><input id="f_email_admin" type="email" value="${data.email || ''}" ${isNew ? '' : 'disabled'} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-amber-500 disabled:opacity-50"></div>
+                ${isNew ? `<div><label class="font-bold text-amber-300">Password *</label><input id="f_pass_admin" type="text" value="123456" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-amber-500"><p class="text-[9px] text-slate-400 mt-1">Minimal 6 karakter. Disimpan terenkripsi di Supabase Auth.</p></div>` : ''}
+            </div>
+        `,
+        width: 460, background: '#1e293b', color: '#fff',
+        showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan',
+        preConfirm: () => {
+            const nama = document.getElementById('f_nama_admin').value.trim();
+            const email = document.getElementById('f_email_admin').value.trim();
+            if (!nama) { Swal.showValidationMessage('Nama wajib diisi!'); return false; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { Swal.showValidationMessage('Email tidak valid!'); return false; }
+            if (isNew && document.getElementById('f_pass_admin').value.trim().length < 6) {
+                Swal.showValidationMessage('Password minimal 6 karakter!'); return false;
+            }
+            return {
+                nama_lengkap: nama,
+                nis_nip: document.getElementById('f_nip_admin').value.trim(),
+                email,
+                password: isNew ? document.getElementById('f_pass_admin').value.trim() : undefined
+            };
+        }
+    }).then(async (res) => {
+        if (!res.isConfirmed) return;
+        Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+        const payload = { action: isNew ? 'buat_akun' : 'update_akun', tipe: 'admin', ...res.value };
+        if (!isNew) {
+            payload.user_id = data.user_id || '';
+            delete payload.password;
+        }
+        const hasil = await kelolaAkunAuth(payload);
+        if (hasil.status === 'success') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: hasil.message, showConfirmButton: false, timer: 2500, background: '#1e293b', color: '#fff' });
+            renderManajemenAdmin(document.getElementById('main-content'));
+        } else {
+            Swal.fire({ icon: 'error', title: 'Gagal', text: hasil.message || 'Terjadi kesalahan.', background: '#1e293b', color: '#fff' });
+        }
+    });
+}
+
+function deleteAkunAdmin(userId, nama, profilId) {
+    if (!userId && !profilId) { showToast('error', 'Akun tidak memiliki user_id / id profil.'); return; }
+    Swal.fire({
+        title: 'Yakin Hapus?',
+        html: `Akun admin <b>${nama || ''}</b> akan dihapus permanen dari Auth & tabel akun.`,
+        icon: 'warning', background: '#1e293b', color: '#fff',
+        showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Hapus'
+    }).then(async (result) => {
+        if (!result.isConfirmed) return;
+        Swal.fire({ title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+        const payload = { action: 'hapus_akun' };
+        if (userId) payload.user_id = userId; else payload.profil_id = profilId;
+        const hasil = await kelolaAkunAuth(payload);
+        if (hasil.status === 'success') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: hasil.message, showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+            renderManajemenAdmin(document.getElementById('main-content'));
+        } else {
+            Swal.fire({ icon: 'error', title: 'Gagal', text: hasil.message || 'Terjadi kesalahan.', background: '#1e293b', color: '#fff' });
+        }
+    });
+}
+
+// ==========================================
+// MASTER DATA (FRONTEND)
+// Identitas sekolah (baris tunggal) + daftar tahun/kelas/mapel/ekskul.
+// Kolom tabel master_data: nama_sekolah, url_logo, tahun_pelajaran,
+// tingkat_kelas, mata_pelajaran, ekstrakurikuler.
+// ==========================================
+
+let currentTabMaster = 'identitas';
+
+function renderMasterDataModule(container) {
+    const tab = currentTabMaster;
+    const tabBtn = (id, label, icon) => `
+        <button onclick="gantiTabMaster('${id}')" class="px-4 py-2 rounded-lg text-xs font-bold transition ${currentTabMaster === id ? 'bg-blue-600 text-white shadow-md' : 'bg-white/10 text-slate-300 hover:bg-white/20'}">
+            <i class="fa-solid ${icon} mr-1"></i> ${label}
+        </button>`;
+
+    container.innerHTML = `
+        <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+            <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-database text-purple-400 mr-2"></i> Master Data</h2>
+                <div class="flex gap-2">
+                    ${tabBtn('identitas', 'Identitas', 'fa-school')}
+                    ${tabBtn('daftar', 'Tahun / Kelas / Mapel / Ekskul', 'fa-list')}
+                </div>
+            </div>
+            <div id="content-master" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a] p-4"></div>
+        </div>
+    `;
+    if (currentTabMaster === 'identitas') renderTabIdentitas(); else renderTabDaftar();
+}
+
+function gantiTabMaster(tab) {
+    currentTabMaster = tab;
+    renderMasterDataModule(document.getElementById('main-content'));
+}
+
+async function ambilMasterData() {
+    const { data, error } = await supaClient.from('master_data').select('*');
+    if (error) throw error;
+    masterDataCache = data || []; // refresh cache bersama
+    return masterDataCache;
+}
+
+async function renderTabIdentitas() {
+    const box = document.getElementById('content-master');
+    box.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>`;
+    try {
+        const rows = await ambilMasterData();
+        const idn = rows.find(r => r.nama_sekolah) || rows[0] || {};
+        box.innerHTML = `
+            <div class="max-w-lg mx-auto space-y-3 text-left text-[11px] text-slate-300">
+                <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info"></i> Baris identitas dipakai header aplikasi (logo & nama sekolah). Simpan hanya satu baris identitas.</p>
+                <div><label class="font-bold text-purple-300">Nama Sekolah</label><input id="m_nama_sekolah" value="${idn.nama_sekolah || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-purple-500"></div>
+                <div><label class="font-bold text-purple-300">URL Logo</label><input id="m_url_logo" value="${idn.url_logo || ''}" placeholder="https://..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-purple-500"></div>
+                <div class="pt-2"><button onclick="simpanIdentitasMaster('${idn.id ?? ''}')" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-save"></i> Simpan Identitas</button></div>
+            </div>
+        `;
+    } catch (e) {
+        box.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat: ${escapeHtml(e.message || '')}</div>`;
+    }
+}
+
+async function simpanIdentitasMaster(rowId) {
+    const payload = {
+        nama_sekolah: document.getElementById('m_nama_sekolah').value.trim(),
+        url_logo: document.getElementById('m_url_logo').value.trim()
+    };
+    if (!payload.nama_sekolah) { showToast('error', 'Nama sekolah wajib diisi.'); return; }
+    Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    try {
+        const { error } = rowId
+          ? await supaClient.from('master_data').update(payload).eq('id', rowId)
+          : await supaClient.from('master_data').insert(payload);
+        if (error) throw error;
+        await ambilMasterData();
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Identitas tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+        renderTabIdentitas();
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff' });
+    }
+}
+
+async function renderTabDaftar() {
+    const box = document.getElementById('content-master');
+    box.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>`;
+    try {
+        const rows = await ambilMasterData();
+        const daftar = rows.filter(r => r.tahun_pelajaran || r.tingkat_kelas || r.mata_pelajaran || r.ekstrakurikuler);
+        box.innerHTML = `
+            <div class="max-w-3xl mx-auto">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4 text-[11px]">
+                    <input id="m_tahun" placeholder="Tahun (2026/2027)" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
+                    <input id="m_kelas" placeholder="Kelas (X RPL 1)" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
+                    <input id="m_mapel" placeholder="Mata Pelajaran" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
+                    <div class="flex gap-2">
+                        <input id="m_ekskul" placeholder="Ekstrakurikuler" class="flex-1 bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none focus:border-purple-500">
+                        <button onclick="tambahBarisMaster()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 rounded-lg font-bold shadow-md"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                </div>
+                <table class="w-full text-left text-xs text-slate-200">
+                    <thead class="text-[10px] uppercase text-slate-400 border-b border-white/10">
+                        <tr><th class="py-2">Tahun</th><th class="py-2">Kelas</th><th class="py-2">Mapel</th><th class="py-2">Ekskul</th><th class="py-2 text-center">Aksi</th></tr>
+                    </thead>
+                    <tbody>
+                        ${daftar.length === 0 ? `<tr><td colspan="5" class="py-6 text-center text-slate-500">Belum ada data. Isi form di atas lalu klik +.</td></tr>` :
+                          daftar.map(r => `
+                            <tr class="border-b border-white/5 hover:bg-white/5">
+                                <td class="py-2">${r.tahun_pelajaran || '-'}</td>
+                                <td class="py-2">${r.tingkat_kelas || '-'}</td>
+                                <td class="py-2">${r.mata_pelajaran || '-'}</td>
+                                <td class="py-2">${r.ekstrakurikuler || '-'}</td>
+                                <td class="py-2 text-center"><button onclick="hapusBarisMaster(${r.id ?? 0}, '${escJs(JSON.stringify(r)).replace(/"/g, '&quot;')}')" class="w-6 h-6 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button></td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        box.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat: ${escapeHtml(e.message || '')}</div>`;
+    }
+}
+
+async function tambahBarisMaster() {
+    const payload = {
+        tahun_pelajaran: document.getElementById('m_tahun').value.trim(),
+        tingkat_kelas: document.getElementById('m_kelas').value.trim(),
+        mata_pelajaran: document.getElementById('m_mapel').value.trim(),
+        ekstrakurikuler: document.getElementById('m_ekskul').value.trim()
+    };
+    if (!payload.tahun_pelajaran && !payload.tingkat_kelas && !payload.mata_pelajaran && !payload.ekstrakurikuler) {
+        showToast('error', 'Isi minimal satu kolom.'); return;
+    }
+    Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    try {
+        const { error } = await supaClient.from('master_data').insert(payload);
+        if (error) throw error;
+        await ambilMasterData();
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Baris ditambahkan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+        renderTabDaftar();
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff' });
+    }
+}
+
+async function hapusBarisMaster(rowId, jsonRow) {
+    Swal.fire({ title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    try {
+        let error;
+        if (rowId) {
+            ({ error } = await supaClient.from('master_data').delete().eq('id', rowId));
+        } else {
+            // Tabel tanpa id → hapus dengan mencocokkan seluruh nilai baris
+            const match = JSON.parse(jsonRow);
+            ({ error } = await supaClient.from('master_data').delete().match(match));
+        }
+        if (error) throw error;
+        await ambilMasterData();
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Terhapus!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+        renderTabDaftar();
+    } catch (e) {
+        Swal.fire({ icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff' });
     }
 }
 
