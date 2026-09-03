@@ -66,8 +66,8 @@ async function apiCall(action, data = {}) {
       if (!identifier || !password) return { status: 'error', message: 'Isi NIS/NIP/Email dan Password.' };
 
       // Skema DB saat ini: tabel 'akun' (user_id → auth.users, tipe = role).
-      // Password murid (akun lokal tanpa Google) di-hash di kolom password_hash
-      // dan diverifikasi via RPC; guru/admin & akun Google via Supabase Auth.
+      // Password murid (akun lokal tanpa Google) di-hash di tabel akun_kredensial
+      // (RLS tertutup) dan diverifikasi via RPC; guru/admin & akun Google via Supabase Auth.
       let emailAuth = identifier;
       if (!identifier.includes('@')) {
         // 1) Coba akun murid ber-password lokal (RPC bcrypt)
