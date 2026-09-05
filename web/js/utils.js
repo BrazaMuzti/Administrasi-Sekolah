@@ -1,13 +1,47 @@
 /**
- * utils.js — Adapter Supabase untuk SIAKAD
+ * utils.js — Adapter Supabase untuk SISIP
  */
 
 // 1. Inisialisasi Supabase
-const SUPABASE_URL = 'https://lkhuyoihrrnzvrmhquln.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_o_pUNncXPyOmV2yhhOevcw_58aUM3pB';
+const SUPABASE_URL_DEFAULT = 'https://lkhuyoihrrnzvrmhquln.supabase.co';
+const SUPABASE_ANON_KEY_DEFAULT = 'sb_publishable_o_pUNncXPyOmV2yhhOevcw_58aUM3pB';
+const SERVER_CONFIG_KEY = 'sisip_server_config';
+
+function ambilKonfigurasiServer() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(SERVER_CONFIG_KEY) || 'null');
+    if (cfg && cfg.url && cfg.key) return { url: String(cfg.url), key: String(cfg.key) };
+  } catch (e) { /* config rusak → pakai default */ }
+  return { url: SUPABASE_URL_DEFAULT, key: SUPABASE_ANON_KEY_DEFAULT };
+}
+
+function simpanKonfigurasiServer(url, key) {
+  localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify({ url, key }));
+}
+
+function hapusKonfigurasiServer() {
+  localStorage.removeItem(SERVER_CONFIG_KEY);
+}
 
 // PERBAIKAN: Gunakan nama 'supaClient' agar tidak bentrok dengan library bawaan CDN
-const supaClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let SUPABASE_URL = SUPABASE_URL_DEFAULT;
+let SUPABASE_ANON_KEY = SUPABASE_ANON_KEY_DEFAULT;
+let supaClient = null;
+function initSupaClient(url, key) {
+  SUPABASE_URL = url;
+  SUPABASE_ANON_KEY = key;
+  supaClient = window.supabase.createClient(url, key);
+}
+(() => {
+  const cfg = ambilKonfigurasiServer();
+  try {
+    initSupaClient(cfg.url, cfg.key);
+  } catch (e) {
+    console.warn('Konfigurasi server tersimpan tidak valid, kembali ke default:', e);
+    hapusKonfigurasiServer();
+    initSupaClient(SUPABASE_URL_DEFAULT, SUPABASE_ANON_KEY_DEFAULT);
+  }
+})();
 
 
 // Manajemen Sesi Lokal (Harus ada di utils.js)
@@ -44,6 +78,8 @@ function bangunResponsSesi(prof, emailFallback, token) {
   const mappedUser = {
     "Nama Lengkap": nama,
     "Nama Guru": nama,
+    "Gelar Depan": (prof && prof.gelar_depan) || "",
+    "Gelar Belakang": (prof && prof.gelar_belakang) || "",
     "NIS": tipe === 'murid' ? ((prof && prof.nis_nip) || "") : "",
     "NIP": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
     "ID Akun Guru": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
@@ -51,6 +87,7 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Tingkat/Kelas": (prof && prof.tingkat_kelas) || "",
     "Jabatan": (prof && prof.jabatan) || "",
     "Jabatan Kelas": tipe === 'murid' ? ((prof && prof.jabatan) || "") : "",
+    "Wali Kelas": (prof && prof.wali_kelas) || "",
     "Custom Teks Mata Pelajaran": tipe === 'guru' ? ((prof && prof.mapel) || "") : "",
     "Ekstrakurikuler": (prof && prof.ekstrakurikuler) || "",
     "ID Tahun Pelajaran": ""
@@ -90,6 +127,23 @@ async function apiCall(action, data = {}) {
           return { status: 'error', message: pesanRpc };
         }
         emailAuth = byNis.email;
+      } else {
+        // Login via email: coba akun murid lokal (lookup NIS dari email) lalu Supabase Auth
+        const { data: listByEmail, error: errEmail } = await supaClient
+          .from('akun')
+          .select('nis_nip')
+          .eq('email', identifier)
+          .limit(1);
+        const nisDariEmail = (!errEmail && listByEmail && listByEmail[0]) ? listByEmail[0].nis_nip : null;
+        if (nisDariEmail) {
+          const { data: rpcRes, error: rpcErr } = await supaClient.rpc('cek_login_murid', {
+            p_nis: nisDariEmail,
+            p_password: password
+          });
+          if (!rpcErr && rpcRes && rpcRes.status === 'success') {
+            return bangunResponsSesi(rpcRes.akun, rpcRes.akun.email || identifier, 'lokal-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()));
+          }
+        }
       }
 
       const { data: authRes, error: authErr } = await supaClient.auth.signInWithPassword({ email: emailAuth, password });
@@ -163,18 +217,74 @@ async function apiCall(action, data = {}) {
     }
 
     if (action === 'save_absen_masal') {
-      // Adaptasi simpan absensi masal
-      const insertData = data.absenList.map(absen => ({
-        nis: absen.nis,
+      // Simpan absensi masal — skema tabel absensi (unique: nis,tanggal,mapel)
+      const rows = (data.absenList || []).map(absen => ({
+        nis: String(absen.nis || ''),
+        nama: absen.nama || '',
         tanggal: data.tanggal,
         status: absen.status,
-        keterangan: absen.keterangan || data.keterangan_kehadiran_masal || "",
-        mapel: data.mapel,
-        kelas: data.kelas
+        keterangan: (absen.keterangan || data.keterangan_kehadiran_masal || '').trim(),
+        mapel: data.mapel || '',
+        ekskul: data.ekskul || '',
+        kelas: data.kelas || '',
+        tahun: data.tahun || '',
+        semester: data.semester || '',
+        bulan: data.bulan || '',
+        id_guru: data.id_guru || '',
+        metode: data.metode || 'Manual / QR'
       }));
+      if (rows.length === 0) return { status: 'success', message: 'Tidak ada data absensi.' };
 
-      const { error } = await supaClient.from('absensi').upsert(insertData);
-      
+      const { error } = await supaClient.from('absensi').upsert(rows, { onConflict: 'nis,tanggal,mapel' });
+      if (error) throw error;
+      return { status: 'success' };
+    }
+
+    if (action === 'save_keterangan_siswa') {
+      // Perbarui keterangan per nis + tanggal + mapel
+      for (const u of (data.updates || [])) {
+        const { error } = await supaClient
+          .from('absensi')
+          .update({ keterangan: u.keterangan || '' })
+          .eq('nis', String(data.nis))
+          .eq('tanggal', u.tanggal)
+          .eq('mapel', data.mapel || '');
+        if (error) throw error;
+      }
+      return { status: 'success' };
+    }
+
+    if (action === 'absen_mandiri') {
+      // Validasi captcha terhadap sesi yang dibuka guru pengampu (mapel/ekskul)
+      const arrBulanAm = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+      const idxAm = arrBulanAm.indexOf(data.bulan);
+      const partsAm = String(data.tahun || '').split('/');
+      const tahunAm = (idxAm >= 6) ? partsAm[0] : (partsAm[1] || partsAm[0]);
+      const tglAm = `${tahunAm}-${String(idxAm + 1).padStart(2, '0')}-${String(data.tanggal).padStart(2, '0')}`;
+
+      const { data: guruRows, error: gErr } = await supaClient
+        .from('akun')
+        .select('captcha, kunci_absen')
+        .in('tipe', ['guru', 'admin'])
+        .or(`mapel.ilike.%${data.mapel}%,ekstrakurikuler.ilike.%${data.mapel}%`);
+      if (gErr) throw gErr;
+      const sesiOk = (guruRows || []).some(g => g.kunci_absen === 'BUKA' && String(g.captcha || '').toUpperCase() === String(data.captcha || '').toUpperCase());
+      if (!sesiOk) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
+
+      const { error } = await supaClient.from('absensi').upsert({
+        nis: String(data.nis || ''),
+        nama: data.nama || '',
+        tanggal: tglAm,
+        status: 'H',
+        keterangan: '',
+        mapel: data.mapel || '',
+        ekskul: data.mapel || '',
+        kelas: data.kelas || '',
+        tahun: data.tahun || '',
+        semester: data.semester || '',
+        bulan: data.bulan || '',
+        metode: 'Absen Mandiri (GPS)'
+      }, { onConflict: 'nis,tanggal,mapel' });
       if (error) throw error;
       return { status: 'success' };
     }
@@ -225,26 +335,75 @@ async function supabaseFetch(action, payload = {}) {
     }
 
     if (action === 'get_dashboard_data') {
-         // Ambil data murid berdasarkan kelas
-         const { data: murid, error: errMurid } = await supaClient
-            .from('akun')
-            .select('nis_nip, nama_lengkap, tingkat_kelas')
-            .eq('tipe', 'murid')
-            .eq('tingkat_kelas', payload.kelas);
+         const arrBulanDb = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+         const idxBulanDb = arrBulanDb.indexOf(payload.bulan);
+         const partsTahunDb = String(payload.tahun || '').split('/');
+         const tahunAktualDb = (idxBulanDb >= 6) ? partsTahunDb[0] : (partsTahunDb[1] || partsTahunDb[0]);
+         const lastDayDb = (idxBulanDb >= 0) ? new Date(parseInt(tahunAktualDb, 10) || 2000, idxBulanDb + 1, 0).getDate() : 31;
+         const mmDb = String(idxBulanDb + 1).padStart(2, '0');
+         const tglAwalDb = `${tahunAktualDb}-${mmDb}-01`;
+         const tglAkhirDb = `${tahunAktualDb}-${mmDb}-${String(lastDayDb).padStart(2, '0')}`;
+         const isEkskulDb = payload.kelas === 'Semua Kelas';
 
-         // Ambil absensi bulan/tahun ini
-         const { data: absen, error: errAbsen } = await supaClient
+         // 1) Murid: mode kelas → filter tingkat_kelas; mode ekskul (Semua Kelas) → filter keanggotaan ekskul
+         let qMurid = supaClient
+            .from('akun')
+            .select('nis_nip, nama_lengkap, tingkat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
+            .eq('tipe', 'murid');
+         qMurid = isEkskulDb
+            ? qMurid.ilike('ekstrakurikuler', `%${payload.mapel}%`)
+            : qMurid.eq('tingkat_kelas', payload.kelas);
+         const { data: murid, error: errMurid } = await qMurid;
+
+         // 2) Absensi dalam rentang tanggal bulan+tahun terpilih (kelas = kelas; ekskul = "Semua Kelas")
+         let qAbsen = supaClient
             .from('absensi')
             .select('*')
-            .eq('kelas', payload.kelas)
-            .eq('mapel', payload.mapel);
+            .eq('mapel', payload.mapel)
+            .gte('tanggal', tglAwalDb)
+            .lte('tanggal', tglAkhirDb);
+         qAbsen = isEkskulDb ? qAbsen.eq('kelas', 'Semua Kelas') : qAbsen.eq('kelas', payload.kelas);
+         const { data: absen, error: errAbsen } = await qAbsen;
 
-         if (errMurid || errAbsen) throw new Error("Gagal mengambil data dashboard");
+         // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji)
+         const { data: guru, error: errGuru } = await supaClient
+            .from('akun')
+            .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, wali_kelas, tingkat_kelas, captcha, kunci_absen, no_telepon, gelar_depan, gelar_belakang')
+            .in('tipe', ['guru', 'admin']);
+
+         if (errMurid || errAbsen || errGuru) throw new Error("Gagal mengambil data dashboard");
 
          return {
              status: 'success',
-             murid: murid.map(m => ({ "NIS": m.nis_nip, "Nama Lengkap": m.nama_lengkap, "Tingkat/Kelas": m.tingkat_kelas })),
-             absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan }))
+             murid: murid.map(m => ({
+                 "NIS": m.nis_nip,
+                 "NISN": m.nisn || "",
+                 "Nama Lengkap": m.nama_lengkap,
+                 "Tingkat/Kelas": m.tingkat_kelas,
+                 "Jenis Kelamin": m.jenis_kelamin || "",
+                 "Agama": m.agama || "",
+                 "Catatan Khusus": m.catatan_khusus || "",
+                 "Ekstrakurikuler": m.ekstrakurikuler || "",
+                 "Jabatan Kelas": m.jabatan || "",
+                 "No HP/WA": m.no_telepon || "",
+                 "ID Tahun Pelajaran": m.tahun_pelajaran || "",
+                 "Semester": m.semester || ""
+             })),
+             absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan })),
+             status_guru: (guru || []).map(g => ({
+                 "ID Akun Guru": g.nis_nip,
+                 "Nama Guru": g.nama_lengkap,
+                 "Nama Guru Bergelar": [g.gelar_depan, g.nama_lengkap, g.gelar_belakang].filter(Boolean).join(' ').replace(' ,', ', '),
+                 "Mapel": g.mapel || "",
+                 "Custom Teks Mata Pelajaran": g.mapel || "",
+                 "Ekskul": g.ekstrakurikuler || "",
+                 "Ekstrakurikuler": g.ekstrakurikuler || "",
+                 "Wali Kelas": g.wali_kelas || "",
+                 "Tingkat/Kelas": g.tingkat_kelas || "",
+                 "No HP": g.no_telepon || "",
+                 "Captcha": g.captcha || "1234",
+                 "Kunci Absen": g.kunci_absen || "TUTUP"
+             }))
          };
     }
 
@@ -255,7 +414,14 @@ async function supabaseFetch(action, payload = {}) {
 }
 
 // Utilities pendukung bawaan Anda
-function escapeHtml(str) { /*...*/ }
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 function showToast(icon = 'success', title = '') {
   if (typeof Swal === 'undefined') { console.log(`[${icon}] ${title}`); return; }
   Swal.fire({

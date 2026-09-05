@@ -45,6 +45,9 @@ function susunProfil(body: Record<string, unknown>) {
     profil.ekstrakurikuler = String(body.ekstrakurikuler).trim();
   }
   if (body.no_telepon !== undefined) profil.no_telepon = String(body.no_telepon).trim();
+  if (body.wali_kelas !== undefined) profil.wali_kelas = String(body.wali_kelas).trim();
+  if (body.gelar_depan !== undefined) profil.gelar_depan = String(body.gelar_depan).trim();
+  if (body.gelar_belakang !== undefined) profil.gelar_belakang = String(body.gelar_belakang).trim();
   return profil;
 }
 
