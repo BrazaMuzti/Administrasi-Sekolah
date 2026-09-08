@@ -356,9 +356,10 @@ async function supabaseFetch(action, payload = {}) {
          const { data: murid, error: errMurid } = await qMurid;
 
          // 2) Absensi dalam rentang tanggal bulan+tahun terpilih (kelas = kelas; ekskul = "Semua Kelas")
+         // Trim kolom: mapping hanya memakai nis/tanggal/status/keterangan (hemat ±70% payload)
          let qAbsen = supaClient
             .from('absensi')
-            .select('*')
+            .select('nis, tanggal, status, keterangan')
             .eq('mapel', payload.mapel)
             .gte('tanggal', tglAwalDb)
             .lte('tanggal', tglAkhirDb);
