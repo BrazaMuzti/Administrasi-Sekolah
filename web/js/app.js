@@ -939,7 +939,7 @@ async function cekRecoveryPassword() {
 
 /** Modal konfigurasi server (SUPABASE_URL & ANON_KEY) dari kartu login. */
 async function bukaPengaturanServer() {
-  const cfg = (typeof ambilKonfigurasiServer === 'function') ? ambilKonfigurasiServer() : { url: '', key: '' };
+  const cfg = (typeof ambilKonfigurasiServer === 'function') ? ambilKonfigurasiServer() : { url: '', key: '', gcalClientId: '' };
   const res = await Swal.fire({
     title: 'Konfigurasi Server',
     html: `
@@ -948,7 +948,10 @@ async function bukaPengaturanServer() {
         <input id="sv_url" value="${escJs(cfg.url)}" placeholder="https://xxxxx.supabase.co" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 mb-3 text-white outline-none focus:border-blue-500">
         <label class="font-bold text-blue-300">SUPABASE_ANON_KEY</label>
         <input id="sv_key" value="${escJs(cfg.key)}" placeholder="sb_publishable_... / anon key" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500">
-        <p class="text-[9px] text-slate-400 mt-2">Tersimpan hanya di browser ini. Anon key bersifat publik (publishable).</p>
+        <p class="text-[9px] text-slate-400 mt-2 mb-3">Tersimpan hanya di browser ini. Anon key bersifat publik (publishable).</p>
+        <label class="font-bold text-emerald-300">Google Calendar — Client ID (opsional)</label>
+        <input id="sv_gcal" value="${escJs(cfg.gcalClientId || '')}" placeholder="xxxxxxxx.apps.googleusercontent.com" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-emerald-500">
+        <p class="text-[9px] text-slate-400 mt-2">Untuk sinkronisasi Google Calendar (tab "Google Kalender" & Dashboard). Buat di <b>console.cloud.google.com</b> &rarr; APIs &amp; Services &rarr; Credentials &rarr; OAuth client ID (Web application) dengan Authorized JavaScript origin = URL aplikasi ini, lalu aktifkan <b>Google Calendar API</b>.</p>
       </div>`,
     showCancelButton: true,
     showDenyButton: true,
@@ -958,7 +961,8 @@ async function bukaPengaturanServer() {
     background: '#1e293b', color: '#fff',
     preConfirm: () => ({
       url: (document.getElementById('sv_url')?.value || '').trim().replace(/\/+$/, ''),
-      key: (document.getElementById('sv_key')?.value || '').trim()
+      key: (document.getElementById('sv_key')?.value || '').trim(),
+      gcalClientId: (document.getElementById('sv_gcal')?.value || '').trim()
     })
   });
   if (res.isDenied) {
@@ -968,7 +972,7 @@ async function bukaPengaturanServer() {
     return;
   }
   if (!res.isConfirmed) return;
-  const { url, key } = res.value || {};
+  const { url, key, gcalClientId } = res.value || {};
   if (!url || !key) { showToast('error', 'URL dan Anon Key wajib diisi.'); return; }
   try { new URL(url); } catch (e) { showToast('error', 'Format URL tidak valid.'); return; }
   let ok = false;
@@ -988,7 +992,7 @@ async function bukaPengaturanServer() {
     });
     if (!lanjut.isConfirmed) return;
   }
-  simpanKonfigurasiServer(url, key);
+  simpanKonfigurasiServer(url, key, gcalClientId);
   clearSession();
   location.reload();
 }
@@ -1042,6 +1046,7 @@ async function submitAbsenMandiri() {
     
     if(res.status === 'success') {
       Swal.fire({ icon: 'success', title: 'Berhasil Absen!', html: `Kehadiran tercatat.<br><span class="text-xs text-slate-400">Lokasi: ${gpsLokasi}</span>`, background: '#1e293b', color: '#fff' });
+      cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
       document.getElementById('murid-captcha').value = '';
     } else Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Absen ditolak.', background: '#1e293b', color: '#fff' });
   } catch (e) { Swal.fire({ icon: 'error', title: 'Error Jaringan', text: e.message, background: '#1e293b', color: '#fff' }); }
@@ -1396,7 +1401,28 @@ function refreshTableAbsenUI() {
   enableNamaSiswaResize();
 }
 
-async function loadDataMuridDanAbsen() {
+/** ===== CACHE SESI get_dashboard_data (hemat query Supabase) =====
+ *  Payload identik {kelas,mapel,bulan,tahun} dipakai modul Hadir Tatap Muka & Input Nilai.
+ *  Cache hit → 0 query; tombol Refresh memaksa ambil ulang; otomatis dibersihkan saat ada tulisan. */
+let cacheDashboardSesi = {};
+function cacheDashboardKey(payload) {
+  return JSON.stringify([payload.kelas, payload.mapel, payload.bulan, payload.tahun]);
+}
+function cacheDashboardHapus(payload) {
+  delete cacheDashboardSesi[cacheDashboardKey(payload)];
+}
+function cacheDashboardKosongkan() { cacheDashboardSesi = {}; }
+
+/** Ambil get_dashboard_data via cache sesi (paksa=true = fetch ulang). */
+async function ambilDashboardData(payload, paksa = false) {
+  const key = cacheDashboardKey(payload);
+  if (!paksa && cacheDashboardSesi[key]) return cacheDashboardSesi[key];
+  const json = await supabaseFetch('get_dashboard_data', payload);
+  if (json && json.status === 'success') cacheDashboardSesi[key] = json;
+  return json;
+}
+
+async function loadDataMuridDanAbsen(paksa = false) {
   const elKelas = document.getElementById('select-kelas'), elMapel = document.getElementById('select-mapel'), elBulan = document.getElementById('select-bulan'), elTahun = document.getElementById('select-tahun');
   if(!elKelas || !elMapel || !elBulan || !elTahun) return;
 
@@ -1413,7 +1439,7 @@ async function loadDataMuridDanAbsen() {
 
   try {
     const payload = { kelas: kelas, mapel: namaMapel, bulan: currentBulan, tahun: currentTahun };
-    const json = await supabaseFetch('get_dashboard_data', payload);
+    const json = await ambilDashboardData(payload, paksa);
       if (json.status === 'success') {
       rawAbsenData = json.absen; 
       dataStatusKunciGuru = json.status_guru; 
@@ -1447,8 +1473,8 @@ async function loadDataMuridDanAbsen() {
   } catch (e) { if(tableEl) tableEl.innerHTML = `<tr><td class="p-6 text-center text-red-400"><i class="fa-solid fa-triangle-exclamation text-2xl mb-2"></i><br>Gagal memuat data.</td></tr>`; }
 }
 
-/** Alias refresh (tombol Refresh memanggil loadDataAbsensi). */
-function loadDataAbsensi() { return loadDataMuridDanAbsen(); }
+/** Alias refresh (tombol Refresh memanggil loadDataAbsensi) — paksa ambil ulang dari server. */
+function loadDataAbsensi() { return loadDataMuridDanAbsen(true); }
 
 /** Ekstrak hari (1-31) dari kolom tanggal absensi ("YYYY-MM-DD" / ISO). */
 function hariDariTanggal(t) {
@@ -1580,7 +1606,7 @@ async function saveKeteranganSiswaAPI(nis, updates) {
   
   try {
     const res = await apiCall('save_keterangan_siswa', { nis: nis, mapel: namaMapel, updates: updates });
-    if (res.status === 'success') { Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' }); loadDataMuridDanAbsen(); } 
+    if (res.status === 'success') { Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' }); cacheDashboardKosongkan(); loadDataMuridDanAbsen(); } 
     else { Swal.fire({ icon: 'error', title: 'Gagal', text: res.message || 'Gagal menyimpan keterangan.', background: '#1e293b', color: '#fff' }); }
   } catch (e) { Swal.fire({ icon: 'error', title: 'Error Jaringan', text: e.message || '', background: '#1e293b', color: '#fff' }); }
 }
@@ -1690,6 +1716,7 @@ async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "") {
     });
     if (res.status === 'success') {
       Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Data Berhasil Disimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+      cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
       loadDataMuridDanAbsen();
     } else {
       Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Gagal menyimpan absensi.', background: '#1e293b', color: '#fff' });
@@ -1742,6 +1769,7 @@ async function updateKunciServer() {
       .update({ captcha: newCaptcha, kunci_absen: newKunci })
       .eq('nis_nip', nipGuru);
     if (error) throw error;
+    cacheDashboardKosongkan(); // status kunci/captcha guru berubah → sesi cache usang
     currentUser.user["Captcha"] = newCaptcha; currentUser.user["Kunci Absen"] = newKunci;
     // Simpan hanya bila token valid — jangan timpa token sesi dengan string kosong.
     const tokenAktif = getToken();
@@ -1856,6 +1884,7 @@ async function forceSyncSemuaAbsensi() {
             if (!res || res.status !== 'success') throw new Error((res && res.message) || 'Gagal menyimpan tanggal ' + tgl);
         }
         Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Seluruh Kehadiran Tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+        cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
         loadDataMuridDanAbsen();
     } catch (e) {
         Swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: e.message || 'Periksa koneksi jaringan Anda.', background: '#1e293b', color: '#fff' });
@@ -2716,7 +2745,7 @@ async function renderNilaiModule(container) {
           <button onclick="openPengaturanKolomNilai()" class="bg-purple-600 hover:bg-purple-700 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded flex items-center gap-1 transition" title="Pengaturan Set Kolom"><i class="fa-solid fa-sliders"></i> <span class="hidden sm:inline">Set</span></button>
           
           <span class="text-slate-600 px-0.5">|</span>
-          <button onclick="loadDataNilai()" class="bg-slate-600 hover:bg-slate-500 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Refresh Data"><i class="fa-solid fa-rotate-right"></i></button>
+          <button onclick="loadDataNilai(true)" class="bg-slate-600 hover:bg-slate-500 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
           <button onclick="openImportExcel()" class="bg-teal-700 hover:bg-teal-600 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition shadow-sm" title="Import Data Excel"><i class="fa-solid fa-file-import"></i></button>
           <button onclick="exportNilaiExcel()" class="bg-green-700 hover:bg-green-600 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Export Laporan ke Excel"><i class="fa-solid fa-file-excel"></i></button>
           <button onclick="exportNilaiPDF()" class="bg-red-700 hover:bg-red-600 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Cetak Laporan PDF"><i class="fa-solid fa-file-pdf"></i></button>
@@ -2760,6 +2789,7 @@ async function renderNilaiModule(container) {
 /** Simpan konfigurasi kategori nilai (KD/bobot) ke tabel nilai_konfigurasi.
  *  Mengembalikan objek mirip Response (json()) agar kompatibel dengan pemanggil lama. */
 async function simpanKonfigurasiNilai(kategori, mapel, config) {
+  cacheNilaiKosongkan(); // konfigurasi (Set kolom/format deskripsi) berubah → snapshot nilai usang
   const katMapel = kategori === "Data Nilai Eskul" ? "" : (mapel || "");
   const { error } = await supaClient.from('nilai_konfigurasi')
     .upsert({ kategori, mapel: katMapel, config: config || {}, updated_at: new Date().toISOString() },
@@ -2768,7 +2798,17 @@ async function simpanKonfigurasiNilai(kategori, mapel, config) {
   return { json: async () => ({ status: 'success', message: 'Konfigurasi tersimpan' }) };
 }
 
-async function loadDataNilai() {
+/** ===== CACHE SESI MODUL NILAI (hemat query Supabase) =====
+ *  Snapshot {rawDataNilai, configNilaiAktif, cacheNilaiPasangan, cacheTemanSejawat} per kunci
+ *  kategori|mapel|ekskul|kelas|tahun|semester. silentSaveNilai/undo memutasi objek yang sama
+ *  (shared reference) sehingga snapshot ikut ter-update; invalidasi hanya saat upsert/konfigurasi. */
+let cacheNilaiSesi = {};
+function cacheNilaiKosongkan() { cacheNilaiSesi = {}; }
+function kunciCacheNilai(katMapel, katEkskul, kelas) {
+  return JSON.stringify([currentKategoriNilai, katMapel, katEkskul, kelas, currentTahun, currentSemesterNilai]);
+}
+
+async function loadDataNilai(paksa = false) {
   const mapel = document.getElementById('select-mapel-nilai').value, kelas = document.getElementById('select-kelas-nilai').value;
   currentTahun = document.getElementById('select-tahun-nilai').value;
   currentSemesterNilai = document.getElementById('select-semester-nilai').value;
@@ -2789,10 +2829,20 @@ async function loadDataNilai() {
 
   tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Sinkronisasi Database...</td></tr>`;
 
-  try {
-    const katMapel = currentKategoriNilai === "Data Nilai Eskul" ? "" : mapel;
-    const katEkskul = currentKategoriNilai === "Data Nilai Eskul" ? mapel : "";
+  const katMapel = currentKategoriNilai === "Data Nilai Eskul" ? "" : mapel;
+  const katEkskul = currentKategoriNilai === "Data Nilai Eskul" ? mapel : "";
+  const keyCacheNilai = kunciCacheNilai(katMapel, katEkskul, kelas);
 
+  // Cache hit: restore snapshot → 0 query (tombol Refresh = paksa)
+  if (!paksa && cacheNilaiSesi[keyCacheNilai]) {
+    const snap = cacheNilaiSesi[keyCacheNilai];
+    rawDataNilai = snap.rawDataNilai; configNilaiAktif = snap.configNilaiAktif;
+    cacheNilaiPasangan = snap.cacheNilaiPasangan; cacheTemanSejawat = snap.cacheTemanSejawat;
+    renderTabelNilaiAktif();
+    return;
+  }
+
+  try {
     // 1) Konfigurasi kategori+mapel dari Supabase
     const { data: konfigRow, error: errKonfig } = await supaClient.from('nilai_konfigurasi')
       .select('config').eq('kategori', currentKategoriNilai).eq('mapel', katMapel).maybeSingle();
@@ -2810,8 +2860,8 @@ async function loadDataNilai() {
       }
     }
 
-    // 2) Murid + status guru (sumber tunggal: tabel akun)
-    const json = await supabaseFetch('get_dashboard_data', { kelas: kelas, mapel: mapel, bulan: currentBulan, tahun: currentTahun });
+    // 2) Murid + status guru (sumber tunggal: tabel akun) — via cache sesi bersama
+    const json = await ambilDashboardData({ kelas: kelas, mapel: mapel, bulan: currentBulan, tahun: currentTahun }, paksa);
     if (json.status !== 'success') throw new Error(json.message || 'Gagal memuat data murid');
     listMuridKelas = json.murid;
     // PERBAIKAN: Saring data tabel Nilai berdasarkan kolom "Ekstrakurikuler"
@@ -2827,8 +2877,10 @@ async function loadDataNilai() {
 
     // 3) Nilai tersimpan (JSONB per siswa) → dibangun ulang ke bentuk kolom dinamis
     // Mode "Semua Kelas" (kategori Eskul): tanpa filter kelas — baris tersimpan per kelas asli siswa
+    // Trim kolom: mapping di bawah hanya memakai nis/nama/kelas + JSONB data (Tahun/Semester/Mapel
+    // dipetakan dari variabel filter, bukan dari baris — verifikasi: tak ada pemakai dt["Tahun"] dst.)
     let qNilai = supaClient.from('nilai')
-      .select('*')
+      .select('nis, nama, kelas, data')
       .eq('kategori', currentKategoriNilai)
       .eq('mapel', katMapel)
       .eq('ekskul', katEkskul)
@@ -2841,11 +2893,11 @@ async function loadDataNilai() {
       "NIS": r.nis,
       nis: r.nis,
       "Nama": r.nama || "",
-      "Tahun": r.tahun,
-      "Semester": r.semester,
-      "Tingkat/Kelas": r.kelas,
-      "Mata Pelajaran": r.mapel,
-      "Ekstrakurikuler": r.ekskul,
+      "Tahun": currentTahun,
+      "Semester": currentSemesterNilai,
+      "Tingkat/Kelas": r.kelas || kelas,
+      "Mata Pelajaran": katMapel,
+      "Ekstrakurikuler": katEkskul,
       ...(r.data || {})
     }));
     // Lampirkan salinan JSONB untuk merge saat auto-save
@@ -2910,17 +2962,27 @@ async function loadDataNilai() {
     }
 
     // Render Tabel berdasarkan Kategori
-    if(currentKategoriNilai === "Data Nilai Pengetahuan") renderTabelPengetahuan();
-    else if(currentKategoriNilai === "Data Nilai Keterampilan") renderTabelKeterampilan();
-    else if(currentKategoriNilai === "Data Nilai Sikap") renderTabelSikap();
-    else if(currentKategoriNilai === "Data Nilai Eskul") renderTabelEskul();
-    else tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs">Modul dalam tahap pengembangan.</td></tr>`;
+    renderTabelNilaiAktif();
 
     // Validasi Kosong
     if (rawDataNilai.length === 0 && listMuridKelas.length > 0) {
       Swal.fire({ title: 'Database Belum Tersedia', text: 'Data untuk Semester ini belum ada. Klik "Simpan Semua" untuk otomatis menginisiasi kolom nilai ke dalam Database.', icon: 'info', background: '#1e293b', color: '#fff', confirmButtonText: 'Baik, Mengerti' });
     }
   } catch (e) { tableEl.innerHTML = `<tr><td class="p-6 text-center text-red-400">Gagal memuat data. Periksa koneksi internet Anda.</td></tr>`; }
+
+  // Simpan snapshot ke cache sesi (setelah fetch berhasil)
+  cacheNilaiSesi[keyCacheNilai] = { rawDataNilai, configNilaiAktif, cacheNilaiPasangan, cacheTemanSejawat };
+}
+
+/** Render tabel nilai sesuai kategori aktif (dipakai render awal & restore cache). */
+function renderTabelNilaiAktif() {
+    const tableEl = document.getElementById('tabel-nilai');
+    if(!tableEl) return;
+    if(currentKategoriNilai === "Data Nilai Pengetahuan") renderTabelPengetahuan();
+    else if(currentKategoriNilai === "Data Nilai Keterampilan") renderTabelKeterampilan();
+    else if(currentKategoriNilai === "Data Nilai Sikap") renderTabelSikap();
+    else if(currentKategoriNilai === "Data Nilai Eskul") renderTabelEskul();
+    else tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs">Modul dalam tahap pengembangan.</td></tr>`;
 }
 
 function changeKategoriNilai() { 
@@ -3059,7 +3121,7 @@ function renderTabelPengetahuan() {
         
         <!-- KOLOM TUNGGAKAN -->
         <th rowspan="2" class="bg-red-900/30 border-r border-b border-white/10 cursor-pointer hover:bg-red-800 transition align-middle" onclick="toggleBelumTuntasNilai()" style="width: ${showBelumTuntasNilai ? '140px' : '30px'}; min-width: ${showBelumTuntasNilai ? '140px' : '30px'}; max-width: ${showBelumTuntasNilai ? '140px' : '30px'};">
-            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event)" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
+            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event, \'pk\')" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA (Gabungan Pengetahuan & Keterampilan)"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
         </th>
         
         <th class="bg-slate-800 border-r border-white/10 align-middle"><div style="resize: horizontal; overflow: auto; min-width: 150px; width: 150px; padding: 8px;">Keterangan</div></th>
@@ -3491,6 +3553,7 @@ async function forceSyncSemuaNilai() {
       if (res.error) throw res.error;
     }
 
+    cacheNilaiKosongkan(); // upsert masal berubah → snapshot nilai usang
     await loadDataNilai(); 
     Swal.fire({toast:true, position:'top-end', icon:'success', title: isNewDatabase ? 'Database Nilai Diinisiasi!' : 'Seluruh Nilai Tersimpan!', showConfirmButton:false, timer:2000, background:'#1e293b', color:'#fff'});
   } catch(e) { Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || 'Error Jaringan', background: '#1e293b', color: '#fff' }); }
@@ -5220,10 +5283,10 @@ function renderTabelKeterampilan() {
         
         <!-- KOLOM TUNGGAKAN -->
         <th rowspan="2" class="bg-red-900/30 border-r border-b border-white/10 cursor-pointer hover:bg-red-800 transition align-middle" onclick="toggleBelumTuntasNilai()" style="width: ${showBelumTuntasNilai ? '140px' : '30px'}; min-width: ${showBelumTuntasNilai ? '140px' : '30px'}; max-width: ${showBelumTuntasNilai ? '140px' : '30px'};">
-            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event)" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
+            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event, \'pk\')" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA (Gabungan Pengetahuan & Keterampilan)"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
         </th>
         
-        <th rowspan="2" class="bg-slate-800 border-r border-b border-white/10 align-middle"><div style="resize: horizontal; overflow: auto; min-width: 150px; width: 150px; padding: 8px;">Keterangan</div></th>
+        <th rowspan="2" class="bg-slate-800 border-r border-white/10 align-middle"><div style="resize: horizontal; overflow: auto; min-width: 150px; width: 150px; padding: 8px;">Keterangan</div></th>
       </tr>
       <tr class="bg-slate-800 text-slate-400 text-[9px] text-center shadow-sm">
         <th class="sticky left-0 bg-slate-800 z-50 border-r border-b border-white/10"></th>
@@ -5451,23 +5514,59 @@ function getTunggakan(nis, kategori) {
     return tunggakan;
 }
 
-// --- [UPDATE REQ 9] BROADCAST WA 3 KATEGORI ---
-async function shareBelumTuntasWA(e) {
+// --- [UPDATE REQ 9] BROADCAST WA PER KATEGORI ---
+// mode: '' = semua kategori (P+K+Sikap) | 'pk' = gabungan Pengetahuan & Keterampilan saja | 'teman' = progres penilaian 5 Teman Sejawat (Sikap)
+async function shareBelumTuntasWA(e, mode = '') {
     if(e) e.stopPropagation(); 
 
     const mapel = document.getElementById('select-mapel-nilai').value;
     const kelas = document.getElementById('select-kelas-nilai').value;
+    const modePk = mode === 'pk';
+    const modeTeman = mode === 'teman';
 
     Swal.fire({ 
         title: 'Menyiapkan Laporan...', 
-        html: '<span class="text-xs text-slate-400">Menganalisis data Pengetahuan, Keterampilan, & Sikap...</span>', 
+        html: modeTeman 
+            ? '<span class="text-xs text-slate-400">Memeriksa progres penilaian Teman Sejawat...</span>' 
+            : modePk 
+                ? '<span class="text-xs text-slate-400">Menganalisis data Pengetahuan & Keterampilan...</span>' 
+                : '<span class="text-xs text-slate-400">Menganalisis data Pengetahuan, Keterampilan, & Sikap...</span>', 
         allowOutsideClick: false, 
         background: '#1e293b', color: '#fff',
         didOpen: () => Swal.showLoading() 
     });
 
     try {
-        // Ambil data 3 kategori + konfigurasinya dari Supabase (sudah terfilter kelas/tahun/semester)
+        // [MODE 'teman'] Sikap: daftar siswa yang belum menyelesaikan penilaian N Teman Sejawat
+        if (modeTeman) {
+            const st = cfgSikapTeman();
+            const jumlahWajib = st.jumlah_teman || 5;
+            let ratingMap = {};
+            try { ratingMap = await muatRatingTemanSejawat(); }
+            catch (err) { throw new Error('Gagal memuat rating teman sejawat: ' + (err.message || '')); }
+            const namaByNis = {};
+            listMuridKelas.forEach(m => { namaByNis[String(m.NIS)] = m["Nama Lengkap"] || String(m.NIS); });
+
+            let textWA = `*PANTAUAN PENILAIAN ${jumlahWajib} TEMAN SEJAWAT*\n`;
+            textWA += `TA: ${currentTahun} | Smt: ${currentSemesterNilai}\nMapel: ${mapel} | Kelas: ${kelas}\n\n`;
+            textWA += `Berikut daftar siswa yang BELUM menilai ${jumlahWajib} teman sejawatnya:\n\n`;
+            let hasTeman = false;
+            listMuridKelas.forEach((m, idx) => {
+                const targets = ratingMap[String(m.NIS)] || {};
+                const sudah = Object.entries(targets).filter(([, sk]) => sk !== "" && sk !== null && sk !== undefined);
+                if (sudah.length >= jumlahWajib) return;
+                hasTeman = true;
+                textWA += `${idx + 1}. *${m["Nama Lengkap"]}*\n`;
+                textWA += `   ~> Sudah menilai: *${sudah.length}/${jumlahWajib}*`;
+                if (sudah.length > 0) textWA += ` (${sudah.map(([nis]) => namaByNis[String(nis)] || nis).join(', ')})`;
+                textWA += `\n`;
+            });
+            if (!hasTeman) return Swal.fire({ icon: 'success', title: 'Sempurna!', text: `Semua siswa telah menilai ${jumlahWajib} teman sejawat.`, background: '#1e293b', color: '#fff' });
+            textWA += `\n_Mohon segera lengkapi penilaian teman sejawat melalui akun masing-masing. Terima kasih._`;
+            return tampilkanBroadcastWA(textWA);
+        }
+
+        // Ambil data kategori + konfigurasinya dari Supabase (sudah terfilter kelas/tahun/semester)
         const ambilKategoriNilai = async (sheet) => {
           const [nv, kf] = await Promise.all([
             supaClient.from('nilai').select('nis, data')
@@ -5482,14 +5581,15 @@ async function shareBelumTuntasWA(e) {
         };
         const [dataP, cP] = await ambilKategoriNilai("Data Nilai Pengetahuan");
         const [dataK, cK] = await ambilKategoriNilai("Data Nilai Keterampilan");
-        const [dataS, cS] = await ambilKategoriNilai("Data Nilai Sikap");
+        let dataS = [], cS = null;
+        if (!modePk) { const [ds, cs] = await ambilKategoriNilai("Data Nilai Sikap"); dataS = ds; cS = cs; }
 
         const isKosongAtauKurang = (val) => (val === "" || val === null || Number(val) < 71);
         let hasData = false;
         
         let textWA = `*INFORMASI NILAI BELUM TUNTAS / KOSONG*\n`;
         textWA += `TA: ${currentTahun} | Smt: ${currentSemesterNilai}\nMapel: ${mapel} | Kelas: ${kelas}\n\n`;
-        textWA += `Berikut daftar siswa yang memiliki nilai kosong atau di bawah KKM (71):\n\n`;
+        textWA += `Berikut daftar siswa yang memiliki nilai kosong atau di bawah KKM (71)${modePk ? ' — Pengetahuan & Keterampilan' : ''}:\n\n`;
 
         listMuridKelas.forEach((m, idx) => {
             let p = dataP.find(d => d.NIS == m.NIS) || {};
@@ -5510,13 +5610,15 @@ async function shareBelumTuntasWA(e) {
             for(let j=1; j<=cK.active_proj; j++) if(isKosongAtauKurang(k[`Projek ${j}`])) tK.push(cK.labels?.proj[j-1] || `Projek ${j}`);
             for(let j=1; j<=cK.active_port; j++) if(isKosongAtauKurang(k[`Porto ${j}`])) tK.push(cK.labels?.port[j-1] || `Porto ${j}`);
 
-            // Cek Sikap
-            for(let i=0; i<cS.active_cp; i++) {
-                for(let j=1; j<=cS.active_sub_cp; j++) {
-                    if(isKosongAtauKurang(s[`CP ${LTRS[i]}${j}`])) tS.push(`Obs ${cS.labels?.cp[i]||LTRS[i]}-${j}`);
+            // Cek Sikap (dilewati pada mode gabungan Pengetahuan & Keterampilan)
+            if (!modePk) {
+                for(let i=0; i<cS.active_cp; i++) {
+                    for(let j=1; j<=cS.active_sub_cp; j++) {
+                        if(isKosongAtauKurang(s[`CP ${LTRS[i]}${j}`])) tS.push(`Obs ${cS.labels?.cp[i]||LTRS[i]}-${j}`);
+                    }
                 }
+                if(isKosongAtauKurang(s["Nilai Akhir Raport"])) tS.push("Nilai Akhir (Rapor)");
             }
-            if(isKosongAtauKurang(s["Nilai Akhir Raport"])) tS.push("Nilai Akhir (Rapor)");
 
             if (tP.length > 0 || tK.length > 0 || tS.length > 0) {
                 hasData = true;
@@ -5527,24 +5629,28 @@ async function shareBelumTuntasWA(e) {
             }
         });
 
-        if(!hasData) return Swal.fire({icon: 'success', title: 'Sempurna!', text: 'Semua siswa tuntas (Pengetahuan, Keterampilan, Sikap).', background: '#1e293b', color: '#fff'});
+        if(!hasData) return Swal.fire({icon: 'success', title: 'Sempurna!', text: modePk ? 'Semua siswa tuntas (Pengetahuan & Keterampilan).' : 'Semua siswa tuntas (Pengetahuan, Keterampilan, Sikap).', background: '#1e293b', color: '#fff'});
 
         textWA += `\n_Mohon segera dilengkapi. Terima kasih._`;
-
-        Swal.fire({
-            title: '<div class="text-base font-bold text-green-400"><i class="fa-brands fa-whatsapp"></i> Broadcast WhatsApp</div>',
-            html: `<textarea id="wa-text-area" class="w-full h-56 bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-green-500 custom-scrollbar" readonly>${textWA}</textarea>`,
-            background: '#1e293b', color: '#fff',
-            showCancelButton: true, showDenyButton: true,
-            confirmButtonColor: '#16a34a', denyButtonColor: '#3b82f6',
-            confirmButtonText: '<i class="fa-brands fa-whatsapp"></i> Buka WA', denyButtonText: '<i class="fa-regular fa-copy"></i> Copy', cancelButtonText: 'Tutup'
-        }).then((res) => {
-            if (res.isConfirmed) window.open(`https://wa.me/?text=${encodeURIComponent(textWA)}`, '_blank');
-            else if (res.isDenied) { navigator.clipboard.writeText(textWA); Swal.fire({toast: true, position: 'top-end', icon: 'success', title: 'Disalin!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff'}); }
-        });
+        return tampilkanBroadcastWA(textWA);
     } catch(e) {
         Swal.fire({icon: 'error', title: 'Gagal', text: e.message, background: '#1e293b', color: '#fff'});
     }
+}
+
+/** Popup hasil broadcast WhatsApp: tampilkan teks + aksi Buka WA / Copy. */
+function tampilkanBroadcastWA(textWA) {
+    return Swal.fire({
+        title: '<div class="text-base font-bold text-green-400"><i class="fa-brands fa-whatsapp"></i> Broadcast WhatsApp</div>',
+        html: `<textarea id="wa-text-area" class="w-full h-56 bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-green-500 custom-scrollbar" readonly>${textWA}</textarea>`,
+        background: '#1e293b', color: '#fff',
+        showCancelButton: true, showDenyButton: true,
+        confirmButtonColor: '#16a34a', denyButtonColor: '#3b82f6',
+        confirmButtonText: '<i class="fa-brands fa-whatsapp"></i> Buka WA', denyButtonText: '<i class="fa-regular fa-copy"></i> Copy', cancelButtonText: 'Tutup'
+    }).then((res) => {
+        if (res.isConfirmed) window.open(`https://wa.me/?text=${encodeURIComponent(textWA)}`, '_blank');
+        else if (res.isDenied) { navigator.clipboard.writeText(textWA); Swal.fire({toast: true, position: 'top-end', icon: 'success', title: 'Disalin!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff'}); }
+    });
 }
 
 // ==========================================
@@ -5591,10 +5697,10 @@ function renderTabelSikap() {
         
         <!-- [REQ 7] KOLOM TUNGGAKAN BISA DI-TOGGLE -->
         <th rowspan="2" class="bg-red-900/30 border-r border-b border-white/10 cursor-pointer hover:bg-red-800 transition align-middle" onclick="toggleBelumTuntasNilai()" style="width: ${showBelumTuntasNilai ? '140px' : '30px'}; min-width: ${showBelumTuntasNilai ? '140px' : '30px'}; max-width: ${showBelumTuntasNilai ? '140px' : '30px'};">
-            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event)" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
+            ${showBelumTuntasNilai ? '<div class="flex justify-between items-center px-1"><span class="text-[9px] text-red-300 font-bold tracking-normal leading-tight text-left">Belum<br>Tuntas</span> <button onclick="shareBelumTuntasWA(event, \'teman\')" class="bg-green-500 text-white px-1.5 py-1 rounded shadow hover:bg-green-400" title="Share WA (Progres Penilaian Teman Sejawat)"><i class="fa-brands fa-whatsapp"></i></button></div>' : '<i class="fa-solid fa-triangle-exclamation text-red-400" title="Klik lihat nilai belum tuntas"></i>'}
         </th>
         
-        <th rowspan="2" class="bg-slate-800 border-r border-b border-white/10 align-middle"><div style="resize: horizontal; overflow: auto; min-width: 150px; width: 150px; padding: 8px;">Keterangan</div></th>
+        <th rowspan="2" class="bg-slate-800 border-r border-white/10 align-middle"><div style="resize: horizontal; overflow: auto; min-width: 150px; width: 150px; padding: 8px;">Keterangan</div></th>
         </tr>
         <tr class="bg-slate-800 text-slate-400 text-[9px] text-center shadow-sm">
         <th class="sticky left-0 bg-slate-800 z-50 border-r border-b border-white/10"></th>
@@ -6520,7 +6626,23 @@ let cacheAkunMurid = [];
 // Perbaikan: Hapus kata 'let'
 masterDataCache = masterDataCache || [];
 
-async function renderManajemenMurid(container) {
+// ===== Optimasi load "Data Akun Murid": cache sesi + trim kolom + pagination =====
+let cacheAkunMuridSesiAda = false;   // true setelah 1x fetch sukses per sesi
+let ukuranHalamanMurid = 50;         // default ukuran halaman (25/50/75/100)
+let halamanAktifMurid = 1;
+// Kolom ringkas utk daftar tabel + filter + tombol aksi (payload ±60% lebih ringan dari select('*'))
+const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, email, ekstrakurikuler, tahun_pelajaran, semester';
+// Kolom penuh utk export Excel/PDF (fetch on-demand saat tombol export diklik)
+const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester';
+
+/** Kosongkan cache akun (murid) + cache dashboard — dipanggil setiap CRUD akun. */
+function invalidasiCacheAkun() {
+  cacheAkunMurid = [];
+  cacheAkunMuridSesiAda = false;
+  cacheDashboardKosongkan();
+}
+
+async function renderManajemenMurid(container, paksa = false) {
     container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Data Akun Murid...</div>`;
     
     try {
@@ -6534,23 +6656,28 @@ async function renderManajemenMurid(container) {
     }
 }
 
-        // 2. Ambil Data Murid → simpan ke cache khusus murid (JANGAN menimpa masterDataCache)
-        const { data: muridRows, error } = await supaClient
-          .from('akun')
-          .select('*')
-          .eq('tipe', 'murid');
-        if (error) {
-          console.error("Gagal memuat akun", error);
-        } else {
-          cacheAkunMurid = muridRows || [];
+        // 2. Ambil Data Murid → cache sesi (buka menu ulang = 0 fetch; tombol Refresh = paksa)
+        if (paksa || !cacheAkunMuridSesiAda) {
+            const { data: muridRows, error } = await supaClient
+              .from('akun')
+              .select(KOLOM_LIST_MURID)
+              .eq('tipe', 'murid');
+            if (error) {
+              console.error("Gagal memuat akun", error);
+            } else {
+              cacheAkunMurid = muridRows || [];
+              cacheAkunMuridSesiAda = true;
+            }
         }
 
         // 3. Ekstrak Data Unik dari Master Data (format lama & baru)
         const listTahun = [...new Set(masterDataCache.map(m => mdVal(m, "Tahun Pelajaran", "tahun_pelajaran")).filter(Boolean))];
         const listEkskul = urutAz(denganSto([...new Set(masterDataCache.map(m => mdVal(m, "Ekstrakurikuler", "ekstrakurikuler")).filter(Boolean))]));
+        const listKelasMurid = urutAz([...new Set((cacheAkunMurid || []).map(m => m.tingkat_kelas || m["Tingkat/Kelas"]).filter(Boolean))]);
         
         const tahunOptions = listTahun.map(t => `<option value="${t}">${t}</option>`).join('');
         const ekskulOptions = listEkskul.map(e => `<option value="${e}">${e}</option>`).join('');
+        const kelasOptions = listKelasMurid.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('');
 
         container.innerHTML = `
             <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
@@ -6558,10 +6685,15 @@ async function renderManajemenMurid(container) {
                     <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-graduate text-blue-400 mr-2"></i> Manajemen Akun Murid</h2>
                     
                     <div class="flex gap-2 w-full sm:w-auto flex-wrap justify-end items-center">
-                        <!-- FITUR BARU: Dropdown Filter Tahun & Ekskul -->
+                        <!-- Filter Tahun / Kelas / Ekskul -->
                         <select id="filter-tahun-murid" class="w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
                             <option value="ALL">Semua Tahun</option>
                             ${tahunOptions}
+                        </select>
+
+                        <select id="filter-kelas-murid" class="w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                            <option value="ALL">Semua Kelas</option>
+                            ${kelasOptions}
                         </select>
 
                         <select id="filter-ekskul-murid" class="w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
@@ -6570,6 +6702,7 @@ async function renderManajemenMurid(container) {
                         </select>
                         
                         <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="w-full sm:w-40 bg-black/40 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
+                        <button onclick="renderManajemenMurid(document.getElementById('main-content'), true)" class="bg-slate-600 hover:bg-slate-500 text-white px-2.5 py-2 rounded-lg text-xs font-bold transition shadow-md" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
                         <button onclick="exportExcelMurid()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-excel"></i> Excel</button>
                         <button onclick="exportPdfMurid()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-pdf"></i> PDF</button>
                         <button onclick="openExportQRMurid()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-qrcode"></i> Export QR</button>
@@ -6590,13 +6723,13 @@ async function renderManajemenMurid(container) {
                                 <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
                             </tr>
                         </thead>
-                        <tbody id="tbody-murid" class="text-xs text-slate-200">
-                            ${generateTbodyMurid(cacheAkunMurid)}
-                        </tbody>
+                        <tbody id="tbody-murid" class="text-xs text-slate-200"></tbody>
                     </table>
                 </div>
+                <div id="pag-murid" class="bg-slate-800/80 border-t border-white/10 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300"></div>
             </div>
         `;
+        renderTabelMuridTerfilter();
     } catch(e) {
         console.error("Error renderManajemenMurid:", e);
         container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat data akun murid. Periksa koneksi jaringan.</div>`;
@@ -6688,7 +6821,7 @@ async function exportPdfMurid() {
   printWindow.document.close();
 }
 
-function generateTbodyMurid(data) {
+function generateTbodyMurid(data, mulaiNo = 0) {
     if (!data || data.length === 0) return `<tr><td colspan="7" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
 
     return data.map((d, i) => {
@@ -6703,7 +6836,7 @@ function generateTbodyMurid(data) {
 
         return `
             <tr class="hover:bg-white/5 border-b border-white/5 transition row-murid" data-ekskul="${ekskulData}" data-tahun="${escapeHtml(tahunData)}">
-                <td class="px-4 py-3 text-center">${i+1}</td>
+                <td class="px-4 py-3 text-center">${mulaiNo + i + 1}</td>
                 <td class="px-4 py-3 font-mono text-blue-300 search-target">${nis}</td>
                 <td class="px-4 py-3 font-mono text-slate-300 search-target">${nisn}</td>
                 <td class="px-4 py-3 font-bold search-target">${nama}${jabatan ? `<span class="ml-1 text-[9px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">${escapeHtml(jabatan)}</span>` : ''}</td>
@@ -6721,23 +6854,60 @@ function generateTbodyMurid(data) {
     }).join('');
 }
 
-function filterTabelMurid() {
-    const query = document.getElementById('search-murid').value.toLowerCase();
-    const filterEks = document.getElementById('filter-ekskul-murid').value.toLowerCase();
-    const filterTahun = document.getElementById('filter-tahun-murid').value;
-    const rows = document.querySelectorAll('.row-murid');
-    
-    rows.forEach(row => {
-        const text = row.innerText.toLowerCase();
-        const ekskulRow = (row.getAttribute('data-ekskul') || "").toLowerCase();
-        const tahunRow = row.getAttribute('data-tahun') || "";
-        
-        let matchText = text.includes(query);
-        let matchEkskul = (filterEks === 'all') || ekskulRow.includes(filterEks);
-        let matchTahun = (filterTahun === 'ALL') || (tahunRow === filterTahun);
-        
-        row.style.display = (matchText && matchEkskul && matchTahun) ? '' : 'none';
+/** Render ulang tabel murid sesuai filter aktif (cari/tahun/kelas/ekskul) + pagination. */
+function renderTabelMuridTerfilter() {
+    const tbody = document.getElementById('tbody-murid');
+    if (!tbody) return;
+    const query = ((document.getElementById('search-murid') || {}).value || '').toLowerCase();
+    const filterEks = ((document.getElementById('filter-ekskul-murid') || {}).value || 'ALL').toLowerCase();
+    const filterTahun = (document.getElementById('filter-tahun-murid') || {}).value || 'ALL';
+    const filterKelas = (document.getElementById('filter-kelas-murid') || {}).value || 'ALL';
+
+    const cocok = (cacheAkunMurid || []).filter(d => {
+        const text = `${d.nis_nip || ''} ${d.nisn || ''} ${d.nama_lengkap || d.Nama || ''}`.toLowerCase();
+        const ekskulRow = (d.ekstrakurikuler || d.Ekstrakurikuler || '').toLowerCase();
+        const tahunRow = String(d.tahun_pelajaran || d["ID Tahun Pelajaran"] || '');
+        const kelasRow = String(d.tingkat_kelas || d["Tingkat/Kelas"] || '');
+        return text.includes(query)
+            && (filterEks === 'all' || ekskulRow.includes(filterEks))
+            && (filterTahun === 'ALL' || tahunRow === filterTahun)
+            && (filterKelas === 'ALL' || kelasRow === filterKelas);
     });
+
+    const totalHalaman = Math.max(1, Math.ceil(cocok.length / ukuranHalamanMurid));
+    if (halamanAktifMurid > totalHalaman) halamanAktifMurid = totalHalaman;
+    const mulai = (halamanAktifMurid - 1) * ukuranHalamanMurid;
+    const halaman = cocok.slice(mulai, mulai + ukuranHalamanMurid);
+
+    tbody.innerHTML = generateTbodyMurid(halaman, mulai);
+
+    const pag = document.getElementById('pag-murid');
+    if (pag) {
+        if (cocok.length === 0) {
+            pag.innerHTML = `<span class="italic text-slate-500">Tidak ada data yang cocok dengan filter.</span>`;
+        } else {
+            const ukuranOpts = [25, 50, 75, 100].map(u => `<option value="${u}" ${u === ukuranHalamanMurid ? 'selected' : ''}>${u} / hal.</option>`).join('');
+            pag.innerHTML = `
+                <span>Total: <b class="text-white">${cocok.length}</b> murid · Halaman <b class="text-white">${halamanAktifMurid}</b> / ${totalHalaman}</span>
+                <div class="flex items-center gap-1.5">
+                    <button onclick="gantiHalamanMurid(-1)" ${halamanAktifMurid <= 1 ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition" title="Halaman Sebelumnya"><i class="fa-solid fa-chevron-left"></i></button>
+                    <button onclick="gantiHalamanMurid(1)" ${halamanAktifMurid >= totalHalaman ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition" title="Halaman Berikutnya"><i class="fa-solid fa-chevron-right"></i></button>
+                    <select onchange="ukuranHalamanMurid = Number(this.value); halamanAktifMurid = 1; renderTabelMuridTerfilter();" class="bg-slate-700 border border-white/10 rounded px-1 py-1 text-white outline-none cursor-pointer">${ukuranOpts}</select>
+                </div>`;
+        }
+    }
+}
+
+/** Ganti halaman tabel murid (arah: -1 = sebelumnya, 1 = berikutnya). */
+function gantiHalamanMurid(arah) {
+    halamanAktifMurid = Math.max(1, halamanAktifMurid + arah);
+    renderTabelMuridTerfilter();
+}
+
+/** Terapkan ulang filter tabel murid (reset ke halaman pertama). */
+function filterTabelMurid() {
+    halamanAktifMurid = 1;
+    renderTabelMuridTerfilter();
 }
 
 function openFormAkunMurid(isNew, data = {}) {
@@ -6914,6 +7084,7 @@ async function simpanAkunMurid(formData, isNew) {
     return;
   }
   Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: data.message || 'Data murid tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+  cacheDashboardKosongkan(); // daftar murid berubah → sesi cache dashboard usang
   if (typeof renderManajemenMurid === 'function') {
     renderManajemenMurid(document.getElementById('main-content'));
   }
@@ -7143,6 +7314,7 @@ function deleteAkunMurid(nisKey) {
         const hasil = await kelolaAkunAuth(payload);
         if (hasil.status === 'success') {
             Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
+            cacheDashboardKosongkan(); // daftar murid berubah → sesi cache usang
             renderManajemenMurid(document.getElementById('main-content'));
         } else {
             Swal.fire({icon:'error', title:'Gagal', text: hasil.message || 'Terjadi kesalahan.', background:'#1e293b', color:'#fff'});
@@ -7272,6 +7444,7 @@ async function simpanMasalAkunMurid(rows) {
             html: `<div class="text-sm text-left">Ditambahkan: <b>${data.ditambahkan}</b><br>Diperbarui: <b>${data.diperbarui}</b><br>Gagal: <b>${data.gagal}</b>${detailGagal ? `<ul class="text-[10px] text-red-300 mt-2 list-disc list-inside">${detailGagal}</ul>` : ''}</div>`,
             background: '#1e293b', color: '#fff', confirmButtonColor: '#0ea5e9'
         });
+        cacheDashboardKosongkan(); // daftar murid berubah → sesi cache usang
         renderManajemenMurid(document.getElementById('main-content'));
     } catch (error) {
         console.error("Error import masal murid:", error);
@@ -7397,6 +7570,7 @@ function openFormAkunAdmin(isNew, data = {}) {
         const hasil = await kelolaAkunAuth(payload);
         if (hasil.status === 'success') {
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: hasil.message, showConfirmButton: false, timer: 2500, background: '#1e293b', color: '#fff' });
+            cacheDashboardKosongkan(); // daftar akun admin berubah → sesi cache usang
             renderManajemenAdmin(document.getElementById('main-content'));
         } else {
             Swal.fire({ icon: 'error', title: 'Gagal', text: hasil.message || 'Terjadi kesalahan.', background: '#1e293b', color: '#fff' });
@@ -7419,6 +7593,7 @@ function deleteAkunAdmin(userId, nama, profilId) {
         const hasil = await kelolaAkunAuth(payload);
         if (hasil.status === 'success') {
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: hasil.message, showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+            cacheDashboardKosongkan();
             renderManajemenAdmin(document.getElementById('main-content'));
         } else {
             Swal.fire({ icon: 'error', title: 'Gagal', text: hasil.message || 'Terjadi kesalahan.', background: '#1e293b', color: '#fff' });
@@ -7924,6 +8099,7 @@ function openFormAkunGuru(isNew, data = {}) {
         const hasil = await kelolaAkunAuth(payload);
         if (hasil.status === 'success') {
             Swal.fire({toast:true, position:'top-end', icon:'success', title: hasil.message || 'Tersimpan!', showConfirmButton:false, timer:2000, background: '#1e293b', color: '#fff'});
+            cacheDashboardKosongkan(); // daftar guru berubah → sesi cache usang
             renderManajemenGuru(document.getElementById('main-content'));
         } else {
             Swal.fire({icon:'error', title:'Gagal', text: hasil.message || 'Terjadi kesalahan.', background:'#1e293b', color:'#fff'});
@@ -7972,6 +8148,7 @@ function deleteAkunGuru(userId, nama, profilId) {
         const hasil = await kelolaAkunAuth(payload);
         if (hasil.status === 'success') {
             Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
+            cacheDashboardKosongkan(); // daftar guru berubah → sesi cache usang
             renderManajemenGuru(document.getElementById('main-content'));
         } else {
             Swal.fire({icon:'error', title:'Gagal', text: hasil.message || 'Terjadi kesalahan.', background:'#1e293b', color:'#fff'});
@@ -8056,6 +8233,7 @@ function openFormAkun(tipe, isNew, data = {}) {
                 const json = await postRes.json();
                 if(json.status === 'success') {
                     Swal.fire({toast:true, position:'top-end', icon:'success', title:'Tersimpan!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
+                    cacheDashboardKosongkan(); // daftar akun berubah → sesi cache usang
                     if(isMurid) renderManajemenMurid(document.getElementById('main-content'));
                     else renderManajemenGuru(document.getElementById('main-content'));
                 } else throw new Error(json.message);
@@ -8312,6 +8490,7 @@ async function renderJadwalLiburModule(container) {
                         <button onclick="switchTabJadwal('jadwal')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='jadwal' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Jadwal Pelajaran</button>
                         <button onclick="switchTabJadwal('lihat')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='lihat' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Lihat Jadwal</button>
                         <button onclick="switchTabJadwal('kalender')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='kalender' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Kalender Pendidikan</button>
+                        <button onclick="switchTabJadwal('gcal')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='gcal' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}"><i class="fa-brands fa-google mr-1"></i>Google Kalender</button>
                         <button onclick="switchTabJadwal('master')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='master' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Master Jadwal</button>
                     </div>
                 </div>
@@ -8321,12 +8500,14 @@ async function renderJadwalLiburModule(container) {
                       : currentTabJadwal === 'jadwal' ? getHTMLJadwalPelajaran()
                       : currentTabJadwal === 'lihat' ? getHTMLLihatJadwal()
                       : currentTabJadwal === 'kalender' ? getHTMLKalenderPendidikan()
+                      : currentTabJadwal === 'gcal' ? getHTMLGoogleKalender()
                       : `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Master Jadwal...</div>`}
                 </div>
             </div>
         `;
         if (currentTabJadwal === 'master') await renderTabMasterJadwal();
         else if (currentTabJadwal === 'kalender') renderKalenderPendidikan();
+        else if (currentTabJadwal === 'gcal') renderGoogleKalender();
         else if (currentTabJadwal === 'lihat') renderLihatJadwal();
     } catch(e) {
         container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul.</div>`;
@@ -8699,7 +8880,7 @@ function renderGridKalender() {
     if (!box) return;
     const bulanData = bangunDataKalender(kalenderTahun || currentTahun);
     box.innerHTML = bulanData.map(b => {
-        const selHTML = b.sel.map(c => {
+        const selCells = b.sel.map(c => {
             if (!c) return '<td class="border border-white/5" style="background:rgba(255,255,255,0.02)"></td>';
             let style = '', title = '';
             if (c.ev) {
@@ -8711,9 +8892,9 @@ function renderGridKalender() {
                 title = 'Hari Libur (Sabtu/Minggu)';
             }
             return `<td class="border border-white/10 text-center text-[9px] font-bold" style="${style}" title="${escapeHtml(title)}">${c.d}</td>`;
-        }).join('');
+        });
         let trs = '';
-        for (let i = 0; i < selHTML.length; i += 7) trs += `<tr>${selHTML.slice(i, i + 7).join('')}</tr>`;
+        for (let i = 0; i < selCells.length; i += 7) trs += `<tr>${selCells.slice(i, i + 7).join('')}</tr>`;
         return `
             <div class="bg-white/5 border border-white/10 rounded-xl p-2">
                 <div class="flex items-center justify-between mb-1 px-1 flex-wrap gap-1">
@@ -8778,6 +8959,7 @@ function renderDataKalender() {
                 <td class="px-4 py-2.5"><span class="text-[9px] px-2 py-0.5 rounded font-bold" style="background:${meta.hex}33;color:${meta.hex}">${meta.label}</span></td>
                 <td class="px-4 py-2.5 text-white">${escapeHtml(k.nama || '-')} ${k.keterangan ? `<span class="text-[10px] text-slate-400">— ${escapeHtml(k.keterangan)}</span>` : ''}</td>
                 <td class="px-4 py-2.5 text-center">
+                    <button onclick="gcalKirimSatu('${r_id(k.id)}')" class="w-7 h-7 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded transition mr-1" title="Kirim ke Google Calendar"><i class="fa-brands fa-google"></i></button>
                     <button onclick='openFormKalender(false, ${JSON.stringify(k).replace(/'/g, "&#39;")})' class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
                     <button onclick="deleteKalender('${r_id(k.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
                 </td>
@@ -9101,6 +9283,321 @@ function cetakKalenderPendidikanPDF() {
 }
 
 // ==========================================
+// GOOGLE KALENDER (GIS + Google Calendar API): HUBUNGKAN AKUN, BACA & KIRIM EVENT
+// ==========================================
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const GCAL_KIRIM_KEY = 'sisip_gcal_kirim';
+let gcalToken = { access: '', exp: 0 }; // access token in-memory + expiry (ms epoch)
+let gcalEvents = [];                    // cache event Google Calendar (sesi)
+
+/** Client ID Google dari konfigurasi server (diisi via Pengaturan Server). */
+function gcalClientId() {
+  const cfg = (typeof ambilKonfigurasiServer === 'function') ? ambilKonfigurasiServer() : {};
+  return String(cfg.gcalClientId || '').trim();
+}
+
+function gcalSimpanToken(accessToken, expiresIn) {
+  gcalToken = { access: accessToken, exp: Date.now() + Math.max(60, (Number(expiresIn) || 3600) - 60) * 1000 };
+  try { localStorage.setItem('sisip_gcal_token', JSON.stringify(gcalToken)); } catch (e) { /* abaikan */ }
+}
+
+/** Token valid dari memori/localStorage (kosong bila kedaluwarsa). */
+function gcalTokenAktif() {
+  if (gcalToken.access && gcalToken.exp > Date.now()) return gcalToken.access;
+  try {
+    const t = JSON.parse(localStorage.getItem('sisip_gcal_token') || 'null');
+    if (t && t.access && t.exp > Date.now()) { gcalToken = t; return t.access; }
+  } catch (e) { /* abaikan */ }
+  return '';
+}
+
+function gcalHapusToken() {
+  gcalToken = { access: '', exp: 0 };
+  try { localStorage.removeItem('sisip_gcal_token'); } catch (e) { /* abaikan */ }
+  gcalEvents = [];
+}
+
+/** Muat library Google Identity Services (GIS) on-demand. */
+function gcalMuatGis() {
+  return new Promise((resolve, reject) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Gagal memuat Google Identity Services (periksa koneksi internet).'));
+    document.head.appendChild(s);
+  });
+}
+
+/** Minta access token Google Calendar (popup konsen bila belum ada token valid). */
+async function gcalDapatkanToken(prompt = '') {
+  const cached = gcalTokenAktif();
+  if (cached) return cached;
+  const clientId = gcalClientId();
+  if (!clientId) throw new Error('Google Client ID belum diatur. Klik tombol "Atur Client ID" untuk mengisinya.');
+  await gcalMuatGis();
+  return new Promise((resolve, reject) => {
+    try {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GCAL_SCOPE,
+        callback: (resp) => {
+          if (resp.error) return reject(new Error(resp.error_description || resp.error));
+          gcalSimpanToken(resp.access_token, resp.expires_in);
+          resolve(resp.access_token);
+        },
+        error_callback: (err) => reject(new Error((err && err.message) || 'Popup Google ditutup sebelum selesai.'))
+      });
+      client.requestAccessToken({ prompt });
+    } catch (e) { reject(e); }
+  });
+}
+
+/** Cabut & hapus token Google Calendar (putuskan koneksi). */
+async function gcalPutuskan() {
+  const token = gcalTokenAktif();
+  if (token && window.google && google.accounts && google.accounts.oauth2) {
+    try { google.accounts.oauth2.revoke(token, () => {}); } catch (e) { /* abaikan */ }
+  }
+  gcalHapusToken();
+  try { localStorage.removeItem(GCAL_KIRIM_KEY); } catch (e) { /* abaikan */ }
+}
+
+/** Ambil event Google Calendar (kalender utama/primary) 60 hari ke depan. */
+async function gcalMuatEvents(paksa = false) {
+  if (!paksa && gcalEvents.length) return gcalEvents;
+  const token = await gcalDapatkanToken();
+  const now = new Date();
+  const timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const timeMax = new Date(now.getTime() + 60 * 86400000).toISOString();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=250`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { gcalHapusToken(); throw new Error('Sesi Google berakhir. Hubungkan ulang akun Google Calendar.'); }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err.error && err.error.message) || `Gagal memuat Google Calendar (HTTP ${res.status}).`);
+  }
+  const json = await res.json();
+  gcalEvents = (json.items || [])
+    .filter(ev => ev.status !== 'cancelled')
+    .map(ev => ({
+      id: ev.id,
+      nama: ev.summary || '(Tanpa Judul)',
+      mulai: (ev.start && (ev.start.date || (ev.start.dateTime || '').slice(0, 10))) || '',
+      sampai: (ev.end && (ev.end.date || (ev.end.dateTime || '').slice(0, 10))) || '',
+      ket: ev.description || '',
+      lokasi: ev.location || '',
+      link: ev.htmlLink || ''
+    }))
+    .filter(ev => ev.mulai);
+  return gcalEvents;
+}
+
+// --- Kirim event Kalender Pendidikan → Google Calendar ---
+
+function gcalBacaCatatanKirim() {
+  try { return JSON.parse(localStorage.getItem(GCAL_KIRIM_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function gcalSisipId(k) {
+  return `kal-${r_id(k.id) || `${String(k.tanggal_mulai || '').slice(0, 10)}-${String(k.nama || '').slice(0, 30)}`}`;
+}
+
+function gcalSudahTerkirim(k) { return !!gcalBacaCatatanKirim()[gcalSisipId(k)]; }
+
+function gcalCatatTerkirim(k, eventId) {
+  const m = gcalBacaCatatanKirim();
+  m[gcalSisipId(k)] = eventId || '';
+  try { localStorage.setItem(GCAL_KIRIM_KEY, JSON.stringify(m)); } catch (e) { /* abaikan */ }
+}
+
+/** Kirim satu kegiatan kalender sebagai event all-day ke Google Calendar (primary). */
+async function gcalKirimEvent(k) {
+  const token = await gcalDapatkanToken();
+  const mulai = String(k.tanggal_mulai || '').slice(0, 10);
+  const sampai = String(k.tanggal_sampai || '').slice(0, 10) || mulai;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(mulai)) throw new Error('Tanggal mulai kegiatan tidak valid.');
+  const dtAkhir = new Date((sampai >= mulai ? sampai : mulai) + 'T00:00:00');
+  dtAkhir.setDate(dtAkhir.getDate() + 1); // Google: tanggal end bersifat eksklusif
+  const body = {
+    summary: `[Sekolah] ${k.nama || 'Kegiatan'}`,
+    description: [
+      k.keterangan || '',
+      k.tipe ? `Kategori: ${(KALENDER_TIPE[k.tipe] || KALENDER_TIPE.custom).label}` : '',
+      'Dikirim dari SISIP — Kalender Pendidikan'
+    ].filter(Boolean).join('\n'),
+    start: { date: mulai },
+    end: { date: ISO_HARIAN(dtAkhir) },
+    extendedProperties: { private: { sisip_id: gcalSisipId(k) } }
+  };
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 401) { gcalHapusToken(); throw new Error('Sesi Google berakhir. Hubungkan ulang akun Google Calendar.'); }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err.error && err.error.message) || `Gagal mengirim event ke Google Calendar (HTTP ${res.status}).`);
+  }
+  const json = await res.json();
+  gcalCatatTerkirim(k, json.id);
+  return json;
+}
+
+/** Tombol: hubungkan akun Google lalu muat agenda tab aktif. */
+async function gcalHubungkan() {
+  try {
+    await gcalDapatkanToken();
+    if (currentTabJadwal === 'gcal') renderGoogleKalender();
+    else showToast('success', 'Google Calendar terhubung.');
+  } catch (e) {
+    Swal.fire({ icon: 'error', title: 'Gagal Menghubungkan', text: e.message || '', background: '#1e293b', color: '#fff' });
+  }
+}
+
+/** Tombol: putuskan koneksi Google Calendar + segarkan tampilan. */
+async function gcalPutuskanDanRender() {
+  const res = await Swal.fire({ icon: 'question', title: 'Putuskan koneksi Google Calendar?', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Putuskan', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+  if (!res.isConfirmed) return;
+  await gcalPutuskan();
+  if (currentTabJadwal === 'gcal') renderGoogleKalender();
+  else showToast('success', 'Koneksi Google Calendar diputus.');
+}
+
+/** Tombol: kirim satu kegiatan (dipanggil dari tabel Kalender Pendidikan / tab Google Kalender). */
+async function gcalKirimSatu(id) {
+  const k = (cacheKalender || []).find(x => String(x.id) === String(id));
+  if (!k) return showToast('error', 'Kegiatan tidak ditemukan.');
+  Swal.fire({ title: 'Mengirim ke Google Calendar...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+  try {
+    await gcalKirimEvent(k);
+    await Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Terkirim ke Google Calendar!', showConfirmButton: false, timer: 1800, background: '#1e293b', color: '#fff' });
+    renderJadwalLiburModule(document.getElementById('main-content'));
+  } catch (e) {
+    Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || '', background: '#1e293b', color: '#fff' });
+  }
+}
+
+/** Tombol: kirim semua kegiatan TA aktif yang belum terkirim. */
+async function gcalKirimMassal() {
+  const tahun = kalenderTahun || currentTahun;
+  const daftar = (cacheKalender || [])
+    .filter(k => String(k.tahun) === String(tahun) && !gcalSudahTerkirim(k))
+    .sort((a, b) => String(a.tanggal_mulai).localeCompare(String(b.tanggal_mulai)));
+  if (daftar.length === 0) return Swal.fire({ icon: 'info', title: 'Tidak Ada Yang Perlu Dikirim', text: 'Semua kegiatan TA ini sudah terkirim, atau belum ada kegiatan.', background: '#1e293b', color: '#fff' });
+  let sukses = 0, gagal = 0;
+  Swal.fire({ title: 'Mengirim ke Google Calendar...', html: `<span class="text-xs text-slate-400">0 / ${daftar.length}</span>`, allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+  for (const k of daftar) {
+    try { await gcalKirimEvent(k); sukses++; }
+    catch (e) { gagal++; console.warn('gcal kirim:', e); }
+    const el = Swal.getHtmlContainer();
+    if (el) el.innerHTML = `<span class="text-xs text-slate-400">${sukses + gagal} / ${daftar.length}</span>`;
+  }
+  Swal.fire({ icon: gagal ? 'warning' : 'success', title: gagal ? 'Selesai dengan Catatan' : 'Semua Terkirim!', text: `${sukses} berhasil${gagal ? `, ${gagal} gagal (lihat console)` : ''}.`, background: '#1e293b', color: '#fff' });
+  renderGoogleKalender();
+}
+
+// --- UI TAB "GOOGLE KALENDER" ---
+
+function getHTMLGoogleKalender() {
+  const terhubung = !!gcalTokenAktif();
+  const adaClient = !!gcalClientId();
+  return `
+      <div class="p-3 flex flex-wrap gap-2 justify-between items-center bg-emerald-900/10 border-b border-emerald-500/20">
+          <div class="flex items-center gap-2 flex-wrap">
+              <span class="px-2.5 py-1 rounded-full text-[10px] font-bold ${terhubung ? 'bg-green-600/80 text-white' : 'bg-slate-600 text-slate-200'}"><i class="fa-brands fa-google mr-1"></i> ${terhubung ? 'Terhubung' : 'Belum Terhubung'}</span>
+              ${adaClient ? '' : '<span class="text-[10px] text-amber-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Google Client ID belum diatur</span>'}
+          </div>
+          <div class="flex gap-2 flex-wrap">
+              <button onclick="gcalHubungkan()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-link mr-1"></i> ${terhubung ? 'Muat Agenda' : 'Hubungkan Akun Google'}</button>
+              ${terhubung ? '<button onclick="gcalPutuskanDanRender()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-link-slash mr-1"></i> Putuskan</button>' : ''}
+              <button onclick="bukaPengaturanServer()" class="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-gear mr-1"></i> Atur Client ID</button>
+          </div>
+      </div>
+      <div id="gcal-agenda" class="p-3 space-y-2"></div>
+      <div id="gcal-kirim" class="px-3 pb-6"></div>`;
+}
+
+/** Render isi tab Google Kalender: agenda 60 hari + panel kirim Kalender Pendidikan. */
+async function renderGoogleKalender() {
+  const box = document.getElementById('gcal-agenda');
+  if (!box) return;
+  const adaClient = !!gcalClientId();
+  if (!adaClient) {
+      box.innerHTML = `<div class="bg-white/5 border border-white/10 rounded-xl p-6 text-center text-xs text-slate-300 space-y-2">
+          <i class="fa-brands fa-google text-3xl text-emerald-400"></i>
+          <p class="font-bold text-white">Hubungkan SISIP dengan Google Calendar</p>
+          <p class="text-[11px] text-slate-400 max-w-md mx-auto">Isi <b>Google Client ID</b> lewat tombol "Atur Client ID" di atas, lalu klik "Hubungkan Akun Google". Agenda Google Calendar Anda akan tampil di sini dan di Dashboard, dan kegiatan Kalender Pendidikan dapat dikirim ke akun Google Anda.</p>
+      </div>`;
+      return renderGcalPanelKirim();
+  }
+  if (!gcalTokenAktif()) {
+      box.innerHTML = `<div class="bg-white/5 border border-white/10 rounded-xl p-6 text-center text-xs text-slate-300 space-y-2">
+          <i class="fa-brands fa-google text-3xl text-emerald-400"></i>
+          <p class="font-bold text-white">Klik "Hubungkan Akun Google" di atas</p>
+          <p class="text-[11px] text-slate-400 max-w-md mx-auto">Anda akan diminta memilih akun Google & memberi izin akses kalender melalui popup Google (aman, tersimpan hanya di browser ini).</p>
+      </div>`;
+      return renderGcalPanelKirim();
+  }
+  box.innerHTML = `<div class="p-6 text-center text-slate-300 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-lg"></i><br>Memuat agenda Google Calendar...</div>`;
+  try {
+      const evs = await gcalMuatEvents(true);
+      box.innerHTML = evs.length === 0
+          ? `<div class="bg-white/5 border border-white/10 rounded-xl p-4 text-center text-[11px] text-slate-400 italic">Tidak ada agenda di Google Calendar (kalender utama) untuk 60 hari ke depan.</div>`
+          : `<div class="bg-white/5 border border-white/10 rounded-xl p-3">
+              <h3 class="text-xs font-bold text-white uppercase tracking-wider mb-2"><i class="fa-brands fa-google text-emerald-400 mr-1"></i> Agenda Google Calendar (60 Hari Ke Depan) — ${evs.length} Event</h3>
+              <div class="space-y-1.5">${evs.map(ev => {
+                  const tgl = (ev.sampai && ev.sampai > ev.mulai) ? `${fmtTglKalender(ev.mulai)} s.d. ${fmtTglKalender(ev.sampai)}` : fmtTglKalender(ev.mulai);
+                  return `<a href="${escapeHtml(ev.link || 'https://calendar.google.com/')}" target="_blank" rel="noopener" class="flex items-center gap-2 bg-white/5 border border-white/10 hover:border-emerald-500/50 rounded px-2 py-1.5 transition">
+                      <i class="fa-regular fa-calendar text-emerald-400 text-[10px]"></i>
+                      <span class="text-[9px] font-bold text-slate-400 w-32 shrink-0">${tgl}</span>
+                      <span class="text-[10px] text-white font-bold truncate flex-1">${escapeHtml(ev.nama)}</span>
+                      ${ev.lokasi ? `<span class="text-[8px] text-sky-300 truncate max-w-[160px]"><i class="fa-solid fa-location-dot"></i> ${escapeHtml(ev.lokasi)}</span>` : ''}
+                      ${String(ev.nama).startsWith('[Sekolah]') ? '<span class="text-[8px] px-1.5 py-0.5 rounded bg-indigo-600/40 text-indigo-200 font-bold shrink-0">SISIP</span>' : ''}
+                  </a>`;
+              }).join('')}</div>
+          </div>`;
+  } catch (e) {
+      box.innerHTML = `<div class="bg-red-900/20 border border-red-500/30 rounded-xl p-4 text-center text-[11px] text-red-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i> ${escapeHtml(e.message || 'Gagal memuat agenda.')}</div>`;
+  }
+  renderGcalPanelKirim();
+}
+
+/** Panel kirim Kalender Pendidikan → Google Calendar (bagian bawah tab Google Kalender). */
+function renderGcalPanelKirim() {
+  const box = document.getElementById('gcal-kirim');
+  if (!box) return;
+  const tahun = kalenderTahun || currentTahun;
+  const rows = (cacheKalender || []).filter(k => String(k.tahun) === String(tahun))
+      .sort((a, b) => String(a.tanggal_mulai).localeCompare(String(b.tanggal_mulai)));
+  const terkirim = rows.filter(k => gcalSudahTerkirim(k)).length;
+  const baris = rows.length === 0
+      ? `<tr><td colspan="4" class="p-4 text-center text-slate-500">Belum ada kegiatan Kalender Pendidikan TA ini.</td></tr>`
+      : rows.map(k => {
+          const ok = gcalSudahTerkirim(k);
+          const meta = KALENDER_TIPE[k.tipe] || KALENDER_TIPE.custom;
+          return `<tr class="hover:bg-white/5 border-b border-white/5 transition">
+              <td class="px-3 py-2 text-sky-300">${escapeHtml(tglRentangKalender(k))}</td>
+              <td class="px-3 py-2"><span class="text-[9px] px-1.5 py-0.5 rounded font-bold" style="background:${meta.hex}33;color:${meta.hex}">${meta.label}</span> <span class="text-white">${escapeHtml(k.nama || '-')}</span></td>
+              <td class="px-3 py-2 text-center">${ok ? '<span class="text-[9px] px-2 py-0.5 rounded bg-green-600/60 text-white font-bold">Terkirim</span>' : '<span class="text-[9px] px-2 py-0.5 rounded bg-slate-600 text-slate-200 font-bold">Belum</span>'}</td>
+              <td class="px-3 py-2 text-center"><button onclick="gcalKirimSatu('${r_id(k.id)}')" class="w-6 h-6 ${ok ? 'bg-slate-600/40 hover:bg-slate-600' : 'bg-emerald-600/30 hover:bg-emerald-600'} text-emerald-300 hover:text-white rounded transition" title="${ok ? 'Kirim Ulang ke Google Calendar' : 'Kirim ke Google Calendar'}"><i class="fa-brands fa-google text-[10px]"></i></button></td>
+          </tr>`;
+      }).join('');
+  box.innerHTML = `
+      <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+          <div class="flex justify-between items-center mb-1 flex-wrap gap-2">
+              <h3 class="text-xs font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-paper-plane text-emerald-400 mr-1"></i> Kirim Kalender Pendidikan ke Google — TA ${escapeHtml(tahun)}</h3>
+              <span class="text-[10px] text-slate-400">${terkirim} / ${rows.length} terkirim</span>
+          </div>
+          <p class="text-[10px] text-slate-400 mb-2">Event all-day dibuat pada kalender utama akun Google Anda dengan awalan <b>[Sekolah]</b>. Yang sudah terkirim dilewati otomatis.</p>
+          <button onclick="gcalKirimMassal()" class="mb-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-cloud-arrow-up mr-1"></i> Kirim Semua (${rows.length - terkirim} belum)</button>
+          <table class="w-full text-left whitespace-nowrap"><thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr><th class="px-3 py-2">Tanggal</th><th class="px-3 py-2">Kegiatan</th><th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2 text-center">Aksi</th></tr></thead><tbody class="text-xs text-slate-200">${baris}</tbody></table>
+      </div>`;
+}
+
+// ==========================================
 // TAB LIHAT JADWAL (F4): GRID KELAS × JAM / PER GURU
 // ==========================================
 
@@ -9221,19 +9718,35 @@ async function renderDashboardUtama(container) {
         }
     }
 
-    // --- (F6) Agenda 7 hari ke depan ---
+    // --- (F6) Agenda 7 hari ke depan: Kalender Pendidikan + Google Calendar (bila terhubung) ---
     const agenda = [];
     for (let off = 0; off <= 7; off++) {
         const dt = new Date(); dt.setDate(dt.getDate() + off);
         const iso = ISO_HARIAN(dt);
         const ev = events[iso];
-        if (ev) agenda.push({ off, iso, ...ev });
+        if (ev) agenda.push({ off, iso, sumber: 'sekolah', ...ev });
     }
-    const agendaHTML = agenda.length === 0
+    const batas7Hari = ISO_HARIAN(new Date(Date.now() + 7 * 86400000));
+    let gcalDash = [];
+    if (gcalTokenAktif()) { // otomatis hanya bila sudah pernah terhubung (tanpa popup)
+        try {
+            gcalDash = (await gcalMuatEvents())
+                .filter(ev => ev.mulai >= isoHariIni && ev.mulai <= batas7Hari)
+                .map(ev => ({ sumber: 'gcal', off: 0, iso: ev.mulai, tipe: 'custom', nama: ev.nama, ket: ev.lokasi || ev.ket || '' }));
+        } catch (e) { console.warn('gcal dashboard:', e.message || e); }
+    }
+    const agendaSemua = [...agenda, ...gcalDash].sort((a, b) => a.iso.localeCompare(b.iso));
+    const agendaHTML = agendaSemua.length === 0
         ? `<p class="text-[11px] text-slate-500 italic">Tidak ada agenda/kalender 7 hari ke depan.</p>`
-        : agenda.map(a => {
+        : agendaSemua.map(a => {
+            const labelHari = (a.sumber === 'sekolah' && a.off === 0) ? 'Hari Ini' : ((a.sumber === 'sekolah' && a.off === 1) ? 'BESOK (H-1)' : fmtTglKalender(a.iso));
+            if (a.sumber === 'gcal') return `<div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5">
+                <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:#10b981"></span>
+                <span class="text-[9px] font-bold text-slate-400 w-20 shrink-0">${labelHari}</span>
+                <span class="text-[10px] text-white font-bold truncate flex-1">${escapeHtml(a.nama)}</span>
+                <span class="text-[8px] px-1.5 py-0.5 rounded bg-emerald-600/40 text-emerald-200 font-bold shrink-0">GCal</span>
+            </div>`;
             const meta = KALENDER_TIPE[a.tipe] || KALENDER_TIPE.custom;
-            const labelHari = a.off === 0 ? 'Hari Ini' : (a.off === 1 ? 'BESOK (H-1)' : fmtTglKalender(a.iso));
             return `<div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5 ${a.off === 1 ? 'border-amber-500/40' : ''}">
                 <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${meta.hex}"></span>
                 <span class="text-[9px] font-bold ${a.off === 1 ? 'text-amber-300' : 'text-slate-400'} w-20 shrink-0">${labelHari}</span>
@@ -9421,7 +9934,7 @@ async function renderDashboardUtama(container) {
                 <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-chart-pie text-blue-400 mr-2"></i> Dashboard</h2>
                 <p class="text-[10px] text-slate-400">Tahun Pelajaran ${escapeHtml(tahun)} · Semester ${smt} · ${hariIni}, ${fmtTglKalender(isoHariIni)}</p>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 ${kartu('fa-calendar-check', 'bg-green-600/20 text-green-400', 'Hari Efektif Bulan Ini', `${heBerjalan} / ${heTotal}`, 'berjalan / total')}
                 ${kartu('fa-hourglass-half', 'bg-amber-600/20 text-amber-400', 'Sisa Hari Efektif', String(sisaEfektif), 'sisa hari kerja bulan ini')}
                 ${kartu('fa-calendar-week', 'bg-indigo-600/20 text-indigo-400', 'HES s.d. Bulan Ini', String(hesSampaiBulan), 'Hari Efektif Semester (kumulatif)')}
@@ -9432,7 +9945,7 @@ async function renderDashboardUtama(container) {
                 ${kartu('fa-medal', 'bg-yellow-600/20 text-yellow-400', 'Ekstrakurikuler', String(cEkskul), 'ekskul aktif')}
                 ${kartu('fa-umbrella-beach', 'bg-red-600/20 text-red-400', 'Libur Bulan Ini', String(liburBulanIni), 'hari libur bulan berjalan')}
             </div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 lg:grid-cols-2 gap-3">
                 <div class="bg-white/5 border border-white/10 rounded-xl p-3">
                     <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-umbrella-beach text-red-400 mr-1"></i> Notifikasi Libur Terdekat</h3>
                     <div class="space-y-1.5">${liburHTML}</div>
@@ -9462,7 +9975,7 @@ async function renderDashboardUtama(container) {
                 </div>`}
             </div>
             <div class="bg-white/5 border border-white/10 rounded-xl p-3">
-                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Agenda Kalender Pendidikan (7 Hari Ke Depan)</h3>
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Agenda 7 Hari Ke Depan (Kalender Pendidikan${gcalDash.length ? ' + Google' : ''})</h3>
                 <div class="space-y-1.5">${agendaHTML}</div>
             </div>
             <div class="flex flex-wrap gap-2 justify-center">

@@ -10,13 +10,19 @@ const SERVER_CONFIG_KEY = 'sisip_server_config';
 function ambilKonfigurasiServer() {
   try {
     const cfg = JSON.parse(localStorage.getItem(SERVER_CONFIG_KEY) || 'null');
-    if (cfg && cfg.url && cfg.key) return { url: String(cfg.url), key: String(cfg.key) };
+    if (cfg && cfg.url && cfg.key) return { url: String(cfg.url), key: String(cfg.key), gcalClientId: String(cfg.gcalClientId || '') };
   } catch (e) { /* config rusak → pakai default */ }
-  return { url: SUPABASE_URL_DEFAULT, key: SUPABASE_ANON_KEY_DEFAULT };
+  return { url: SUPABASE_URL_DEFAULT, key: SUPABASE_ANON_KEY_DEFAULT, gcalClientId: '' };
 }
 
-function simpanKonfigurasiServer(url, key) {
-  localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify({ url, key }));
+function simpanKonfigurasiServer(url, key, gcalClientId) {
+  let lama = {};
+  try { lama = JSON.parse(localStorage.getItem(SERVER_CONFIG_KEY) || '{}') || {}; } catch (e) { /* abaikan */ }
+  localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify({
+    url,
+    key,
+    gcalClientId: (gcalClientId !== undefined) ? String(gcalClientId || '').trim() : String(lama.gcalClientId || '')
+  }));
 }
 
 function hapusKonfigurasiServer() {
