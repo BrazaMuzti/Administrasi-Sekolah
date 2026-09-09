@@ -48,7 +48,31 @@ function susunProfil(body: Record<string, unknown>) {
   if (body.wali_kelas !== undefined) profil.wali_kelas = String(body.wali_kelas).trim();
   if (body.gelar_depan !== undefined) profil.gelar_depan = String(body.gelar_depan).trim();
   if (body.gelar_belakang !== undefined) profil.gelar_belakang = String(body.gelar_belakang).trim();
+  if (body.penugasan !== undefined) {
+    // Penugasan guru per tahun pelajaran: { "TA": { "mapel": [], "wali": "", "ekskul": [] } }
+    profil.penugasan = susunPenugasan(body.penugasan);
+  }
   return profil;
+}
+
+/** Validasi & normalisasi struktur penugasan per tahun pelajaran (jsonb). */
+function susunPenugasan(input: unknown): Record<string, { mapel: string[]; wali: string; ekskul: string[] }> {
+  const hasil: Record<string, { mapel: string[]; wali: string; ekskul: string[] }> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return hasil;
+  for (const [tahun, val] of Object.entries(input as Record<string, unknown>)) {
+    const ta = String(tahun).trim();
+    if (!ta || !val || typeof val !== "object" || Array.isArray(val)) continue;
+    const v = val as Record<string, unknown>;
+    const arrStr = (x: unknown): string[] =>
+      Array.isArray(x) ? x.map((s) => String(s).trim()).filter(Boolean)
+        : String(x ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    hasil[ta] = {
+      mapel: arrStr(v.mapel),
+      wali: String(v.wali ?? "").trim(),
+      ekskul: arrStr(v.ekskul),
+    };
+  }
+  return hasil;
 }
 
 Deno.serve(async (req) => {

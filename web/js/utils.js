@@ -96,6 +96,7 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Wali Kelas": (prof && prof.wali_kelas) || "",
     "Custom Teks Mata Pelajaran": tipe === 'guru' ? ((prof && prof.mapel) || "") : "",
     "Ekstrakurikuler": (prof && prof.ekstrakurikuler) || "",
+    "Penugasan": (prof && prof.penugasan) || {},
     "ID Tahun Pelajaran": ""
   };
   return { status: 'success', role: tipe, user: mappedUser, token };
@@ -351,15 +352,22 @@ async function supabaseFetch(action, payload = {}) {
          const tglAkhirDb = `${tahunAktualDb}-${mmDb}-${String(lastDayDb).padStart(2, '0')}`;
          const isEkskulDb = payload.kelas === 'Semua Kelas';
 
-         // 1) Murid: mode kelas → filter tingkat_kelas; mode ekskul (Semua Kelas) → filter keanggotaan ekskul
-         let qMurid = supaClient
+         // 1) Murid: ambil SEMUA murid (kolom ringkas + riwayat_kelas) → filter kelas efektif & status per TA payload di bawah.
+         //    Kelas efektif TA = riwayat_kelas[tahun].kelas (fallback tingkat_kelas statis); siswa non-Aktif disembunyikan.
+         const { data: muridSemua, error: errMurid } = await supaClient
             .from('akun')
-            .select('nis_nip, nama_lengkap, tingkat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
+            .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
             .eq('tipe', 'murid');
-         qMurid = isEkskulDb
-            ? qMurid.ilike('ekstrakurikuler', `%${payload.mapel}%`)
-            : qMurid.eq('tingkat_kelas', payload.kelas);
-         const { data: murid, error: errMurid } = await qMurid;
+         const tahunDbRw = String(payload.tahun || '');
+         const murid = (muridSemua || []).filter(m => {
+            const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
+            const kelasEfektif = rw ? String(rw.kelas || '') : String(m.tingkat_kelas || '');
+            const statusSiswa = rw ? String(rw.status || 'Aktif') : 'Aktif';
+            if (statusSiswa !== 'Aktif' || !kelasEfektif) return false;
+            if (isEkskulDb) return String(m.ekstrakurikuler || '').split(',').map(e => e.trim()).includes(payload.mapel);
+            return kelasEfektif === payload.kelas;
+         });
+         if (errMurid) throw errMurid;
 
          // 2) Absensi dalam rentang tanggal bulan+tahun terpilih (kelas = kelas; ekskul = "Semua Kelas")
          // Trim kolom: mapping hanya memakai nis/tanggal/status/keterangan (hemat ±70% payload)
@@ -372,45 +380,52 @@ async function supabaseFetch(action, payload = {}) {
          qAbsen = isEkskulDb ? qAbsen.eq('kelas', 'Semua Kelas') : qAbsen.eq('kelas', payload.kelas);
          const { data: absen, error: errAbsen } = await qAbsen;
 
-         // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji)
-         const { data: guru, error: errGuru } = await supaClient
-            .from('akun')
-            .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, wali_kelas, tingkat_kelas, captcha, kunci_absen, no_telepon, gelar_depan, gelar_belakang')
-            .in('tipe', ['guru', 'admin']);
+          // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji)
+          const { data: guru, error: errGuru } = await supaClient
+             .from('akun')
+             .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, wali_kelas, penugasan, tingkat_kelas, captcha, kunci_absen, no_telepon, gelar_depan, gelar_belakang')
+             .in('tipe', ['guru', 'admin']);
 
          if (errMurid || errAbsen || errGuru) throw new Error("Gagal mengambil data dashboard");
 
-         return {
-             status: 'success',
-             murid: murid.map(m => ({
-                 "NIS": m.nis_nip,
-                 "NISN": m.nisn || "",
-                 "Nama Lengkap": m.nama_lengkap,
-                 "Tingkat/Kelas": m.tingkat_kelas,
-                 "Jenis Kelamin": m.jenis_kelamin || "",
-                 "Agama": m.agama || "",
-                 "Catatan Khusus": m.catatan_khusus || "",
-                 "Ekstrakurikuler": m.ekstrakurikuler || "",
-                 "Jabatan Kelas": m.jabatan || "",
-                 "No HP/WA": m.no_telepon || "",
-                 "ID Tahun Pelajaran": m.tahun_pelajaran || "",
-                 "Semester": m.semester || ""
-             })),
+          return {
+              status: 'success',
+              murid: murid.map(m => {
+                  const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
+                  const kelasEfektif = rw ? String(rw.kelas || '') : String(m.tingkat_kelas || '');
+                  const statusSiswa = rw ? String(rw.status || 'Aktif') : 'Aktif';
+                  return {
+                    "NIS": m.nis_nip,
+                    "NISN": m.nisn || "",
+                    "Nama Lengkap": m.nama_lengkap,
+                    "Tingkat/Kelas": kelasEfektif,
+                    "StatusSiswa": statusSiswa,
+                    "Jenis Kelamin": m.jenis_kelamin || "",
+                    "Agama": m.agama || "",
+                    "Catatan Khusus": m.catatan_khusus || "",
+                    "Ekstrakurikuler": m.ekstrakurikuler || "",
+                    "Jabatan Kelas": m.jabatan || "",
+                    "No HP/WA": m.no_telepon || "",
+                    "ID Tahun Pelajaran": m.tahun_pelajaran || "",
+                    "Semester": m.semester || ""
+                  };
+              }),
              absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan })),
-             status_guru: (guru || []).map(g => ({
-                 "ID Akun Guru": g.nis_nip,
-                 "Nama Guru": g.nama_lengkap,
-                 "Nama Guru Bergelar": [g.gelar_depan, g.nama_lengkap, g.gelar_belakang].filter(Boolean).join(' ').replace(' ,', ', '),
-                 "Mapel": g.mapel || "",
-                 "Custom Teks Mata Pelajaran": g.mapel || "",
-                 "Ekskul": g.ekstrakurikuler || "",
-                 "Ekstrakurikuler": g.ekstrakurikuler || "",
-                 "Wali Kelas": g.wali_kelas || "",
-                 "Tingkat/Kelas": g.tingkat_kelas || "",
-                 "No HP": g.no_telepon || "",
-                 "Captcha": g.captcha || "1234",
-                 "Kunci Absen": g.kunci_absen || "TUTUP"
-             }))
+              status_guru: (guru || []).map(g => ({
+                  "ID Akun Guru": g.nis_nip,
+                  "Nama Guru": g.nama_lengkap,
+                  "Nama Guru Bergelar": [g.gelar_depan, g.nama_lengkap, g.gelar_belakang].filter(Boolean).join(' ').replace(' ,', ', '),
+                  "Mapel": g.mapel || "",
+                  "Custom Teks Mata Pelajaran": g.mapel || "",
+                  "Ekskul": g.ekstrakurikuler || "",
+                  "Ekstrakurikuler": g.ekstrakurikuler || "",
+                  "Wali Kelas": g.wali_kelas || "",
+                  "Penugasan": g.penugasan || {},
+                  "Tingkat/Kelas": g.tingkat_kelas || "",
+                  "No HP": g.no_telepon || "",
+                  "Captcha": g.captcha || "1234",
+                  "Kunci Absen": g.kunci_absen || "TUTUP"
+              }))
          };
     }
 
