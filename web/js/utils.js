@@ -247,6 +247,20 @@ async function apiCall(action, data = {}) {
       return { status: 'success' };
     }
 
+    if (action === 'hapus_absen_masal') {
+      // Hapus permanen baris absensi — scope identik dengan save_absen_masal (kunci unik: nis,tanggal,mapel)
+      const nisList = (data.nisList || []).map(n => String(n));
+      if (nisList.length === 0) return { status: 'success', terhapus: 0 };
+      const { count, error } = await supaClient
+        .from('absensi')
+        .delete({ count: 'exact' })
+        .eq('tanggal', data.tanggal)
+        .eq('mapel', data.mapel || '')
+        .in('nis', nisList);
+      if (error) throw error;
+      return { status: 'success', terhapus: count || 0 };
+    }
+
     if (action === 'save_keterangan_siswa') {
       // Perbarui keterangan per nis + tanggal + mapel
       for (const u of (data.updates || [])) {
@@ -331,6 +345,22 @@ async function kelolaAkunAuth(payload = {}) {
   }
 }
 
+/** Ambil SEMUA baris dari query Supabase dengan paginasi — PostgREST maks 1000 baris/request.
+ *  Contoh: await supaAmbilSemua(supaClient.from('akun').select('...').eq('tipe','murid')) */
+async function supaAmbilSemua(builder, ukuran = 1000) {
+  const semua = [];
+  let dari = 0;
+  for (let i = 0; i < 1000; i++) { // guard anti loop tak terhingga
+    const { data, error } = await builder.range(dari, dari + ukuran - 1);
+    if (error) throw error;
+    const rows = data || [];
+    semua.push(...rows);
+    if (rows.length < ukuran) break;
+    dari += ukuran;
+  }
+  return semua;
+}
+
 // 4. Pengganti fetch global khusus untuk mengambil data (GET)
 // Karena di app.js Anda banyak menggunakan `fetch(API_URL + '?action=get_master_data')`
 async function supabaseFetch(action, payload = {}) {
@@ -355,12 +385,15 @@ async function supabaseFetch(action, payload = {}) {
 
          // 1) Murid: ambil SEMUA murid (kolom ringkas + riwayat_kelas) → filter kelas efektif & status per TA payload di bawah.
          //    Kelas efektif TA = riwayat_kelas[tahun].kelas (fallback tingkat_kelas statis); siswa non-Aktif disembunyikan.
-         const { data: muridSemua, error: errMurid } = await supaClient
+         //    Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan semua halaman.
+         const muridSemua = await supaAmbilSemua(
+           supaClient
             .from('akun')
             .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
-            .eq('tipe', 'murid');
+            .eq('tipe', 'murid')
+         );
          const tahunDbRw = String(payload.tahun || '');
-         const murid = (muridSemua || []).filter(m => {
+         const murid = muridSemua.filter(m => {
             const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
             const kelasEfektif = rw ? String(rw.kelas || '') : String(m.tingkat_kelas || '');
             const statusSiswa = rw ? String(rw.status || 'Aktif') : 'Aktif';
@@ -368,7 +401,6 @@ async function supabaseFetch(action, payload = {}) {
             if (isEkskulDb) return String(m.ekstrakurikuler || '').split(',').map(e => e.trim()).includes(payload.mapel);
             return kelasEfektif === payload.kelas;
          });
-         if (errMurid) throw errMurid;
 
          // 2) Absensi dalam rentang tanggal bulan+tahun terpilih (kelas = kelas; ekskul = "Semua Kelas")
          // Trim kolom: mapping hanya memakai nis/tanggal/status/keterangan (hemat ±70% payload)
@@ -387,7 +419,7 @@ async function supabaseFetch(action, payload = {}) {
              .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, wali_kelas, penugasan, tingkat_kelas, captcha, kunci_absen, no_telepon, gelar_depan, gelar_belakang')
              .in('tipe', ['guru', 'admin']);
 
-         if (errMurid || errAbsen || errGuru) throw new Error("Gagal mengambil data dashboard");
+         if (errAbsen || errGuru) throw new Error("Gagal mengambil data dashboard");
 
           return {
               status: 'success',

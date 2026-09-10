@@ -2197,7 +2197,7 @@ function showModalEditAbsen(tanggal) {
     if (dataDb && dataDb["Keterangan kehadiran"]) ketMasalDB = dataDb["Keterangan kehadiran"]; 
     if (ketDB) tempKeteranganHarian[m.nis] = ketDB;
     
-    const cH = s === 'H' ? 'checked' : '', cS = s === 'S' ? 'checked' : '', cI = s === 'I' ? 'checked' : '', cA = s === 'A' ? 'checked' : '', cD = s === 'D' ? 'checked' : '';
+    const cH = s === 'H' ? 'checked data-on="1"' : '', cS = s === 'S' ? 'checked data-on="1"' : '', cI = s === 'I' ? 'checked data-on="1"' : '', cA = s === 'A' ? 'checked data-on="1"' : '', cD = s === 'D' ? 'checked data-on="1"' : '';
     const colorKet = ketDB ? 'text-blue-400' : 'text-slate-500';
     const ro = 'onclick="radioToggleOff(this)"';
     
@@ -2213,13 +2213,13 @@ function showModalEditAbsen(tanggal) {
   
   Swal.fire({
     title: `<div class="text-lg font-bold mt-2">Tgl ${tanggal} ${currentBulan}</div>`, width: '600px',
-    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen()" title="Kosongkan Pilihan (H/S/I/A/D)" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
+    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
     background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan', cancelButtonText: 'Batal',
         didOpen: () => {
-      document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => r.checked = true));
+      document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
       // Pertemuan ke- otomatis: lanjut dari jurnal terakhir guru+kelas+mapel+tahun ini
       (async () => {
         try {
@@ -2240,7 +2240,13 @@ function showModalEditAbsen(tanggal) {
     },
     preConfirm: () => {
       let absenPayload = [];
-      listMuridKelas.forEach(m => { const rad = document.querySelector(`input[name="absen_${m.nis}"]:checked`); if (rad) absenPayload.push({ nis: m.nis, nama: m.nama, status: rad.value, keterangan: tempKeteranganHarian[m.nis] || "" }); });
+      const nisDihapus = [];
+      listMuridKelas.forEach(m => {
+        const rad = document.querySelector(`input[name="absen_${m.nis}"]:checked`);
+        if (rad) absenPayload.push({ nis: m.nis, nama: m.nama, status: rad.value, keterangan: tempKeteranganHarian[m.nis] || "" });
+        // Radio padam tapi punya baris di DB untuk tanggal ini → akan dihapus permanen saat Simpan
+        else if (rawAbsenData.find(a => hariDariTanggal(a.Tanggal) === parseInt(tanggal) && a.NIS == m.nis)) nisDihapus.push(m.nis);
+      });
       const inputEl = document.getElementById('input-ket-kehadiran-masal');
       const jd = (id) => (document.getElementById(id)?.value || '').trim();
       const jurnalRaw = { pertemuan: jd('j_pertemuan'), kd: jd('j_kd'), materi: jd('j_materi'), kbm: jd('j_kbm'), masalah: jd('j_masalah'), jam_ke: jd('j_jamke'), pencapaian: jd('j_pencapaian') };
@@ -2248,16 +2254,23 @@ function showModalEditAbsen(tanggal) {
       if (isiJurnal && (!/^\d+$/.test(jurnalRaw.pertemuan) || parseInt(jurnalRaw.pertemuan, 10) < 1)) {
         Swal.showValidationMessage('Pertemuan ke- harus berupa angka minimal 1.'); return false;
       }
-      return { absenList: absenPayload, ketMasal: inputEl ? inputEl.value : "", jurnal: isiJurnal ? jurnalRaw : null };
+      return { absenList: absenPayload, nisDihapus, ketMasal: inputEl ? inputEl.value : "", jurnal: isiJurnal ? jurnalRaw : null };
     }
   }).then((res) => {
     if (!res.isConfirmed || !res.value) return;
-    if (res.value.absenList.length > 0) simpanKeDatabase(tanggal, res.value.absenList, res.value.ketMasal);
+    const nisDihapus = res.value.nisDihapus || [];
+    if (res.value.absenList.length > 0) {
+      // senyap=true bila ada penghapusan → toast gabungan "X disimpan • Y dihapus" dari hapusAbsenDikosongkan
+      simpanKeDatabase(tanggal, res.value.absenList, res.value.ketMasal, nisDihapus.length > 0)
+        .then(() => { if (nisDihapus.length > 0) hapusAbsenDikosongkan(tanggal, nisDihapus, res.value.absenList.length); });
+    } else if (nisDihapus.length > 0) {
+      hapusAbsenDikosongkan(tanggal, nisDihapus, 0);
+    }
     if (res.value.jurnal) simpanJurnalGuru(tanggal, res.value.jurnal);
   });
 }
 
-async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "") {
+async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "", senyap = false) {
   if (!bolehSimpanAbsen()) return;
   const mapelRaw = document.getElementById('select-mapel').value || "", arrMapel = mapelRaw.split('|'), jenisData = arrMapel[0] || "Mapel", namaMapelEkskul = arrMapel[1] || mapelRaw, kelasDipilih = document.getElementById('select-kelas').value || "";
   const idGuruTarget = (currentUser.role === 'admin' || currentUser.role === 'guru') ? currentUser.user["ID Akun Guru"] : "MURID-" + currentUser.user["NIS"];
@@ -2280,13 +2293,34 @@ async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "") {
       metode: 'Manual / QR'
     });
     if (res.status === 'success') {
-      Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Data Berhasil Disimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
+      if (!senyap) Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Data Berhasil Disimpan!', showConfirmButton: false, timer: 1500, background: '#1e293b', color: '#fff' });
       cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
       loadDataMuridDanAbsen();
     } else {
       Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Gagal menyimpan absensi.', background: '#1e293b', color: '#fff' });
     }
   } catch (e) { Swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: e.message || '', background: '#1e293b', color: '#fff' }); }
+}
+
+/** Hapus permanen baris absensi siswa yang statusnya dipadamkan (klik ulang radio) saat Simpan. */
+async function hapusAbsenDikosongkan(tanggal, nisList, jumlahSimpan = 0) {
+  if (!bolehSimpanAbsen()) return;
+  const mapelRaw = document.getElementById('select-mapel')?.value || "";
+  const namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : mapelRaw;
+  try {
+    const res = await apiCall('hapus_absen_masal', {
+      tanggal: tanggalLengkapAbsen(tanggal),
+      mapel: namaMapel,
+      nisList
+    });
+    if (res.status !== 'success') throw new Error(res.message || 'Gagal menghapus data.');
+    cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
+    loadDataMuridDanAbsen();
+    if (jumlahSimpan > 0) showToast('success', `${jumlahSimpan} disimpan • ${res.terhapus ?? nisList.length} dihapus dari database.`);
+    else showToast('success', `${res.terhapus ?? nisList.length} data dihapus dari database.`);
+  } catch (e) {
+    showToast('error', 'Gagal menghapus data: ' + (e.message || 'kesalahan tak diketahui'));
+  }
 }
 
 /** Simpan Agenda/Jurnal Harian Guru (upsert per guru+kelas+mapel+tahun+pertemuan).
@@ -5026,14 +5060,53 @@ function updateNilaiLangsung(nis, field, val) {
     }
 }
 
-function hapusPilihanAbsen() {
-    // Kosongkan langsung (tanpa dialog konfirmasi): uncheck semua radio H/S/I/A/D di modal
-    const radios = document.querySelectorAll('input[name^="absen_"]');
+async function hapusPilihanAbsen(tanggal) {
+    const radios = Array.from(document.querySelectorAll('input[name^="absen_"]'));
+    const menyala = radios.filter(r => r.checked);
+    if (menyala.length === 0) {
+        showToast('info', 'Tidak ada status (H/S/I/A/D) yang menyala.');
+        return;
+    }
+    if (!bolehSimpanAbsen()) return;
+    const mapelRaw = document.getElementById('select-mapel')?.value || "";
+    const namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : mapelRaw;
+    const kelas = document.getElementById('select-kelas')?.value || "";
+    const nisList = [...new Set(menyala.map(r => r.name.replace('absen_', '')))];
+    // Peringatan: pengosongan kini menghapus permanen baris absensi di database
+    const konfirmasi = await Swal.fire({
+        title: 'Hapus Permanen?',
+        text: `Status H/S/I/A/D untuk ${nisList.length} siswa (tgl ${tanggal} ${currentBulan}, ${kelas} — ${namaMapel}) akan DIHAPUS PERMANEN dari database.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Ya, Hapus Permanen',
+        cancelButtonText: 'Batal',
+        background: '#1e293b',
+        color: '#fff'
+    });
+    if (!konfirmasi.isConfirmed) return;
+    // Padamkan semua tombol H/S/I/A/D + kosongkan Ket. Masal di UI
     radios.forEach(r => {
         r.checked = false;
         r.dataset.on = '0';
     });
-    showToast('success', `Pilihan absen dikosongkan (${radios.length} siswa).`);
+    const elKetMasal = document.getElementById('input-ket-kehadiran-masal');
+    if (elKetMasal) elKetMasal.value = '';
+    try {
+        const res = await apiCall('hapus_absen_masal', {
+            tanggal: tanggalLengkapAbsen(tanggal),
+            mapel: namaMapel,
+            nisList
+        });
+        if (res.status !== 'success') throw new Error(res.message || 'Gagal menghapus data.');
+        cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
+        loadDataMuridDanAbsen();
+        showToast('success', `Data database dikosongkan (${res.terhapus ?? nisList.length} siswa).`);
+    } catch (e) {
+        // Gagal hapus → pulihkan status radio yang tadi menyala
+        menyala.forEach(r => { r.checked = true; r.dataset.on = '1'; });
+        showToast('error', 'Gagal menghapus: ' + (e.message || 'kesalahan tak diketahui'));
+    }
 }
 
 // --- MODUL IMPORT & TEMPLATE EXCEL (UPDATE) ---
@@ -7404,15 +7477,14 @@ async function renderManajemenMurid(container, paksa = false) {
 
         // 2. Ambil Data Murid → cache sesi (buka menu ulang = 0 fetch; tombol Refresh = paksa)
         if (paksa || !cacheAkunMuridSesiAda) {
-            const { data: muridRows, error } = await supaClient
-              .from('akun')
-              .select(KOLOM_LIST_MURID)
-              .eq('tipe', 'murid');
-            if (error) {
-              console.error("Gagal memuat akun", error);
-            } else {
-              cacheAkunMurid = muridRows || [];
+            try {
+              // Paginasi: PostgREST maks 1000 baris/request — gabungkan semua halaman sesuai jumlah DB
+              cacheAkunMurid = await supaAmbilSemua(
+                supaClient.from('akun').select(KOLOM_LIST_MURID).eq('tipe', 'murid')
+              );
               cacheAkunMuridSesiAda = true;
+            } catch (error) {
+              console.error("Gagal memuat akun", error);
             }
         }
 
@@ -7511,10 +7583,8 @@ async function exportExcelMurid() {
   Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas
-    const { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid');
-    if (error) throw error;
-    sumber = data || [];
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas (paginasi >1000 baris)
+    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
   } catch (e) {
     console.error('exportExcelMurid:', e);
     sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
@@ -7561,10 +7631,8 @@ async function exportPdfMurid() {
   Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas
-    const { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid');
-    if (error) throw error;
-    sumber = data || [];
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas (paginasi >1000 baris)
+    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
   } catch (e) {
     console.error('exportPdfMurid:', e);
     sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
