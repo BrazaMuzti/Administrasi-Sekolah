@@ -349,8 +349,16 @@ let userName = namaDenganGelar(
   let userRole = user["Jabatan Kelas"] || user["Jabatan"] || role.toUpperCase();
   let userInit = userName.charAt(0).toUpperCase();
 
-  // MENCARI HEADER BAWAAN HTML (h-14 glass-header)
+  // MENCARI HEADER BAWAAN HTML (h-14 glass-header) — bila tak ada (atau terhapus
+  // oleh injeksi sebelumnya), buat baru & prepend ke main agar header selalu tampil.
   let headerEl = document.querySelector('header.glass-header') || document.querySelector('header');
+  if (!headerEl) {
+    headerEl = document.createElement('header');
+    headerEl.className = 'h-14 glass-header flex items-center justify-between px-4 z-10 flex-shrink-0';
+    const mainEl = document.querySelector('#view-dashboard main') || document.querySelector('#view-dashboard');
+    if (mainEl) mainEl.prepend(headerEl);
+    else document.body.prepend(headerEl);
+  }
   
   // SUNTIKKAN KONTEN KE DALAM HEADER HTML YANG SUDAH ADA
   if(headerEl) {
@@ -2205,9 +2213,7 @@ function showModalEditAbsen(tanggal) {
   
   Swal.fire({
     title: `<div class="text-lg font-bold mt-2">Tgl ${tanggal} ${currentBulan}</div>`, width: '600px',
-    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span><button onclick="hapusPilihanAbsen()" title="Hapus Pilihan" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center">
-    <i class="fa-solid fa-eraser text-base"></i>
-</button></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
+    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen()" title="Kosongkan Pilihan (H/S/I/A/D)" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
     background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan', cancelButtonText: 'Batal',
         didOpen: () => {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => r.checked = true));
@@ -3758,11 +3764,13 @@ function opsiKelasNilaiHTML(listKelas, role, user) {
   const optSemua = currentKategoriNilai === "Data Nilai Eskul" ? `<option value="Semua Kelas" class="bg-slate-800 text-white">Semua Kelas</option>` : '';
   if (role === 'guru') {
     const diampu = urutAz([...diampuSet].filter(k => (listKelas || []).includes(k)));
-    const lain = (listKelas || []).filter(k => !diampu.includes(k));
-    let html = '';
-    if (diampu.length) html += `<optgroup label="Kelas Diampu (★)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
-    if (lain.length) html += `<optgroup label="Kelas Lainnya" class="bg-slate-700 text-slate-400 font-bold">${opt(lain)}</optgroup>`;
-    return optSemua + (html || opt(listKelas || []));
+    // Guru dengan kelas diampu → hanya kelas diampu (★). "Kelas Lainnya" disembunyikan.
+    // Guru tanpa penugasan sama sekali (tanpa jadwal/wali) → fallback: tampilkan semua kelas
+    // agar guru tidak terkunci dari Input Nilai.
+    if (diampu.length > 0) {
+      return optSemua + `<optgroup label="Kelas Diampu (★)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
+    }
+    return optSemua + opt(listKelas || []);
   }
   return optSemua + opt(listKelas || []);
 }
@@ -3795,6 +3803,13 @@ function perbaruiKelasDiampuGuru() {
     const nilaiLama = sel.value;
     sel.innerHTML = opsiKelasNilaiHTML(cacheListKelasNilai, currentUser.role, currentUser.user);
     if ([...sel.options].some(o => o.value === nilaiLama)) sel.value = nilaiLama;
+    // Kelas terpilih tidak ada lagi di daftar (mapel ganti → kelas diampu berubah):
+    // auto-pilih kelas diampu pertama; bila tak ada, biarkan opsi pertama.
+    else {
+      const diampu = [...sel.options].find(o => o.value === 'Semua Kelas' ? false : cacheKelasDiampuGuru.has(o.value));
+      if (diampu) { sel.value = diampu.value; if (typeof loadDataNilai === 'function') loadDataNilai(); }
+      else if (sel.options.length > 0 && !sel.value) sel.selectedIndex = 0;
+    }
   }
   perbaruiIkonKelasDiampu();
 }
@@ -5011,27 +5026,14 @@ function updateNilaiLangsung(nis, field, val) {
     }
 }
 
-async function hapusPilihanAbsen() {
-    const konfirmasi = await Swal.fire({
-        title: 'Kosongkan Data?',
-        text: 'Apakah Anda yakin ingin menghapus pilihan absensi (H, S, I, A, D) yang belum disimpan?',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#ef4444',
-        confirmButtonText: 'Ya, Kosongkan',
-        cancelButtonText: 'Batal',
-        background: '#1e293b',
-        color: '#fff'
+function hapusPilihanAbsen() {
+    // Kosongkan langsung (tanpa dialog konfirmasi): uncheck semua radio H/S/I/A/D di modal
+    const radios = document.querySelectorAll('input[name^="absen_"]');
+    radios.forEach(r => {
+        r.checked = false;
+        r.dataset.on = '0';
     });
-
-    if (konfirmasi.isConfirmed) {
-        // Kosongkan pilihan radio absensi (H/S/I/A/D) yang sedang dibuka di modal
-        document.querySelectorAll('input[name^="absen_"]').forEach(r => {
-            r.checked = false;
-            r.dataset.on = '0';
-        });
-        showToast('success', 'Pilihan absen berhasil dikosongkan.');
-    }
+    showToast('success', `Pilihan absen dikosongkan (${radios.length} siswa).`);
 }
 
 // --- MODUL IMPORT & TEMPLATE EXCEL (UPDATE) ---
@@ -7425,45 +7427,48 @@ async function renderManajemenMurid(container, paksa = false) {
 
         container.innerHTML = `
             <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
-                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div class="bg-slate-800/80 p-2.5 sm:p-4 border-b border-white/10 flex flex-col justify-between items-stretch gap-2.5">
                     <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-graduate text-blue-400 mr-2"></i> Manajemen Akun Murid</h2>
-                    
-                    <div class="flex flex-col gap-2 w-full">
-                        <!-- Baris 1: Filter Tahun / Kelas / Ekskul / Status / Cari -->
-                        <div class="flex gap-2 flex-wrap items-center">
-                            <select id="filter-tahun-murid" class="h-9 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+
+                    <div class="flex flex-col gap-1.5 w-full">
+                        <!-- Baris 1: Filter Tahun / Kelas / Ekskul / Status / Cari (grid 2 kolom rapat di mobile) -->
+                        <div class="grid grid-cols-2 sm:flex sm:gap-2 gap-1.5 items-center">
+                            <select id="filter-tahun-murid" class="h-8 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
                                 <option value="ALL">Semua Tahun</option>
                                 ${tahunOptions}
                             </select>
 
-                            <select id="filter-kelas-murid" class="h-9 w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                            <select id="filter-kelas-murid" class="h-8 w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
                                 <option value="ALL">Semua Kelas</option>
                                 ${kelasOptions}
                             </select>
 
-                            <select id="filter-ekskul-murid" class="h-9 w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                            <select id="filter-ekskul-murid" class="h-8 w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
                                 <option value="ALL">Semua Ekskul</option>
                                 ${ekskulOptions}
                             </select>
 
-                            <select id="filter-status-murid" class="h-9 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Status siswa pada TA terpilih">
+                            <select id="filter-status-murid" class="h-8 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Status siswa pada TA terpilih">
                                 <option value="ALL">Semua Status</option>
                                 ${STATUS_SISWA.map(s => `<option value="${escJs(s)}">${s}</option>`).join('')}
                             </select>
 
-                            <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="h-9 w-full sm:w-44 bg-black/40 border border-white/20 rounded-lg px-3 text-xs text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
+                            <div class="relative col-span-2">
+                                <span class="absolute left-2.5 top-1.5 text-slate-400 pointer-events-none"><i class="fa-solid fa-magnifying-glass text-[10px]"></i></span>
+                                <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="h-8 w-full bg-black/40 border border-white/20 rounded-lg pl-7 pr-2 text-[11px] text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
+                            </div>
                         </div>
 
-                        <!-- Baris 2: Tombol aksi -->
-                        <div class="flex gap-2 flex-wrap items-center justify-end">
-                            <button onclick="renderManajemenMurid(document.getElementById('main-content'), true)" class="h-9 bg-slate-600 hover:bg-slate-500 text-white px-2.5 rounded-lg text-xs font-bold transition shadow-md" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
-                            <button onclick="exportExcelMurid()" class="h-9 bg-emerald-600 hover:bg-emerald-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-excel"></i> Excel</button>
-                            <button onclick="exportPdfMurid()" class="h-9 bg-rose-600 hover:bg-rose-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-                            <button onclick="openExportQRMurid()" class="h-9 bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-qrcode"></i> Export QR</button>
-                            <button onclick="openImportMurid()" class="h-9 bg-teal-600 hover:bg-teal-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-import"></i> Import</button>
-                            <button onclick="prosesKenaikanKelas()" class="h-9 bg-violet-600 hover:bg-violet-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Naikkan kelas siswa ke tahun pelajaran berikutnya (X→XI→XII→Lulus)"><i class="fa-solid fa-arrow-up-right-dots"></i> Kenaikan</button>
-                            <button onclick="cetakMutasiSiswa()" class="h-9 bg-orange-600 hover:bg-orange-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> Mutasi</button>
-                            <button onclick="openFormAkunMurid(true)" class="h-9 bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-plus"></i> Tambah Murid</button>
+                        <!-- Baris 2: Tombol aksi (ikon-only di mobile, dengan label di sm+) -->
+                        <div class="flex gap-1.5 flex-wrap items-center justify-end">
+                            <button onclick="renderManajemenMurid(document.getElementById('main-content'), true)" class="h-8 bg-slate-600 hover:bg-slate-500 text-white px-1.5 sm:px-2.5 rounded-lg text-[11px] font-bold transition shadow-md" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button onclick="exportExcelMurid()" class="h-8 bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Export ke Excel"><i class="fa-solid fa-file-excel"></i> <span class="hidden sm:inline">Excel</span></button>
+                            <button onclick="exportPdfMurid()" class="h-8 bg-rose-600 hover:bg-rose-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Export ke PDF"><i class="fa-solid fa-file-pdf"></i> <span class="hidden sm:inline">PDF</span></button>
+                            <button onclick="openExportQRMurid()" class="h-8 bg-indigo-600 hover:bg-indigo-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Export QR Kartu Murid"><i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span></button>
+                            <button onclick="openImportMurid()" class="h-8 bg-teal-600 hover:bg-teal-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Import Data Murid (Excel)"><i class="fa-solid fa-file-import"></i> <span class="hidden sm:inline">Import</span></button>
+                            <button onclick="prosesKenaikanKelas()" class="h-8 bg-violet-600 hover:bg-violet-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Naikkan kelas siswa ke tahun pelajaran berikutnya (X→XI→XII→Lulus)"><i class="fa-solid fa-arrow-up-right-dots"></i> <span class="hidden sm:inline">Kenaikan</span></button>
+                            <button onclick="cetakMutasiSiswa()" class="h-8 bg-orange-600 hover:bg-orange-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> <span class="hidden sm:inline">Mutasi</span></button>
+                            <button onclick="openFormAkunMurid(true)" class="h-8 bg-blue-600 hover:bg-blue-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Tambah Murid"><i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Tambah</span></button>
                         </div>
                     </div>
                 </div>
@@ -7833,98 +7838,103 @@ function openFormAkunMurid(isNew, data = {}) {
         </label>
     `).join('');
 
+    // Section header tipis untuk pengelompokan form (padat & rapi)
+    const sec = (label) => `<div class="sm:col-span-2 flex items-center gap-2 mt-1 first:mt-0"><span class="text-[9px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">${label}</span><span class="flex-1 h-px bg-white/10"></span></div>`;
+    const lbl = "font-bold text-blue-300";
+
     const formHTML = `
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left text-[11px] text-slate-300 mt-2 max-h-[65vh] overflow-y-auto custom-scrollbar p-1 pr-2">
-            <div><label class="font-bold text-blue-300">ID Akun</label><input id="f_idakun" value="${escJs(nisV)}" readonly class="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 mt-1 text-slate-400 outline-none opacity-70"></div>
-            <div><label class="font-bold text-blue-300">NIS *</label><input id="f_nis" value="${escJs(nisV)}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500 disabled:opacity-50"></div>
-            <div><label class="font-bold text-blue-300">NISN</label><input id="f_nisn" value="${escJs(nisnV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">No HP/WA</label><input id="f_wa" value="${escJs(waV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[11px] text-slate-300 mt-1 max-h-[70vh] overflow-y-auto custom-scrollbar p-1 pr-2">
+            ${sec('Identitas Siswa')}
+            <div><label class="${lbl}">ID Akun</label><input id="f_idakun" value="${escJs(nisV)}" readonly class="w-full bg-black/60 border border-white/10 rounded px-2 py-1 mt-0.5 text-slate-400 outline-none opacity-70"></div>
+            <div><label class="${lbl}">NIS *</label><input id="f_nis" value="${escJs(nisV)}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500 disabled:opacity-50"></div>
+            <div><label class="${lbl}">NISN</label><input id="f_nisn" value="${escJs(nisnV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">No HP/WA</label><input id="f_wa" value="${escJs(waV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div class="sm:col-span-2"><label class="${lbl}">Nama Lengkap *</label><input id="f_nama" value="${escJs(namaV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
 
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Nama Lengkap *</label><input id="f_nama" value="${escJs(namaV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-
-            <div><label class="font-bold text-blue-300">ID Tahun Pelajaran</label>
-                <select id="f_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${optTahun}</select>
+            ${sec('Tahun & Kelas')}
+            <div><label class="${lbl}">ID Tahun Pelajaran</label>
+                <select id="f_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optTahun}</select>
             </div>
-            <div><label class="font-bold text-blue-300">Semester</label>
-                <select id="f_semester" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+            <div><label class="${lbl}">Semester</label>
+                <select id="f_semester" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
                     <option value="">-- Pilih --</option>
                     <option value="Ganjil" ${semesterV==='Ganjil'?'selected':''}>Ganjil</option>
                     <option value="Genap" ${semesterV==='Genap'?'selected':''}>Genap</option>
                 </select>
             </div>
-
-            <div><label class="font-bold text-blue-300">Tingkat/Kelas</label>
-                <select id="f_kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${optKelas}</select>
+            <div><label class="${lbl}">Tingkat/Kelas</label>
+                <select id="f_kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optKelas}</select>
             </div>
-            <div><label class="font-bold text-blue-300">Jenis Kelamin</label>
-                <select id="f_jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+            <div><label class="${lbl}">Jenis Kelamin</label>
+                <select id="f_jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
                     <option value="">-- Pilih --</option>
                     <option value="Laki-laki" ${jkV==='Laki-laki'?'selected':''}>Laki-laki</option>
                     <option value="Perempuan" ${jkV==='Perempuan'?'selected':''}>Perempuan</option>
                 </select>
             </div>
 
-            <div><label class="font-bold text-blue-300">Tgl Lahir</label><input id="f_lahir" type="date" value="${escJs(lahirV)}" style="color-scheme: dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Golongan Darah</label>
-                <select id="f_goldar" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+            ${sec('Data Pribadi')}
+            <div><label class="${lbl}">Tgl Lahir</label><input id="f_lahir" type="date" value="${escJs(lahirV)}" style="color-scheme: dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Golongan Darah</label>
+                <select id="f_goldar" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
                     <option value="">-- Pilih --</option>
                     ${['A','B','AB','O'].map(g => `<option value="${g}" ${goldarV===g?'selected':''}>${g}</option>`).join('')}
                 </select>
             </div>
-
-            <div><label class="font-bold text-blue-300">Agama</label>
-                <select id="f_agama" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${listAgama.map(a => `<option value="${escJs(a)}" ${agamaV === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
+            <div><label class="${lbl}">Agama</label>
+                <select id="f_agama" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${listAgama.map(a => `<option value="${escJs(a)}" ${agamaV === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
             </div>
-            <div class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label class="font-bold text-blue-300 mb-1 block">Jabatan Kelas</label>
-                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
-                        <div id="badge-jabatan-kelas" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
-                        <button type="button" onclick="openPopupPilihJabatan('kelas')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
-                    </div>
-                </div>
-                <div><label class="font-bold text-blue-300 mb-1 block">Jabatan Ekstrakurikuler</label>
-                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
-                        <div id="badge-jabatan-ekskul" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
-                        <button type="button" onclick="openPopupPilihJabatan('ekskul')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
-                    </div>
+            <div><label class="${lbl}">Email Login (opsional)</label><input id="f_email" type="email" value="${escJs(emailV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+
+            ${sec('Orang Tua / Wali')}
+            <div><label class="${lbl}">Nama Orang tua Ayah</label><input id="f_ayah" value="${escJs(ayahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Pekerjaan Ayah</label><input id="f_pk_ayah" value="${escJs(pkAyahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Nama Orang tua Ibu</label><input id="f_ibu" value="${escJs(ibuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Pekerjaan Ibu</label><input id="f_pk_ibu" value="${escJs(pkIbuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Nama Wali</label><input id="f_wali" value="${escJs(waliV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Alamat</label><input id="f_alamat" value="${escJs(alamatV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+
+            ${sec('Jabatan & Ekstrakurikuler')}
+            <div><label class="${lbl} mb-1 block">Jabatan Kelas</label>
+                <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
+                    <div id="badge-jabatan-kelas" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                    <button type="button" onclick="openPopupPilihJabatan('kelas')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
                 </div>
             </div>
-
-            <div><label class="font-bold text-blue-300">Nama Orang tua Ayah</label><input id="f_ayah" value="${escJs(ayahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Pekerjaan Ayah</label><input id="f_pk_ayah" value="${escJs(pkAyahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Nama Orang tua Ibu</label><input id="f_ibu" value="${escJs(ibuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Pekerjaan Ibu</label><input id="f_pk_ibu" value="${escJs(pkIbuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Nama Wali</label><input id="f_wali" value="${escJs(waliV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="font-bold text-blue-300">Email Login (opsional)</label><input id="f_email" type="email" value="${escJs(emailV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Alamat</label><input id="f_alamat" value="${escJs(alamatV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-            <div class="sm:col-span-2"><label class="font-bold text-blue-300">Catatan Khusus</label><input id="f_catatan" value="${escJs(catatanV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
-
-            <div><label class="font-bold text-blue-300">Password ${isNew ? '*' : '(kosong = tidak diubah)'}</label><input id="f_pass" type="text" value="${isNew ? '123456' : ''}" placeholder="${isNew ? '' : 'biarkan kosong'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"><p class="text-[9px] text-slate-400 mt-1">Disimpan sebagai hash (password lokal, tanpa Google). Minimal 6 karakter.</p></div>
+            <div><label class="${lbl} mb-1 block">Jabatan Ekstrakurikuler</label>
+                <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
+                    <div id="badge-jabatan-ekskul" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                    <button type="button" onclick="openPopupPilihJabatan('ekskul')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                </div>
+            </div>
 
             <div class="sm:col-span-2">
-                <label class="font-bold text-blue-300 mb-1 block">Ekstrakurikuler (Bisa pilih lebih dari satu)</label>
-                <div class="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded border border-white/10 max-h-32 overflow-y-auto">
+                <label class="${lbl} mb-1 block">Ekstrakurikuler <span class="font-normal text-slate-400">(pilih lebih dari satu)</span></label>
+                <div class="grid grid-cols-2 gap-1.5 bg-black/20 p-1.5 rounded border border-white/10 max-h-24 overflow-y-auto custom-scrollbar">
                     ${chkEkskulHTML}
                 </div>
             </div>
 
-            <div class="col-span-2 border border-sky-500/30 rounded-lg p-2.5 bg-sky-900/10">
-                <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-                    <label class="font-bold text-sky-300"><i class="fa-solid fa-arrow-up-right-dots mr-1"></i> Riwayat Kelas &amp; Status per Tahun Pelajaran</label>
-                    <select id="rs_tahun" onchange="gantiTahunFormRiwayatSiswa(this.value)" class="bg-slate-700 border border-white/20 rounded px-2 py-1 text-[10px] text-white outline-none">
+            ${sec('Catatan & Keamanan')}
+            <div><label class="${lbl}">Catatan Khusus</label><input id="f_catatan" value="${escJs(catatanV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div><label class="${lbl}">Password ${isNew ? '*' : '(kosong = tidak diubah)'}</label><input id="f_pass" type="text" value="${isNew ? '123456' : ''}" placeholder="${isNew ? '' : 'biarkan kosong'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"><p class="text-[9px] text-slate-400 mt-0.5">Hash bcrypt (password lokal, tanpa Google). Minimal 6 karakter.</p></div>
+
+            <div class="col-span-2 border border-sky-500/30 rounded-lg p-2 bg-sky-900/10">
+                <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+                    <label class="font-bold text-sky-300 text-[10px]"><i class="fa-solid fa-arrow-up-right-dots mr-1"></i> Riwayat Kelas &amp; Status per Tahun Pelajaran</label>
+                    <select id="rs_tahun" onchange="gantiTahunFormRiwayatSiswa(this.value)" class="bg-slate-700 border border-white/20 rounded px-1.5 py-0.5 text-[10px] text-white outline-none">
                         ${riwayatTahunList().map(t => `<option value="${escJs(t)}" ${t === currentTahun ? 'selected' : ''}>${escapeHtml(t)}${formRiwayatSiswaData[t] ? ' ✓' : ''}</option>`).join('')}
                     </select>
                 </div>
                 <div id="rs-konten"></div>
-                <p class="text-[9px] text-slate-400 mt-1.5">TA tanpa entri memakai kelas statis di atas (status Aktif). Ubah status di sini untuk pindah jurusan / dropout / lulus di tengah tahun.</p>
+                <p class="text-[9px] text-slate-400 mt-1">TA tanpa entri memakai kelas statis di atas (status Aktif). Ubah status di sini untuk pindah jurusan / dropout / lulus di tengah tahun.</p>
             </div>
         </div>
     `;
 
     Swal.fire({
-        title: `<div class="text-lg font-bold">${isNew ? 'Tambah' : 'Edit'} Akun Murid</div>`,
-        html: formHTML, width: 600, background: '#1e293b', color: '#fff',
+        title: `<div class="text-base font-bold">${isNew ? 'Tambah' : 'Edit'} Akun Murid</div>`,
+        html: formHTML, width: 640, background: '#1e293b', color: '#fff',
         showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan Data',
         didOpen: () => {
             renderFormRiwayatSiswa();
