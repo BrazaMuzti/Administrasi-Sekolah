@@ -8,16 +8,17 @@ const INFO_APLIKASI = {
   namaPanjang: 'Sistem Informasi Sekolah Indonesia Pintar',
   versi: '1.0.0',
   deskripsi: 'Aplikasi administrasi sekolah: absensi, penilaian, jadwal, kalender pendidikan & laporan — berbasis web, multi-peran (admin, guru, murid).',
-  pengembang: 'Tim Pengembang SISIP',
+  pengembang: 'Tim Pengembang SISIP : Indra Nur Muhammad, S.Pd., M.Pd.',
   kontak: {
-    wa: '',          // contoh: '6281234567890' (62 di depan, tanpa +)
-    email: '',       // contoh: 'dev@example.com'
-    web: ''          // contoh: 'https://situs-pengembang.example'
+    
+    wa: '6281320682233',          // contoh: '6281234567890' (62 di depan, tanpa +)
+    email: 'indranurmuhammad@gmail.com',       // contoh: 'dev@example.com'
+    web: 'https://musixrecord.github.io/'          // contoh: 'https://situs-pengembang.example'
   },
-  urlDonasi: '',    // contoh: 'https://saweria.co/username' / 'https://trakteer.id/username'
+  urlDonasi: 'https://saweria.co/brazamuzti',    // contoh: 'https://saweria.co/username' / 'https://trakteer.id/username'
   apk: {
     // Link unduhan APK (isi salah satu atau semuanya — tombol hanya muncul bila link terisi)
-    urlGitHub: '',  // contoh: 'https://github.com/user/repo/releases/latest'
+    urlGitHub: 'https://brazamuzti.github.io/Administrasi-Sekolah/',  // contoh: 'https://github.com/user/repo/releases/latest'
     urlDrive: '',   // contoh: 'https://drive.google.com/...'
     urlCustom: '',  // contoh: 'https://sekolah.example/download/sisip.apk' (label bebas: labelCustom)
     labelCustom: 'Unduh Langsung',
@@ -395,9 +396,12 @@ let userName = namaDenganGelar(
       { id: 'nilai', icon: 'fa-star', text: 'Input Nilai' }
     ]
   : [ 
-      { id: 'dashboard-murid', icon: 'fa-user-check', text: 'Absen Mandiri Siswa' }, 
+      { id: 'dashboard-murid', icon: 'fa-chart-pie', text: 'Dashboard' },
+      { id: 'absen-mandiri', icon: 'fa-user-check', text: 'Absen Mandiri' },
+      { id: 'laporan-absen', icon: 'fa-clipboard-list', text: 'Laporan Saya' },
+      { id: 'laporan-nilai', icon: 'fa-file-lines', text: 'Laporan Nilai' },
       { id: 'teman-sejawat', icon: 'fa-user-group', text: 'Penilaian Teman Sejawat' },
-      { id: 'laporan-absen', icon: 'fa-clipboard-list', text: 'Laporan Saya' } 
+      { id: 'akun-saya', icon: 'fa-id-card', text: 'Data Akun Murid' }
     ];
   if (role === 'admin') {
       menus.push({ id: 'akun-admin', icon: 'fa-user-shield', text: 'Data Akun Admin' });
@@ -632,7 +636,10 @@ function changeMenu(menuId, menuText) {
   
   if (menuId === 'dashboard' && (currentUser.role === 'admin' || currentUser.role === 'guru')) renderDashboardUtama(mainContent);
   else if (menuId === 'absensi' || menuId === 'laporan-absen') renderAbsensiModule(mainContent);
-  else if (menuId === 'dashboard-murid') renderAbsensiModule(mainContent); // [FIX] renderDashboardMurid tidak ada → modul absensi menangani role murid
+  else if (menuId === 'dashboard-murid') renderDashboardMurid(mainContent);
+  else if (menuId === 'absen-mandiri') renderAbsenMandiriMurid(mainContent);
+  else if (menuId === 'laporan-nilai') renderLaporanNilaiMurid(mainContent);
+  else if (menuId === 'akun-saya') renderAkunSayaMurid(mainContent);
   else if (menuId === 'teman-sejawat') renderTemanSejawatMurid(mainContent);
   else if (menuId === 'nilai') renderNilaiModule(mainContent);
   // TAMBAHKAN DUA BARIS INI:
@@ -1054,6 +1061,543 @@ async function submitAbsenMandiri() {
     } else Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Absen ditolak.', background: '#1e293b', color: '#fff' });
   } catch (e) { Swal.fire({ icon: 'error', title: 'Error Jaringan', text: e.message, background: '#1e293b', color: '#fff' }); }
   finally { btn.innerHTML = `<i class="fa-solid fa-check-circle"></i> Saya Hadir Hari Ini`; btn.disabled = false; }
+}
+
+// ==========================================
+// 4B. MODUL Khusus Murid (Dashboard, Absen Mandiri, Akun Saya, Laporan Nilai)
+// ==========================================
+
+const HARI_INDO = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+/** Dashboard khusus akun murid: QR NIS, hari efektif, libur, jadwal kelas, statistik pribadi, agenda 7 hari. */
+async function renderDashboardMurid(container) {
+  container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Dashboard...</div>`;
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const nama = user["Nama Lengkap"] || '';
+  const kelas = user["Tingkat/Kelas"] || '';
+  const ekskulSaya = String(user["Ekstrakurikuler"] || '').split(',').map(e => e.trim()).filter(Boolean);
+
+  if (cacheKalender.length === 0 || cacheLibur.length === 0) {
+    try { await muatDataJadwalLibur(); } catch (e) { console.warn(e); }
+  }
+  const tahun = currentTahun;
+  const parts = String(tahun).split('/');
+  const now = new Date();
+  const idxBulan = now.getMonth();
+  const yearCalc = idxBulan >= 6 ? (parseInt(parts[0]) || now.getFullYear()) : (parseInt(parts[1]) || parseInt(parts[0]) || now.getFullYear());
+  const smt = idxBulan >= 6 ? 'Ganjil' : 'Genap';
+  const events = daftarEventKalender(tahun);
+  const isoHariIni = ISO_HARIAN(now);
+
+  // --- Hari efektif & HES (adaptasi dashboard guru) ---
+  const jumlahHari = new Date(yearCalc, idxBulan + 1, 0).getDate();
+  let heTotal = 0, heBerjalan = 0;
+  for (let d = 1; d <= jumlahHari; d++) {
+    const iso = `${yearCalc}-${String(idxBulan + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dw = (new Date(yearCalc, idxBulan, d).getDay() + 6) % 7;
+    if (!isHariLiburDariMap(iso, dw, events)) { heTotal++; if (d <= now.getDate()) heBerjalan++; }
+  }
+  const sisaEfektif = Math.max(0, heTotal - heBerjalan);
+  const bulanAwalSmt = idxBulan >= 6 ? 6 : 0;
+  let hesSampaiBulan = 0;
+  for (let b = bulanAwalSmt; b <= idxBulan; b++) {
+    const thn = b >= 6 ? (parseInt(parts[0]) || now.getFullYear()) : (parseInt(parts[1]) || parseInt(parts[0]) || now.getFullYear());
+    const jh = new Date(thn, b + 1, 0).getDate();
+    for (let d = 1; d <= jh; d++) {
+      const iso = `${thn}-${String(b + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dw = (new Date(thn, b, d).getDay() + 6) % 7;
+      if (!isHariLiburDariMap(iso, dw, events)) hesSampaiBulan++;
+    }
+  }
+
+  // --- Libur bulan ini + notifikasi libur terdekat ---
+  const liburMendatang = Object.values(events)
+    .filter(e => (e.tipe === 'libur' || e.tipe === 'libur_siswa') && e.tgl >= isoHariIni)
+    .sort((a, b) => a.tgl.localeCompare(b.tgl)).slice(0, 3);
+  const liburBulanIni = Object.values(events)
+    .filter(e => (e.tipe === 'libur' || e.tipe === 'libur_siswa') && e.tgl.slice(0, 7) === isoHariIni.slice(0, 7)).length;
+  const liburHTML = liburMendatang.length === 0
+    ? `<p class="text-[11px] text-slate-500 italic">Tidak ada hari libur mendatang.</p>`
+    : liburMendatang.map(l => {
+      const meta = KALENDER_TIPE[l.tipe] || KALENDER_TIPE.libur;
+      const dt = new Date(l.tgl + 'T00:00:00');
+      const selisih = Math.round((dt - new Date(isoHariIni + 'T00:00:00')) / 86400000);
+      const label = selisih === 0 ? 'HARI INI' : (selisih === 1 ? 'BESOK' : `${dt.getDate()} ${arrBulan[dt.getMonth()].slice(0, 3)}`);
+      return `<div class="flex items-center gap-2 bg-white/5 border ${selisih <= 1 ? 'border-red-500/40' : 'border-white/10'} rounded px-2 py-1.5">
+        <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${meta.hex}"></span>
+        <span class="text-[9px] font-bold ${selisih <= 1 ? 'text-red-300' : 'text-slate-400'} w-20 shrink-0">${label}</span>
+        <span class="text-[10px] text-white font-bold truncate">${escapeHtml(l.nama)}</span>
+      </div>`;
+    }).join('');
+
+  // --- Agenda 7 hari: Kalender Pendidikan + agenda ekskul milik siswa ---
+  const agenda = [];
+  for (let off = 0; off <= 7; off++) {
+    const dt = new Date(); dt.setDate(dt.getDate() + off);
+    const iso = ISO_HARIAN(dt);
+    const ev = events[iso];
+    if (ev) agenda.push({ off, iso, sumber: 'sekolah', ...ev });
+  }
+  let agendaEkskul = [];
+  if (ekskulSaya.length) {
+    try {
+      const { data } = await supaClient.from('agenda_ekskul')
+        .select('ekskul, tanggal, hari, kegiatan, keterangan')
+        .in('ekskul', ekskulSaya);
+      agendaEkskul = (data || []).map(a => ({ ...a, _iso: a.tanggal || '' }));
+    } catch (e) { console.warn('agenda ekskul dashboard:', e); }
+  }
+  const batas7 = ISO_HARIAN(new Date(Date.now() + 7 * 86400000));
+  const ekskulAgendaHTML = agendaEkskul
+    .filter(a => a._iso && a._iso >= isoHariIni && a._iso <= batas7)
+    .sort((a, b) => a._iso.localeCompare(b._iso))
+    .map(a => `<div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5">
+        <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:#f59e0b"></span>
+        <span class="text-[9px] font-bold text-slate-400 w-20 shrink-0">${fmtTglKalender(a._iso)}</span>
+        <span class="text-[10px] text-white font-bold truncate">${escapeHtml(a.kegiatan || '-')}</span>
+        <span class="text-[8px] px-1.5 py-0.5 rounded bg-amber-600/40 text-amber-200 font-bold shrink-0">${escapeHtml(a.ekskul || '')}</span>
+      </div>`).join('');
+  const agendaHTML = (agenda.length === 0 && ekskulAgendaHTML === '')
+    ? `<p class="text-[11px] text-slate-500 italic">Tidak ada agenda 7 hari ke depan.</p>`
+    : agenda.map(a => {
+      const labelHari = (a.off === 0) ? 'Hari Ini' : ((a.off === 1) ? 'BESOK (H-1)' : fmtTglKalender(a.iso));
+      const meta = KALENDER_TIPE[a.tipe] || KALENDER_TIPE.custom;
+      return `<div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5 ${a.off === 1 ? 'border-amber-500/40' : ''}">
+        <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${meta.hex}"></span>
+        <span class="text-[9px] font-bold ${a.off === 1 ? 'text-amber-300' : 'text-slate-400'} w-20 shrink-0">${labelHari}</span>
+        <span class="text-[10px] text-white font-bold truncate">${escapeHtml(a.nama)}</span>
+        <span class="text-[8px] text-slate-400 truncate">${escapeHtml(meta.label)}${a.ket ? ' — ' + escapeHtml(a.ket) : ''}</span>
+      </div>`;
+    }).join('') + ekskulAgendaHTML;
+
+  // --- Jadwal hari ini (kelas siswa + jadwal ekskul) ---
+  const hariIni = HARI_INDO[now.getDay()];
+  const liburHariIni = isHariLiburDariMap(isoHariIni, (now.getDay() + 6) % 7, events);
+  const evHariIni = events[isoHariIni];
+  const jamDariWaktu = (w) => String(w || '').split(',').slice(1).join(',').trim();
+  const jadwalKelas = liburHariIni ? [] : (cacheJadwal || [])
+    .filter(j => String(j["Tahun"] || '') === String(tahun) && String(j["Tingkat/Kelas"] || '') === String(kelas))
+    .filter(j => String(j.Waktu || '').toLowerCase().startsWith(hariIni.toLowerCase()))
+    .sort((a, b) => jamDariWaktu(a.Waktu).localeCompare(jamDariWaktu(b.Waktu), 'id', { numeric: true }));
+  const jadwalHTML = liburHariIni
+    ? `<p class="text-[11px] text-slate-500 italic">${evHariIni ? `Hari libur — ${escapeHtml(evHariIni.nama)}.` : 'Hari libur (Sabtu/Minggu) — tidak ada KBM.'}</p>`
+    : (jadwalKelas.length === 0
+      ? `<p class="text-[11px] text-slate-500 italic">Tidak ada jadwal ${escapeHtml(hariIni)} untuk kelas ${escapeHtml(kelas || '-')}</p>`
+      : jadwalKelas.map(j => `
+        <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5">
+          <span class="text-[9px] font-bold text-yellow-300 w-24 shrink-0">${escapeHtml(jamDariWaktu(j.Waktu) || '-')}</span>
+          <span class="text-[10px] text-white font-bold truncate">${escapeHtml(j.Mapel || '-')}</span>
+        </div>`).join(''));
+
+  // --- Statistik kehadiran pribadi + status hari ini (Saran #3) ---
+  let rowsSaya = [];
+  try {
+    const { data } = await supaClient.from('absensi')
+      .select('status, tanggal, mapel')
+      .eq('nis', nis).eq('tahun', tahun).eq('semester', smt);
+    rowsSaya = data || [];
+  } catch (e) { console.warn('statistik murid:', e); }
+  const tot = { H: 0, S: 0, I: 0, A: 0 };
+  (rowsSaya || []).forEach(r => {
+    const st = String(r.status || '').toUpperCase();
+    if (tot.hasOwnProperty(st)) tot[st]++;
+  });
+  const totalAbs = tot.H + tot.S + tot.I + tot.A;
+  const pctKehadiran = totalAbs ? Math.round(tot.H / totalAbs * 100) : 0;
+  const barStat = (label, jumlah, warnaTeks, warnaBg) => {
+    const pct = totalAbs ? Math.round(jumlah / totalAbs * 100) : 0;
+    return `<div class="flex items-center gap-2">
+      <span class="text-[10px] font-extrabold w-5 text-center ${warnaTeks}">${label}</span>
+      <div class="flex-1 h-3.5 bg-white/5 rounded-full overflow-hidden"><div class="h-full rounded-full ${warnaBg}" style="width:${pct}%"></div></div>
+      <span class="text-[9px] font-bold text-slate-300 w-20 text-right">${jumlah} · ${pct}%</span>
+    </div>`;
+  };
+  const absenHariIni = rowsSaya.filter(r => r.tanggal === isoHariIni);
+  const chipHariIni = absenHariIni.length === 0
+    ? `<span class="text-[9px] px-2 py-0.5 rounded-full bg-slate-600/40 text-slate-300 font-bold">Belum Absen</span>`
+    : absenHariIni.map(r => {
+      const st = String(r.status).toUpperCase();
+      const w = st === 'H' ? 'bg-green-600/40 text-green-200' : st === 'A' ? 'bg-red-600/40 text-red-200' : st === 'I' ? 'bg-yellow-600/40 text-yellow-200' : 'bg-blue-600/40 text-blue-200';
+      return `<span class="text-[9px] px-2 py-0.5 rounded-full ${w} font-bold">${st} · ${escapeHtml(r.mapel || '-')}</span>`;
+    }).join(' ');
+  const statHTML = totalAbs === 0
+    ? `<p class="text-[11px] text-slate-500 italic">Belum ada data absensi semester ini.</p>`
+    : `
+      <div class="flex items-center gap-3 mb-2">
+        <div class="text-3xl font-extrabold ${pctKehadiran >= 90 ? 'text-green-400' : pctKehadiran >= 75 ? 'text-yellow-400' : 'text-red-400'}">${pctKehadiran}%</div>
+        <div class="text-[9px] text-slate-400 leading-tight">kehadiran Anda<br>semester ${escapeHtml(smt)} · ${totalAbs} entri</div>
+      </div>
+      <div class="space-y-1.5">
+        ${barStat('H', tot.H, 'text-green-400', 'bg-green-500')}
+        ${barStat('S', tot.S, 'text-blue-400', 'bg-blue-500')}
+        ${barStat('I', tot.I, 'text-yellow-400', 'bg-yellow-500')}
+        ${barStat('A', tot.A, 'text-red-400', 'bg-red-500')}
+      </div>`;
+
+  // --- Kartu QR NIS (Saran #1: tombol cetak kartu) ---
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(nis)}`;
+  const kartu = (icon, warna, judul, nilai, sub) => `
+    <div class="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg flex items-center justify-center ${warna}"><i class="fa-solid ${icon}"></i></div>
+      <div><div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-lg font-extrabold text-white leading-tight">${nilai}</div><div class="text-[9px] text-slate-400">${sub}</div></div>
+    </div>`;
+  const tombolModul = (id, text, icon, warna) => `<button onclick="changeMenu('${id}', '${text}')" class="${warna} text-white text-[10px] font-bold px-3 py-2 rounded-lg shadow transition flex items-center gap-1.5"><i class="fa-solid ${icon}"></i> ${text}</button>`;
+
+  container.innerHTML = `
+    <div class="p-4 space-y-4">
+      <div class="text-center mt-2">
+        <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-chart-pie text-blue-400 mr-2"></i> Dashboard Murid</h2>
+        <p class="text-[10px] text-slate-400">Tahun Pelajaran ${escapeHtml(tahun)} · Semester ${smt} · ${hariIni}, ${fmtTglKalender(isoHariIni)}</p>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4">
+        <div class="bg-white p-2 rounded-lg shrink-0"><img src="${qrUrl}" alt="QR NIS" class="w-28 h-28" onerror="this.parentElement.innerHTML='<div class=\\'w-28 h-28 flex items-center justify-center text-slate-400\\'><i class=\\'fa-solid fa-qrcode text-4xl\\'></i></div>'"></div>
+        <div class="flex-1 text-center sm:text-left">
+          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Kartu QR NIS Saya</div>
+          <div class="text-lg font-extrabold text-white leading-tight">${escapeHtml(nama)}</div>
+          <div class="text-[10px] text-slate-300">NIS: <span class="font-mono font-bold text-yellow-300">${escapeHtml(nis)}</span> · Kelas ${escapeHtml(kelas || '-')}</div>
+          ${ekskulSaya.length ? `<div class="text-[9px] text-slate-400 mt-1"><i class="fa-solid fa-medal text-yellow-400 mr-1"></i>${ekskulSaya.map(escapeHtml).join(', ')}</div>` : ''}
+          <button onclick="cetakKartuQrMurid()" class="mt-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5"><i class="fa-solid fa-print"></i> Cetak Kartu QR</button>
+        </div>
+        <div class="flex-1 w-full">
+          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">Absensi Hari Ini</div>
+          <div class="flex flex-wrap gap-1">${chipHariIni || '<span class="text-[10px] text-slate-500 italic">Hari libur / belum ada sesi absen.</span>'}</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        ${kartu('fa-calendar-check', 'bg-green-600/20 text-green-400', 'Hari Efektif Bulan Ini', `${heBerjalan} / ${heTotal}`, 'berjalan / total')}
+        ${kartu('fa-hourglass-half', 'bg-amber-600/20 text-amber-400', 'Sisa Hari Efektif', String(sisaEfektif), 'sisa hari kerja bulan ini')}
+        ${kartu('fa-calendar-week', 'bg-indigo-600/20 text-indigo-400', 'HES s.d. Bulan Ini', String(hesSampaiBulan), 'Hari Efektif Semester (kumulatif)')}
+        ${kartu('fa-umbrella-beach', 'bg-red-600/20 text-red-400', 'Libur Bulan Ini', String(liburBulanIni), 'hari libur bulan berjalan')}
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+          <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-umbrella-beach text-red-400 mr-1"></i> Notifikasi Libur Terdekat</h3>
+          <div class="space-y-1.5">${liburHTML}</div>
+        </div>
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+          <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-book-open text-yellow-400 mr-1"></i> Jadwal Hari Ini (Kelas ${escapeHtml(kelas || '-')})</h3>
+          <div class="space-y-1.5">${jadwalHTML}</div>
+        </div>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-chart-simple text-green-400 mr-1"></i> Statistik Kehadiran Saya — Semester ${escapeHtml(smt)}</h3>
+        ${statHTML}
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Agenda 7 Hari Ke Depan (Kalender Pendidikan${ekskulSaya.length ? ' + Ekskul' : ''})</h3>
+        <div class="space-y-1.5">${agendaHTML}</div>
+      </div>
+      <div class="flex flex-wrap gap-2 justify-center">
+        ${tombolModul('absen-mandiri', 'Absen Mandiri', 'fa-user-check', 'bg-green-600 hover:bg-green-700')}
+        ${tombolModul('laporan-absen', 'Laporan Saya', 'fa-clipboard-list', 'bg-blue-600 hover:bg-blue-700')}
+        ${tombolModul('laporan-nilai', 'Laporan Nilai', 'fa-file-lines', 'bg-emerald-600 hover:bg-emerald-700')}
+      </div>
+    </div>`;
+}
+
+/** Cetak kartu QR NIS murid (pola cetakQRMuridTerfilter). */
+function cetakKartuQrMurid() {
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const nama = user["Nama Lengkap"] || '';
+  const kelas = user["Tingkat/Kelas"] || '';
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(nis)}`;
+  const win = window.open('', '_blank');
+  if (!win) { showToast('error', 'Popup diblokir browser.'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><title>Kartu Murid — ${nama}</title>
+    <style>
+      body { font-family: Arial, sans-serif; display: flex; justify-content: center; padding: 20px; }
+      .kartu { width: 340px; border: 2px solid #1e3a8a; border-radius: 12px; overflow: hidden; }
+      .kartu .atas { background: #1e3a8a; color: #fff; padding: 12px; text-align: center; }
+      .kartu .atas h1 { margin: 0; font-size: 16px; }
+      .kartu .atas p { margin: 2px 0 0; font-size: 10px; }
+      .kartu .isi { padding: 16px; text-align: center; }
+      .kartu .isi img { width: 200px; height: 200px; }
+      .kartu .isi .nis { font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px; }
+      .kartu .bawah { background: #f1f5f9; padding: 8px; text-align: center; font-size: 9px; color: #475569; }
+    </style></head><body>
+    <div class="kartu">
+      <div class="atas"><h1>KARTU MURID</h1><p>NIS: ${nis} · Kelas ${kelas}</p></div>
+      <div class="isi"><img src="${qrUrl}" alt="QR"><div class="nis">${nis}</div><div style="font-size:13px;font-weight:bold;margin-top:4px;">${nama}</div></div>
+      <div class="bawah">Tunjukkan QR ini kepada guru saat absensi (scan QR).</div>
+    </div>
+    <script>window.onload = () => setTimeout(() => window.print(), 400);<\/script>
+    </body></html>`);
+  win.document.close();
+}
+
+/** Panel absen mandiri: tampilkan sesi yang dibuka guru (kunci_absen BUKA), captcha, GPS. */
+async function renderAbsenMandiriMurid(container) {
+  container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Sesi Absen...</div>`;
+  const user = (currentUser || {}).user || {};
+  const kelas = user["Tingkat/Kelas"] || '';
+  const ekskulSaya = String(user["Ekstrakurikuler"] || '').split(',').map(e => e.trim()).filter(Boolean);
+
+  if (cacheKalender.length === 0 || cacheLibur.length === 0) {
+    try { await muatDataJadwalLibur(); } catch (e) { console.warn(e); }
+  }
+  const events = daftarEventKalender(currentTahun);
+  const now = new Date();
+  const isoHariIni = ISO_HARIAN(now);
+  const liburHariIni = isHariLiburDariMap(isoHariIni, (now.getDay() + 6) % 7, events);
+
+  // Sesi absen yang dibuka guru (kolom captcha sengaja TIDAK diambil)
+  let sesiGuru = [];
+  try {
+    const { data, error } = await supaClient.from('akun')
+      .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, kunci_absen')
+      .in('tipe', ['guru', 'admin'])
+      .eq('kunci_absen', 'BUKA');
+    if (!error) sesiGuru = data || [];
+  } catch (e) { console.warn('sesi absen:', e); }
+
+  const jamSekarang = `${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
+  const dalamJamSesi = (waktu) => {
+    // "Senin, 07.00-07.40" → cek jam sekarang dalam rentang (toleransi tak diperlukan)
+    const rentang = String(waktu || '').split(',')[1] || '';
+    const m = rentang.match(/(\d{1,2})[.:](\d{2})\s*-\s*(\d{1,2})[.:](\d{2})/);
+    if (!m) return true; // format tak dikenal → jangan dibatasi
+    const menit = (h, i) => h * 60 + parseInt(i, 10);
+    const kini = now.getHours() * 60 + now.getMinutes();
+    return kini >= menit(+m[1], m[2]) && kini <= menit(+m[3], m[4]);
+  };
+
+  // Pilihan mapel: dari jadwal kelas hari ini (yang sesinya terbuka) + ekskul milik siswa
+  const hariIni = HARI_INDO[now.getDay()];
+  const opsi = [];
+  if (!liburHariIni) {
+    (cacheJadwal || [])
+      .filter(j => String(j["Tahun"] || '') === String(currentTahun) && String(j["Tingkat/Kelas"] || '') === String(kelas))
+      .filter(j => String(j.Waktu || '').toLowerCase().startsWith(hariIni.toLowerCase()))
+      .forEach(j => {
+        const guruSesi = sesiGuru.find(g => String(g.mapel || '').toLowerCase().includes(String(j.Mapel || '').toLowerCase()));
+        if (!guruSesi) return;
+        const sesiJam = dalamJamSesi(j.Waktu);
+        opsi.push({ value: `Mapel|${j.Mapel}`, label: `${j.Mapel} — ${jamDariWaktuDgn(j.Waktu)}${sesiJam ? '' : ' (di luar jam pelajaran)'}`, ok: sesiJam });
+      });
+    sesiGuru.forEach(g => {
+      String(g.ekstrakurikuler || '').split(',').map(e => e.trim()).filter(Boolean).forEach(ek => {
+        if (!ekskulSaya.includes(ek)) return;
+        if (opsi.some(o => o.value === `Ekskul|${ek}`)) return;
+        opsi.push({ value: `Ekskul|${ek}`, label: `${ek} (Ekstrakurikuler)`, ok: true });
+      });
+    });
+  }
+  const opsiAktif = opsi.filter(o => o.ok);
+  const sesiHTML = sesiGuru.length === 0
+    ? `<div class="bg-red-600/20 border border-red-500/40 rounded-xl p-4 text-center">
+        <i class="fa-solid fa-lock text-3xl text-red-400 mb-2"></i>
+        <p class="text-sm font-bold text-red-300">Tidak Ada Sesi Absen Terbuka</p>
+        <p class="text-[10px] text-slate-400 mt-1">Minta guru pengampu membuka sesi absen (Kunci Absen → BUKA) dan bagikan kode captcha.</p>
+      </div>`
+    : `<div class="bg-green-600/20 border border-green-500/40 rounded-xl p-3">
+        <p class="text-[10px] font-bold text-green-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-circle-check mr-1"></i> Sesi Absen Terbuka (${sesiGuru.length})</p>
+        <div class="space-y-1">${sesiGuru.map(g => `<div class="text-[10px] text-white bg-white/5 rounded px-2 py-1"><i class="fa-solid fa-chalkboard-user text-green-400 mr-1"></i> ${escapeHtml(g.nama_lengkap || '-')} · ${escapeHtml(g.mapel || g.ekstrakurikuler || '-')}</div>`).join('')}</div>
+      </div>`;
+
+  const formHTML = liburHariIni
+    ? `<div class="bg-white/5 border border-white/10 rounded-xl p-4 text-center"><i class="fa-solid fa-umbrella-beach text-2xl text-slate-400 mb-2"></i><p class="text-[11px] text-slate-400 italic">Hari libur — absen mandiri ditutup.</p></div>`
+    : `<div class="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        <div>
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Mapel / Ekstrakurikuler <span class="text-red-400">*</span></label>
+          <select id="murid-mapel" class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+            ${opsiAktif.length === 0 ? '<option value="">— Tidak ada sesi yang cocok dengan jadwal Anda —</option>' : opsiAktif.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Kode Captcha dari Guru <span class="text-red-400">*</span></label>
+          <input type="text" id="murid-captcha" placeholder="Ketik kode dari guru pengampu" autocomplete="off"
+            class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white uppercase tracking-widest font-mono">
+        </div>
+        <button id="btn-absen-mandiri" onclick="submitAbsenMandiri()" ${opsiAktif.length === 0 ? 'disabled' : ''}
+          class="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition text-sm">
+          <i class="fa-solid fa-check-circle"></i> Saya Hadir Hari Ini
+        </button>
+        <p class="text-[9px] text-slate-500 text-center"><i class="fa-solid fa-location-dot mr-1"></i>Lokasi GPS (koordinat) akan dilampirkan pada absensi untuk verifikasi kehadiran.</p>
+      </div>`;
+
+  container.innerHTML = `
+    <div class="p-4 space-y-4 max-w-xl mx-auto">
+      <div class="text-center mt-2">
+        <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-user-check text-green-400 mr-2"></i> Absen Mandiri Siswa</h2>
+        <p class="text-[10px] text-slate-400">${HARI_INDO[now.getDay()]}, ${fmtTglKalender(isoHariIni)} · ${jamSekarang} WIB</p>
+      </div>
+      ${sesiHTML}
+      ${formHTML}
+    </div>`;
+}
+
+/** Helper: "Senin, 07.00-07.40" → "07.00-07.40". */
+function jamDariWaktuDgn(w) { return String(w || '').split(',').slice(1).join(',').trim() || '-'; }
+
+/** Data Akun Murid (self-service): profil sendiri, edit data kontak/pribadi, reset password sendiri. */
+async function renderAkunSayaMurid(container) {
+  container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Profil...</div>`;
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const { data: prof, error } = await supaClient.from('akun').select('*').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
+  if (error || !prof) {
+    container.innerHTML = `<div class="p-6 text-center text-red-300">Profil tidak ditemukan. Muat ulang halaman atau hubungi admin.</div>`;
+    return;
+  }
+  const ro = (v) => escapeHtml(v || '-');
+  const inp = (id, label, val, tipe = 'text') => `
+    <div>
+      <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">${label}</label>
+      <input type="${tipe}" id="${id}" value="${escapeHtml(val || '')}"
+        class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+    </div>`;
+
+  container.innerHTML = `
+    <div class="p-4 space-y-4 max-w-2xl mx-auto">
+      <div class="text-center mt-2">
+        <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-id-card text-blue-400 mr-2"></i> Data Akun Murid</h2>
+        <p class="text-[10px] text-slate-400">Kelola data diri Anda — data identitas hanya dapat diubah admin.</p>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px]">
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">NIS</div><div class="font-mono font-bold text-yellow-300">${ro(prof.nis_nip)}</div></div>
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">NISN</div><div class="font-bold text-white">${ro(prof.nisn)}</div></div>
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">Nama Lengkap</div><div class="font-bold text-white">${ro(prof.nama_lengkap)}</div></div>
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">Tingkat/Kelas</div><div class="font-bold text-white">${ro(prof.tingkat_kelas)}</div></div>
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">Jabatan Kelas</div><div class="font-bold text-white">${ro(prof.jabatan)}</div></div>
+        <div><div class="text-slate-400 text-[9px] uppercase font-bold">Ekstrakurikuler</div><div class="font-bold text-white">${ro(prof.ekstrakurikuler)}</div></div>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-pen-to-square text-blue-400 mr-1"></i> Edit Data Diri</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${inp('pro-email', 'Email', prof.email, 'email')}
+          ${inp('pro-no_telepon', 'No HP/WA', prof.no_telepon)}
+          ${inp('pro-alamat', 'Alamat', prof.alamat)}
+          ${inp('pro-tgl_lahir', 'Tgl Lahir', prof.tgl_lahir, 'date')}
+          <div>
+            <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Jenis Kelamin</label>
+            <select id="pro-jenis_kelamin" class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+              <option value="">— Pilih —</option>
+              <option value="L" ${prof.jenis_kelamin === 'L' ? 'selected' : ''}>Laki-laki</option>
+              <option value="P" ${prof.jenis_kelamin === 'P' ? 'selected' : ''}>Perempuan</option>
+            </select>
+          </div>
+          ${inp('pro-agama', 'Agama', prof.agama)}
+          ${inp('pro-golongan_darah', 'Gol. Darah', prof.golongan_darah)}
+          ${inp('pro-nama_ayah', 'Nama Ayah', prof.nama_ayah)}
+          ${inp('pro-pekerjaan_ayah', 'Pekerjaan Ayah', prof.pekerjaan_ayah)}
+          ${inp('pro-nama_ibu', 'Nama Ibu', prof.nama_ibu)}
+          ${inp('pro-pekerjaan_ibu', 'Pekerjaan Ibu', prof.pekerjaan_ibu)}
+          ${inp('pro-nama_wali', 'Nama Wali', prof.nama_wali)}
+        </div>
+        <button onclick="simpanProfilMurid()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition text-sm"><i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan</button>
+      </div>
+      <div class="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-key text-amber-400 mr-1"></i> Ganti Password</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${inp('pass-lama', 'Password Lama', '', 'password')}
+          ${inp('pass-baru', 'Password Baru (min. 6 karakter)', '', 'password')}
+        </div>
+        <button onclick="gantiPasswordSendiri()" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-lg transition text-sm"><i class="fa-solid fa-key"></i> Ganti Password</button>
+      </div>
+    </div>`;
+}
+
+async function simpanProfilMurid() {
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const ambil = (id) => document.getElementById(id)?.value?.trim() ?? null;
+  const p_data = {
+    email: ambil('pro-email'),
+    no_telepon: ambil('pro-no_telepon'),
+    alamat: ambil('pro-alamat'),
+    tgl_lahir: ambil('pro-tgl_lahir'),
+    jenis_kelamin: ambil('pro-jenis_kelamin'),
+    agama: ambil('pro-agama'),
+    golongan_darah: ambil('pro-golongan_darah'),
+    nama_ayah: ambil('pro-nama_ayah'),
+    pekerjaan_ayah: ambil('pro-pekerjaan_ayah'),
+    nama_ibu: ambil('pro-nama_ibu'),
+    pekerjaan_ibu: ambil('pro-pekerjaan_ibu'),
+    nama_wali: ambil('pro-nama_wali')
+  };
+  const { data, error } = await supaClient.rpc('ubah_profil_murid', { p_nis: nis, p_data });
+  if (error || (data && data.status === 'error')) {
+    return Swal.fire({ icon: 'error', title: 'Gagal', text: (data && data.message) || error?.message, background: '#1e293b', color: '#fff' });
+  }
+  // Perbarui sesi lokal (email bisa berubah → profil header konsisten)
+  try {
+    const { data: baru } = await supaClient.from('akun').select('*').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
+    if (baru) {
+      const sess = bangunResponsSesi(baru, baru.email, getToken());
+      setSession(getToken(), sess.user);
+      currentUser = { role: sess.role, user: sess.user };
+    }
+  } catch (e) { console.warn('sinkron sesi profil:', e); }
+  Swal.fire({ icon: 'success', title: 'Tersimpan', text: data?.message || 'Profil diperbarui.', background: '#1e293b', color: '#fff', timer: 2000, showConfirmButton: false });
+}
+
+async function gantiPasswordSendiri() {
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const lama = document.getElementById('pass-lama')?.value || '';
+  const baru = document.getElementById('pass-baru')?.value || '';
+  if (!lama || !baru) return showToast('warning', 'Isi password lama dan baru.');
+  const { data, error } = await supaClient.rpc('ubah_password_sendiri', { p_nis: nis, p_lama: lama, p_baru: baru });
+  const ok = !error && data && data.status === 'success';
+  Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Berhasil' : 'Gagal', text: (data && data.message) || error?.message, background: '#1e293b', color: '#fff' });
+  if (ok) {
+    const el1 = document.getElementById('pass-lama'), el2 = document.getElementById('pass-baru');
+    if (el1) el1.value = ''; if (el2) el2.value = '';
+  }
+}
+
+/** Laporan Nilai (mode baca murni) — via RPC ambil_laporan_nilai_murid. */
+async function renderLaporanNilaiMurid(container) {
+  container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Laporan Nilai...</div>`;
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const pref = getPreferensiSesi();
+  const now = new Date();
+  const tahunDef = pref.tahun || currentTahun;
+  const smtDef = pref.semester || (now.getMonth() >= 6 ? 'Ganjil' : 'Genap');
+
+  const { data, error } = await supaClient.rpc('ambil_laporan_nilai_murid', { p_nis: nis, p_tahun: tahunDef, p_semester: smtDef });
+  const rows = (!error && data && data.status === 'success') ? (data.nilai || []) : [];
+  if (error || (data && data.status === 'error')) {
+    container.innerHTML = `<div class="p-6 text-center text-red-300">${escapeHtml((data && data.message) || error?.message || 'Gagal memuat nilai.')}</div>`;
+    return;
+  }
+
+  const kategoriList = ['Data Nilai Pengetahuan', 'Data Nilai Keterampilan', 'Data Nilai Sikap', 'Data Nilai Eskul'];
+  const labelKategori = { 'Data Nilai Pengetahuan': 'Pengetahuan', 'Data Nilai Keterampilan': 'Keterampilan', 'Data Nilai Sikap': 'Sikap', 'Data Nilai Eskul': 'Ekstrakurikuler' };
+
+  const tabelKategori = (kat) => {
+    const baris = rows.filter(r => r.kategori === kat);
+    if (baris.length === 0) return `<p class="text-[11px] text-slate-500 italic">Belum ada data nilai ${escapeHtml(labelKategori[kat] || kat)}.</p>`;
+    return baris.map(r => {
+      const d = r.data || {};
+      const kolom = Object.keys(d).filter(k => d[k] !== null && d[k] !== '');
+      const ringkas = kolom.slice(0, 8).map(k => `<div class="flex justify-between gap-2 bg-white/5 rounded px-2 py-1"><span class="text-slate-400 text-[9px] truncate">${escapeHtml(k)}</span><span class="text-white font-bold text-[10px]">${escapeHtml(String(d[k]))}</span></div>`).join('');
+      return `<div class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[11px] font-bold text-white"><i class="fa-solid fa-book ${kat.includes('Eskul') ? 'text-yellow-400' : 'text-blue-400'} mr-1"></i> ${escapeHtml(kat.includes('Eskul') ? (r.ekskul || '-') : (r.mapel || '-'))}</span>
+          <span class="text-[9px] text-slate-400">${escapeHtml(r.kelas || '')} · ${escapeHtml(r.tahun || '')} ${escapeHtml(r.semester || '')}</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">${ringkas || '<span class="text-[10px] text-slate-500 italic">Belum ada rincian.</span>'}</div>
+        ${kolom.length > 8 ? `<div class="text-[9px] text-slate-500 italic mt-1">+ ${kolom.length - 8} komponen lainnya</div>` : ''}
+      </div>`;
+    }).join('');
+  };
+
+  container.innerHTML = `
+    <div class="p-4 space-y-4">
+      <div class="text-center mt-2">
+        <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-file-lines text-emerald-400 mr-2"></i> Laporan Nilai</h2>
+        <p class="text-[10px] text-slate-400">${escapeHtml(user["Nama Lengkap"] || '')} · NIS ${escapeHtml(nis)} · ${escapeHtml(tahunDef)} — ${escapeHtml(smtDef)} · Mode Baca Saja</p>
+      </div>
+      ${kategoriList.map(k => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+          <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-layer-group text-emerald-400 mr-1"></i> ${escapeHtml(labelKategori[k])}</h3>
+          ${tabelKategori(k)}
+        </div>`).join('')}
+                                       </div>`;
 }
 
 // ==========================================
@@ -2228,6 +2772,128 @@ function shareKehadiranWA() {
 }
 
 // --- MODUL IMPORT EXCEL ABSENSI ---
+// ==========================================
+// 4C. PRATINJAU IMPORT EXCEL (Terapkan / Reupload / Batal) — dipakai semua modul import
+// ==========================================
+
+/** Baca file Excel (sheet pertama) → array-of-arrays. Validasi ukuran & sheet kosong. */
+function bacaExcelPertama(file, opts = {}) {
+  return new Promise((resolve, reject) => {
+    if (typeof XLSX === 'undefined') return reject(new Error('Library SheetJS (XLSX) tidak ditemukan.'));
+    if (file.size > 2 * 1024 * 1024) return reject(new Error('Ukuran file melebihi 2 MB. Hapus gambar/format berlebih lalu simpan ulang.'));
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: !!opts.cellDates });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) return reject(new Error('Sheet pertama kosong / tidak dapat dibaca.'));
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!rows || rows.length === 0) return reject(new Error('Sheet pertama kosong — tidak ada data untuk diimpor.'));
+        resolve(rows);
+      } catch (err) { reject(new Error('Gagal membaca file Excel: ' + (err.message || err))); }
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * Modal pratinjau hasil parse import (dipakai bersama Absensi/Nilai/Murid/Kalender).
+ * cfg = {
+ *   judul: 'Import Data Absensi', namaFile: 'x.xlsx',
+ *   kolom: [{ k, l }],                                // kunci & label kolom
+ *   baris: [{ status:'ok'|'warn'|'bad', sel:{ [k]: {v, cls, alasan} }, alasan:'', raw:{...} }],
+ *   mismatch: ['Tahun (File: 2025/2026)'],            // peringatan sinkronisasi (badge kuning)
+ *   labelTerapkan: 'Terapkan & Simpan',
+ *   onTerapkan: async (rowsValid) => {},              // rowsValid = baris status ok/warn
+ *   onReupload: () => {}                              // buka ulang dialog pilih file
+ * }
+ */
+function bukaPreviewImport(cfg) {
+  const baris = cfg.baris || [];
+  const nOk = baris.filter(b => b.status === 'ok').length;
+  const nWarn = baris.filter(b => b.status === 'warn').length;
+  const nBad = baris.filter(b => b.status === 'bad').length;
+  const adaValid = (nOk + nWarn) > 0;
+  window.__previewImportCfg = cfg;
+  window.__previewImportHanyaValid = false;
+
+  const badge = (n, cls, label) => n > 0 ? `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${cls}">${n} ${label}</span>` : '';
+  const mismHTML = (cfg.mismatch || []).length === 0 ? '' : `
+    <div class="bg-amber-600/15 border border-amber-500/40 rounded-lg p-2 mb-2">
+      <div class="text-[10px] font-bold text-amber-300 mb-0.5"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Perbedaan dengan filter yang terbuka (import tetap dapat diterapkan):</div>
+      <ul class="text-[9px] text-amber-200/80 list-disc pl-4">${cfg.mismatch.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>
+    </div>`;
+  const masalahHTML = (nBad + nWarn) === 0 ? '' : `
+    <div class="bg-red-600/10 border border-red-500/30 rounded-lg p-2 mb-2 max-h-24 overflow-auto custom-scrollbar">
+      <div class="text-[10px] font-bold text-red-300 mb-0.5"><i class="fa-solid fa-circle-exclamation mr-1"></i> Baris bermasalah (${nBad} ditolak${nWarn ? `, ${nWarn} dikoreksi otomatis` : ''}) — baris ditolak akan dilewati:</div>
+      ${baris.filter(b => b.status !== 'ok').slice(0, 30).map((b, i) => `<div class="text-[9px] text-red-200/80"><b>${i + 1}.</b> ${escapeHtml(b.alasan || 'Tidak valid')}</div>`).join('')}
+      ${(nBad + nWarn) > 30 ? `<div class="text-[9px] text-slate-500 italic">... dan ${nBad + nWarn - 30} masalah lainnya</div>` : ''}
+    </div>`;
+
+  const renderRows = () => {
+    const state = window.__previewImportCfg;
+    const hanya = window.__previewImportHanyaValid;
+    const list = (state.baris || []).filter(b => !hanya || b.status === 'ok');
+    const tampil = list.slice(0, MAKS_TAMPIL_PREVIEW);
+    const thead = `<tr>${state.kolom.map(k => `<th class="px-2 py-1.5 text-[9px] font-bold text-slate-300 border-b border-white/20 bg-slate-800 sticky top-0 whitespace-nowrap">${escapeHtml(k.l)}</th>`).join('')}</tr>`;
+    const tbody = tampil.length === 0
+      ? `<tr><td colspan="${state.kolom.length}" class="text-center text-[10px] text-slate-500 italic py-4">Tidak ada baris untuk ditampilkan.</td></tr>`
+      : tampil.map(b => {
+        const stIcon = b.status === 'ok' ? '<span class="text-green-400" title="Valid">✓</span>' : b.status === 'warn' ? '<span class="text-amber-400" title="Dikoreksi otomatis">⚠</span>' : '<span class="text-red-400" title="Ditolak">✕</span>';
+        return `<tr class="${b.status === 'bad' ? 'opacity-60' : ''}">${state.kolom.map(k => {
+          const c = (b.sel || {})[k.k];
+          const style = c && c.cls === 'bad' ? 'background:rgba(239,68,68,.18);' : (c && c.cls === 'warn' ? 'background:rgba(245,158,11,.18);' : '');
+          const title = c && c.alasan ? ` title="${escapeHtml(c.alasan)}"` : (b.status === 'bad' && b.alasan ? ` title="${escapeHtml(b.alasan)}"` : '');
+          return `<td${title} class="px-2 py-1 border-b border-white/5 text-[10px] whitespace-nowrap ${c && c.cls === 'bad' ? 'text-red-300' : (c && c.cls === 'warn' ? 'text-amber-200' : 'text-slate-200')}" style="${style}">${c && c.v !== '' && c.v != null ? escapeHtml(String(c.v)) : '<span class="text-slate-600">—</span>'}</td>`;
+        }).join('')}<td class="px-2 py-1 border-b border-white/5 text-center">${stIcon}</td></tr>`;
+      }).join('');
+    const box = document.getElementById('prev-import-tbody-wrap');
+    if (!box) return;
+    box.innerHTML = `<table class="w-full border-collapse"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+    const info = document.getElementById('prev-import-info');
+    if (info) info.innerHTML = `${list.length === 0 ? 'Tidak ada baris.' : `Menampilkan ${tampil.length} dari ${list.length} baris`}${list.length > tampil.length ? ` · <span class="text-slate-400">+ ${list.length - tampil.length} baris lainnya tidak ditampilkan</span>` : ''}`;
+  };
+  window.__renderPreviewImportRows = renderRows;
+
+  Swal.fire({
+    title: `<div class="text-sm font-bold text-teal-300"><i class="fa-solid fa-table-list"></i> Pratinjau ${escapeHtml(cfg.judul || 'Import Excel')}</div>`,
+    width: '860px',
+    html: `
+      <div class="text-left text-[11px] text-slate-300">
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <span class="text-[10px] text-slate-400"><i class="fa-solid fa-file-excel text-green-400 mr-1"></i>${escapeHtml(cfg.namaFile || '')}</span>
+          ${badge(nOk, 'bg-green-600/40 text-green-200', 'valid')}
+          ${badge(nWarn, 'bg-amber-600/40 text-amber-200', 'dikoreksi')}
+          ${badge(nBad, 'bg-red-600/40 text-red-200', 'ditolak')}
+          <label class="ml-auto flex items-center gap-1 text-[9px] text-slate-400 cursor-pointer"><input type="checkbox" id="prev-hanya-valid" onchange="window.__previewImportHanyaValid=this.checked;window.__renderPreviewImportRows()" class="w-3 h-3 accent-teal-500 cursor-pointer"> hanya baris valid</label>
+        </div>
+        ${mismHTML}
+        ${masalahHTML}
+        <div id="prev-import-tbody-wrap" class="max-h-64 overflow-auto custom-scrollbar border border-white/10 rounded-lg"></div>
+        <div id="prev-import-info" class="text-[9px] text-slate-500 mt-1"></div>
+      </div>`,
+    background: '#1e293b', color: '#fff',
+    showDenyButton: true,
+    showConfirmButton: adaValid,
+    confirmButtonText: `<i class="fa-solid fa-check"></i> ${cfg.labelTerapkan || 'Terapkan'}`,
+    denyButtonText: '<i class="fa-solid fa-rotate-right"></i> Reupload',
+    cancelButtonText: '<i class="fa-solid fa-xmark"></i> Batal',
+    didOpen: () => { renderRows(); },
+    preConfirm: () => {
+      const valid = (cfg.baris || []).filter(b => b.status !== 'bad');
+      return valid;
+    }
+  }).then(res => {
+    window.__previewImportCfg = null;
+    if (res.isConfirmed) {
+      const rowsValid = (cfg.baris || []).filter(b => b.status !== 'bad');
+      cfg.onTerapkan(rowsValid);
+    } else if (res.isDenied && cfg.onReupload) cfg.onReupload();
+  });
+}
+const MAKS_TAMPIL_PREVIEW = 50;
+
 function openImportExcelAbsen() {
   Swal.fire({
     title: '<div class="text-base font-bold text-teal-400"><i class="fa-solid fa-file-excel"></i> Import Data Absensi</div>',
@@ -2243,14 +2909,14 @@ function openImportExcelAbsen() {
           <input type="file" id="file-import-absen" accept=".xlsx, .xls" class="w-full bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-teal-500">
       </div>
     `,
-    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-upload"></i> Proses Import',
+    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-table-list"></i> Pratinjau Import',
     preConfirm: () => {
         const file = document.getElementById('file-import-absen').files[0];
         if(!file) { Swal.showValidationMessage('Pilih file Excel terlebih dahulu!'); return false; }
         return file;
     }
   }).then(res => {
-      if(res.isConfirmed) prosesImportDataExcelAbsen(res.value);
+      if(res.isConfirmed) previewImportAbsen(res.value);
   });
 }
 
@@ -2293,78 +2959,108 @@ function downloadTemplateExcelAbsen() {
     XLSX.writeFile(wb, `Absensi_${bulan}_${kelas}_${mapel}.xlsx`);
 }
 
-function prosesImportDataExcelAbsen(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const ws = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonArray = XLSX.utils.sheet_to_json(ws, {header: 1}); 
+async function previewImportAbsen(file) {
+    try {
+        const jsonArray = await bacaExcelPertama(file);
+        if(jsonArray.length < 8) throw new Error("Format tidak dikenali.");
 
-            if(jsonArray.length < 8) throw new Error("Format tidak dikenali.");
-            
-            const tTahun = jsonArray[1][1]; const tSmt = jsonArray[2][1]; const tBulan = jsonArray[3][1];
-            const tMapel = jsonArray[4][1]; const tKelas = jsonArray[5][1];
-            
-            const vTahun = document.getElementById('select-tahun').value;
-            const vBulan = document.getElementById('select-bulan').value;
-            const vSmt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(vBulan) ? 'Ganjil' : 'Genap';
-            const vMapelRaw = document.getElementById('select-mapel').value;
-            const vMapel = vMapelRaw.includes('|') ? vMapelRaw.split('|')[1] : vMapelRaw;
-            const vKelas = document.getElementById('select-kelas').value;
+        const tTahun = jsonArray[1][1]; const tSmt = jsonArray[2][1]; const tBulan = jsonArray[3][1];
+        const tMapel = jsonArray[4][1]; const tKelas = jsonArray[5][1];
 
-            let warningMsg = "";
-            if(tTahun != vTahun) warningMsg += `<br>- Tahun (File: ${tTahun})`;
-            if(tSmt != vSmt) warningMsg += `<br>- Smt (File: ${tSmt})`;
-            if(tBulan != vBulan) warningMsg += `<br>- Bulan (File: ${tBulan})`;
-            if(tMapel != vMapel) warningMsg += `<br>- Mapel (File: ${tMapel})`;
-            if(tKelas != vKelas) warningMsg += `<br>- Kelas (File: ${tKelas})`;
-            
-            const eksekusiData = () => {
-                const headers = jsonArray[7];
-                let countImport = 0;
-                
-                for(let i=8; i<jsonArray.length; i++) {
-                    let row = jsonArray[i];
-                    if(!row || !row[1]) continue; 
-                    let nis = row[1].toString();
-                    
-                    const tr = document.getElementById(`row-murid-${nis}`);
-                    if(tr || listMuridKelas.find(m => String(m.nis) === nis)) {
-                        for(let j=3; j<headers.length; j++) {
-                            let hk = headers[j];
-                            if(!hk) continue;
-                            let val = row[j] ? row[j].toString().toUpperCase() : "";
-                            
-                            let targetId = hk === "Keterangan" ? `Ket_${nis}` : `A_${nis}_${hk.split('_')[1]}`;
-                            let inputEl = document.getElementById(targetId);
-                            
-                            if(inputEl) {
-                                if(targetId.startsWith('A_') && val !== "" && !['H','S','I','A','D'].includes(val)) val = "";
-                                inputEl.value = val;
-                            }
-                        }
-                        if(typeof kalkulasiAbsen === 'function') kalkulasiAbsen(nis, true);
-                        countImport++;
-                    }
-                }
-                Swal.fire('Sukses', `${countImport} data absensi berhasil diinput. Menyimpan...`, 'success');
-                setTimeout(() => { if(typeof forceSyncSemuaAbsensi === 'function') forceSyncSemuaAbsensi(); }, 1500);
-            };
+        const vTahun = document.getElementById('select-tahun').value;
+        const vBulan = document.getElementById('select-bulan').value;
+        const vSmt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(vBulan) ? 'Ganjil' : 'Genap';
+        const vMapelRaw = document.getElementById('select-mapel').value;
+        const vMapel = vMapelRaw.includes('|') ? vMapelRaw.split('|')[1] : vMapelRaw;
+        const vKelas = document.getElementById('select-kelas').value;
 
-            if(warningMsg !== "") {
-                Swal.fire({
-                    title: 'Data Sinkronisasi Berbeda!',
-                    html: `Ketidakcocokan file dengan kelas/bulan yang dibuka: ${warningMsg}<br><br><b>Tetap lanjutkan paksa import?</b>`,
-                    icon: 'warning', showCancelButton: true, confirmButtonText: 'Ya, Paksa', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff'
-                }).then((r) => { if(r.isConfirmed) eksekusiData(); });
-            } else eksekusiData();
-        } catch(err) {
-            Swal.fire('Error Import', err.message, 'error');
+        const mismatch = [];
+        if(tTahun != vTahun) mismatch.push(`Tahun (File: ${tTahun} · Terbuka: ${vTahun})`);
+        if(tSmt != vSmt) mismatch.push(`Semester (File: ${tSmt} · Terbuka: ${vSmt})`);
+        if(tBulan != vBulan) mismatch.push(`Bulan (File: ${tBulan} · Terbuka: ${vBulan})`);
+        if(tMapel != vMapel) mismatch.push(`Mapel (File: ${tMapel} · Terbuka: ${vMapel})`);
+        if(tKelas != vKelas) mismatch.push(`Kelas (File: ${tKelas} · Terbuka: ${vKelas})`);
+
+        const headers = jsonArray[7] || [];
+        const kolomTglTerisi = new Set();
+        const parsed = [];
+        for(let i=8; i<jsonArray.length; i++) {
+            let row = jsonArray[i];
+            if(!row || !row[1]) continue;
+            const nis = String(row[1]).toString().trim();
+            const tgl = {};
+            for(let j=3; j<headers.length; j++) {
+                const hk = headers[j];
+                if(!hk || hk === "Keterangan") continue;
+                let val = row[j] !== undefined ? String(row[j]).trim().toUpperCase() : "";
+                if(val !== "" && !['H','S','I','A','D'].includes(val)) val = "";
+                if(val !== "") { tgl[hk.split('_')[1]] = val; kolomTglTerisi.add(hk); }
+            }
+            const ket = headers.includes("Keterangan") ? String(row[headers.indexOf("Keterangan")] || '').trim() : '';
+            parsed.push({ no: row[0] || (parsed.length + 1), nis, nama: String(row[2] || '').trim(), tgl, ket });
         }
-    };
-    reader.readAsArrayBuffer(file);
+
+        const nisKelas = new Set(listMuridKelas.map(m => String(m.nis)));
+        const baris = parsed.map(p => {
+            const ditemukan = nisKelas.has(p.nis) || document.getElementById(`row-murid-${p.nis}`);
+            const jml = Object.keys(p.tgl).length;
+            if(!ditemukan) return { status: 'bad', alasan: `NIS ${p.nis} tidak ada di kelas/filter aktif`, sel: { nis: { v: p.nis, cls: 'bad', alasan: 'NIS tidak ditemukan' }, nama: { v: p.nama } } };
+            if(jml === 0 && !p.ket) return { status: 'bad', alasan: `NIS ${p.nis} (${p.nama || '-'}): tidak ada data absensi terisi`, sel: {} };
+            const sel = {
+                no: { v: p.no }, nis: { v: p.nis }, nama: { v: p.nama || '-' }
+            };
+            kolomTglTerisi.forEach(hk => {
+                const t = hk.split('_')[1];
+                sel[hk] = p.tgl[t] !== undefined ? { v: p.tgl[t] } : { v: '' };
+            });
+            sel.ket = { v: p.ket };
+            return { status: 'ok', sel, raw: p };
+        });
+
+        const kolom = [
+            { k: 'no', l: 'No' }, { k: 'nis', l: 'NIS' },
+            ...[...kolomTglTerisi].sort((a, b) => (parseInt(a.split('_')[1], 10) || 0) - (parseInt(b.split('_')[1], 10) || 0)).map(hk => ({ k: hk, l: `Tgl ${hk.split('_')[1]}` })),
+            { k: 'ket', l: 'Keterangan' }
+        ];
+        // Susun sel final per baris (urut sesuai kolom)
+        baris.forEach(b => {
+            const sel = { no: b.sel?.no || { v: '' }, nis: b.sel?.nis || { v: b.raw?.nis || '' }, nama: b.sel?.nama || { v: b.raw?.nama || '' } };
+            kolomTglTerisi.forEach(hk => { sel[hk] = (b.sel && b.sel[hk]) || { v: '' }; });
+            sel.ket = { v: b.raw ? b.raw.ket : '' };
+            b.sel = sel;
+        });
+
+        bukaPreviewImport({
+            judul: 'Import Data Absensi',
+            namaFile: file.name,
+            kolom, baris, mismatch,
+            labelTerapkan: 'Terapkan & Isi Absensi',
+            onTerapkan: (rowsValid) => terapkanImportAbsen(rowsValid.map(r => r.raw).filter(Boolean)),
+            onReupload: openImportExcelAbsen
+        });
+    } catch(err) {
+        Swal.fire('Error Import', err.message, 'error');
+    }
+}
+
+/** Terapkan hasil import absensi: isi tabel UI (status per tanggal + keterangan) lalu simpan masal. */
+function terapkanImportAbsen(rowsValid) {
+    let countImport = 0;
+    rowsValid.forEach(p => {
+        if(!p || !p.nis) return;
+        const ditemukan = listMuridKelas.find(m => String(m.nis) === p.nis) || document.getElementById(`row-murid-${p.nis}`);
+        if(!ditemukan) return;
+        Object.keys(p.tgl || {}).forEach(t => {
+            const inputEl = document.getElementById(`A_${p.nis}_${t}`);
+            if(inputEl) inputEl.value = p.tgl[t];
+        });
+        const ketEl = document.getElementById(`Ket_${p.nis}`);
+        if(ketEl) ketEl.value = p.ket || '';
+        if(typeof kalkulasiAbsen === 'function') kalkulasiAbsen(p.nis, true);
+        countImport++;
+    });
+    Swal.fire('Sukses', `${countImport} data absensi berhasil diinput dari pratinjau. Menyimpan...`, 'success');
+    setTimeout(() => { if(typeof forceSyncSemuaAbsensi === 'function') forceSyncSemuaAbsensi(); }, 1500);
 }
 
 // ==========================================
@@ -4354,14 +5050,14 @@ function openImportExcel() {
           <input type="file" id="file-import" accept=".xlsx, .xls" class="w-full bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-green-500">
       </div>
     `,
-    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-upload"></i> Proses Import',
+    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-table-list"></i> Pratinjau Import',
     preConfirm: () => {
         const file = document.getElementById('file-import').files[0];
         if(!file) { Swal.showValidationMessage('Pilih file Excel terlebih dahulu!'); return false; }
         return file;
     }
   }).then(res => {
-      if(res.isConfirmed) prosesImportDataExcel(res.value);
+      if(res.isConfirmed) previewImportNilai(res.value);
   });
 }
 
@@ -4427,88 +5123,111 @@ function downloadTemplateExcel() {
     XLSX.writeFile(wb, `Template_${currentKategoriNilai.replace('Data Nilai ','')}_${kelas}_${mapel}.xlsx`);
 }
 
-function prosesImportDataExcel(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const ws = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonArray = XLSX.utils.sheet_to_json(ws, {header: 1}); 
+async function previewImportNilai(file) {
+    try {
+        const jsonArray = await bacaExcelPertama(file);
+        if(jsonArray.length < 7) throw new Error("Format tidak dikenali.");
 
-            if(jsonArray.length < 7) throw new Error("Format tidak dikenali.");
-            
-            const tTahun = jsonArray[1][1]; const tSmt = jsonArray[2][1];
-            const tMapel = jsonArray[3][1]; const tKelas = jsonArray[4][1];
-            const curMapel = document.getElementById('select-mapel-nilai').value;
-            const curKelas = document.getElementById('select-kelas-nilai').value;
-            
-            let warningMsg = "";
-            if(tTahun != currentTahun) warningMsg += `<br>- Tahun (File: ${tTahun})`;
-            if(tSmt != currentSemesterNilai) warningMsg += `<br>- Smt (File: ${tSmt})`;
-            if(tMapel != curMapel) warningMsg += `<br>- Mapel (File: ${tMapel})`;
-            if(tKelas != curKelas) warningMsg += `<br>- Kelas (File: ${tKelas})`;
-            
-            const eksekusiData = () => {
-                const headers = jsonArray[6]; 
-                let countImport = 0;
-                
-                for(let i=7; i<jsonArray.length; i++) {
-                    let row = jsonArray[i];
-                    // [UPDATE] Membaca NIS di Index 1 (Karena Index 0 sekarang adalah No)
-                    if(!row || !row[1]) continue; 
-                    let nis = row[1].toString();
-                    
-                    const tr = document.querySelector(`tr[data-nis="${nis}"]`);
-                    if(tr) {
-                        // Loop dimulai dari index 3
-                        for(let j=3; j<headers.length; j++) {
-                            let headerKey = headers[j];
-                            if(!headerKey) continue;
-                            let val = row[j] !== undefined ? row[j] : "";
-                            
-                            if(val !== "" && !isNaN(val)) {
-                                if(Number(val) > 100) val = 100;
-                                if(Number(val) < 0) val = 0;
-                            }
+        const tTahun = jsonArray[1][1]; const tSmt = jsonArray[2][1];
+        const tMapel = jsonArray[3][1]; const tKelas = jsonArray[4][1];
+        const curMapel = document.getElementById('select-mapel-nilai').value;
+        const curKelas = document.getElementById('select-kelas-nilai').value;
 
-                            // Eskul: nilai berupa huruf A/B/C/D — normalisasi (terima huruf/angka lama/teks predikat)
-                            if (currentKategoriNilai === "Data Nilai Eskul" && headerKey === "Nilai") {
-                                val = hurufDariNilaiEskul(val) || String(val).trim().toUpperCase();
-                            }
+        const mismatch = [];
+        if(tTahun != currentTahun) mismatch.push(`Tahun (File: ${tTahun} · Terbuka: ${currentTahun})`);
+        if(tSmt != currentSemesterNilai) mismatch.push(`Semester (File: ${tSmt} · Terbuka: ${currentSemesterNilai})`);
+        if(tMapel != curMapel) mismatch.push(`Mapel (File: ${tMapel} · Terbuka: ${curMapel})`);
+        if(tKelas != curKelas) mismatch.push(`Kelas (File: ${tKelas} · Terbuka: ${curKelas})`);
 
-                            let targetId = "";
-                            if(headerKey === "Keterangan") targetId = `KET_${nis}`;
-                            else if(currentKategoriNilai === "Data Nilai Pengetahuan") targetId = `N_${nis}_${headerKey.replace(/ /g,'_')}`;
-                            else targetId = `N_${nis}_${headerKey}`;
-                            
-                            let inputEl = document.getElementById(targetId);
-                            if(inputEl) inputEl.value = val;
-                        }
-                        
-                        if (currentKategoriNilai === "Data Nilai Pengetahuan") kalkulasiPengetahuan(nis, true);
-                        else if (currentKategoriNilai === "Data Nilai Keterampilan") kalkulasiKeterampilan(nis, true);
-                        else if (currentKategoriNilai === "Data Nilai Sikap") kalkulasiSikap(nis, true);
-                        else if (currentKategoriNilai === "Data Nilai Eskul") kalkulasiEskul(nis, true);
-                        countImport++;
-                    }
+        const headers = jsonArray[6] || [];
+        const kolomTerisi = new Set();
+        const parsed = [];
+        for(let i=7; i<jsonArray.length; i++) {
+            let row = jsonArray[i];
+            if(!row || !row[1]) continue;
+            const nis = String(row[1]).toString().trim();
+            const nilai = {};
+            for(let j=3; j<headers.length; j++) {
+                const headerKey = headers[j];
+                if(!headerKey) continue;
+                let val = row[j] !== undefined ? row[j] : "";
+                if(val === "") continue;
+                let koreksi = '';
+                const isNilaiCol = headerKey !== "Keterangan";
+
+                if(isNilaiCol && val !== "" && !isNaN(val)) {
+                    const num = Number(val);
+                    if(num > 100) { koreksi = `diclamp ke 100`; val = 100; }
+                    else if(num < 0) { koreksi = `diclamp ke 0`; val = 0; }
                 }
-                Swal.fire('Sukses', `${countImport} data siswa berhasil diinput. Menyimpan...`, 'success');
-                setTimeout(() => { forceSyncSemuaNilai(); }, 1500);
-            };
-
-            if(warningMsg !== "") {
-                Swal.fire({
-                    title: 'Data Sinkronisasi Berbeda!',
-                    html: `Ketidakcocokan file dengan kelas yang dibuka: ${warningMsg}<br><br><b>Tetap lanjutkan paksa import?</b>`,
-                    icon: 'warning', showCancelButton: true, confirmButtonText: 'Ya, Paksa', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff'
-                }).then((r) => { if(r.isConfirmed) eksekusiData(); });
-            } else eksekusiData();
-        } catch(err) {
-            Swal.fire('Error Import', err.message, 'error');
+                if (currentKategoriNilai === "Data Nilai Eskul" && headerKey === "Nilai") {
+                    const conv = hurufDariNilaiEskul(val);
+                    if (conv && conv !== String(val).trim().toUpperCase()) koreksi = `dikonversi → ${conv}`;
+                    val = conv || String(val).trim().toUpperCase();
+                }
+                nilai[headerKey] = { v: val, koreksi };
+                kolomTerisi.add(headerKey);
+            }
+            parsed.push({ no: row[0] || (parsed.length + 1), nis, nama: String(row[2] || '').trim(), nilai });
         }
-    };
-    reader.readAsArrayBuffer(file);
+
+        const nisSet = new Set(listMuridKelas.map(m => String(m.NIS)));
+        const baris = parsed.map(p => {
+            if(!nisSet.has(p.nis) && !document.querySelector(`tr[data-nis="${p.nis}"]`)) {
+                return { status: 'bad', alasan: `NIS ${p.nis} tidak ada di daftar nilai aktif`, sel: { nis: { v: p.nis, cls: 'bad', alasan: 'NIS tidak ditemukan' }, nama: { v: p.nama } } };
+            }
+            const adaData = Object.keys(p.nilai).length > 0;
+            if(!adaData) return { status: 'bad', alasan: `NIS ${p.nis} (${p.nama || '-'}): tidak ada nilai terisi`, sel: { nis: { v: p.nis }, nama: { v: p.nama } } };
+            let status = 'ok', alasan = '';
+            const sel = { no: { v: p.no }, nis: { v: p.nis }, nama: { v: p.nama } };
+            kolomTerisi.forEach(hk => {
+                const item = p.nilai[hk];
+                sel[hk] = { v: item.v, cls: item.koreksi ? 'warn' : undefined, alasan: item.koreksi || undefined };
+                if(item.koreksi && status === 'ok') { status = 'warn'; }
+            });
+            return { status, alasan: status === 'warn' ? `NIS ${p.nis}: sebagian nilai dikoreksi otomatis` : '', sel, raw: p };
+        });
+
+        const kolom = [
+            { k: 'no', l: 'No' }, { k: 'nis', l: 'NIS' }, { k: 'nama', l: 'Nama' },
+            ...[...kolomTerisi].map(hk => ({ k: hk, l: hk }))];
+
+        bukaPreviewImport({
+            judul: 'Import Nilai ' + currentKategoriNilai.replace('Data Nilai ', ''),
+            namaFile: file.name,
+            kolom, baris, mismatch,
+            labelTerapkan: 'Terapkan & Isi Nilai',
+            onTerapkan: (rowsValid) => terapkanImportNilai(rowsValid.map(r => r.raw).filter(Boolean)),
+            onReupload: openImportExcel
+        });
+    } catch(err) {
+        Swal.fire('Error Import', err.message, 'error');
+    }
+}
+
+/** Terapkan hasil import nilai: isi input tabel sesuai target kolom, kalkulasi, lalu simpan masal. */
+function terapkanImportNilai(rowsValid) {
+    let countImport = 0;
+    rowsValid.forEach(p => {
+        const nis = String(p.nis || '');
+        if(!nis || !document.querySelector(`tr[data-nis="${nis}"]`)) return;
+        Object.keys(p.nilai || {}).forEach(headerKey => {
+            let val = p.nilai[headerKey].v;
+            let targetId = "";
+            if(headerKey === "Keterangan") targetId = `KET_${nis}`;
+            else if(currentKategoriNilai === "Data Nilai Pengetahuan") targetId = `N_${nis}_${headerKey.replace(/ /g,'_')}`;
+            else targetId = `N_${nis}_${headerKey}`;
+            let inputEl = document.getElementById(targetId);
+            if(inputEl) inputEl.value = val;
+        });
+        if (currentKategoriNilai === "Data Nilai Pengetahuan") kalkulasiPengetahuan(nis, true);
+        else if (currentKategoriNilai === "Data Nilai Keterampilan") kalkulasiKeterampilan(nis, true);
+        else if (currentKategoriNilai === "Data Nilai Sikap") kalkulasiSikap(nis, true);
+        else if (currentKategoriNilai === "Data Nilai Eskul") kalkulasiEskul(nis, true);
+        countImport++;
+    });
+    Swal.fire('Sukses', `${countImport} data siswa berhasil diinput. Menyimpan...`, 'success');
+    setTimeout(() => { forceSyncSemuaNilai(); }, 1500);
 }
 
 // --- UPDATE: EXPORT ROUTER ---
@@ -4803,6 +5522,7 @@ function getExportHTMLDaftarNilaiRaport() {
     return `<tr>
       <td style="border: 1px solid black; padding: 4px; text-align: center;">${idx + 1}</td>
       <td style="border: 1px solid black; padding: 4px; text-align: center;">${m["NIS"] || '-'}</td>
+      <td style="border: 1px solid black; padding: 4px; text-align: center;">${m["NISN"] || '-'}</td>
       <td style="border: 1px solid black; padding: 4px; text-align: left;">${m["Nama Lengkap"] || '-'}</td>
       <td style="border: 1px solid black; padding: 4px; text-align: center;">${m["Tingkat/Kelas"] || kelas}</td>
       <td style="border: 1px solid black; padding: 4px; text-align: center; font-weight: bold;">${dt["Nilai Akhir Raport"] || ''}</td>
@@ -4849,6 +5569,7 @@ function getExportHTMLDaftarNilaiRaport() {
     : `<tr>
           <th style="border:1px solid black;padding:4px;background:#f1f5f9;width:5%;">No</th>
           <th style="border:1px solid black;padding:4px;background:#f1f5f9;">NIS</th>
+          <th style="border:1px solid black;padding:4px;background:#f1f5f9;">NISN</th>
           <th style="border:1px solid black;padding:4px;background:#f1f5f9;text-align:left;">Nama Lengkap</th>
           <th style="border:1px solid black;padding:4px;background:#f1f5f9;">Kelas</th>
           <th style="border:1px solid black;padding:4px;background:#f1f5f9;">NA</th>
@@ -4884,7 +5605,7 @@ function getExportHTMLDaftarNilaiRaport() {
       </table>
       <table style="width:100%;border-collapse:collapse;">
         <thead>${theadHTML}</thead>
-        <tbody>${rowsHTML || `<tr><td colspan="9" style="border:1px solid black;padding:8px;text-align:center;">Belum ada data nilai.</td></tr>`}</tbody>
+        <tbody>${rowsHTML || `<tr><td colspan="10" style="border:1px solid black;padding:8px;text-align:center;">Belum ada data nilai.</td></tr>`}</tbody>
       </table>
       <div style="margin-top:10px;font-size:9px;background:#f8fafc;border:1px solid #e2e8f0;padding:8px;">
         ${isEskul
@@ -5158,6 +5879,8 @@ function getExportHTMLSikap() {
         <thead>
           <tr>
             <th rowspan="2" style="border: 1px solid #333; padding: 4px; background: #e2e8f0; width: 25px;">No</th>
+            <th rowspan="2" style="border: 1px solid #333; padding: 4px; background: #e2e8f0;">NIS</th>
+            <th rowspan="2" style="border: 1px solid #333; padding: 4px; background: #e2e8f0;">NISN</th>
             <th rowspan="2" style="border: 1px solid #333; padding: 4px; background: #e2e8f0; text-align: left;">Nama Siswa</th>
             ${obsH1}
             <th rowspan="2" style="border: 1px solid #333; padding: 4px; background: #e2e8f0;">Penilaian<br>Diri</th>
@@ -5173,7 +5896,7 @@ function getExportHTMLSikap() {
 
   listMuridKelas.forEach((m, idx) => {
     const dt = rawDataNilai.find(d => d.NIS == m.NIS) || {};
-    let rowData = `<td style="border: 1px solid #333; padding: 4px;">${idx + 1}</td><td style="border: 1px solid #333; padding: 4px; text-align: left;">${m["Nama Lengkap"]}</td>`;
+    let rowData = `<td style="border: 1px solid #333; padding: 4px;">${idx + 1}</td><td style="border: 1px solid #333; padding: 4px;">${m["NIS"] || '-'}</td><td style="border: 1px solid #333; padding: 4px;">${m["NISN"] || '-'}</td><td style="border: 1px solid #333; padding: 4px; text-align: left;">${m["Nama Lengkap"]}</td>`;
     
     for(let i=0; i<cfg.active_cp; i++) {
       let ltr = LTRS[i]; 
@@ -6652,9 +7375,9 @@ let cacheAkunMuridSesiAda = false;   // true setelah 1x fetch sukses per sesi
 let ukuranHalamanMurid = 50;         // default ukuran halaman (25/50/75/100)
 let halamanAktifMurid = 1;
 // Kolom ringkas utk daftar tabel + filter + tombol aksi (payload ±60% lebih ringan dari select('*'))
-const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, email, ekstrakurikuler, tahun_pelajaran, semester, riwayat_kelas';
+const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, jabatan_ekskul, email, ekstrakurikuler, tahun_pelajaran, semester, riwayat_kelas';
 // Kolom penuh utk export Excel/PDF (fetch on-demand saat tombol export diklik)
-const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester';
+const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, jabatan_ekskul, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester';
 
 /** Kosongkan cache akun (murid) + cache dashboard — dipanggil setiap CRUD akun. */
 function invalidasiCacheAkun() {
@@ -6692,7 +7415,7 @@ async function renderManajemenMurid(container, paksa = false) {
         }
 
         // 3. Ekstrak Data Unik dari Master Data (format lama & baru)
-        const listTahun = [...new Set(masterDataCache.map(m => mdVal(m, "Tahun Pelajaran", "tahun_pelajaran")).filter(Boolean))];
+        const listTahun = urutAz([...new Set(masterDataCache.map(m => mdVal(m, "Tahun Pelajaran", "tahun_pelajaran")).filter(Boolean))]);
         const listEkskul = urutAz(denganSto([...new Set(masterDataCache.map(m => mdVal(m, "Ekstrakurikuler", "ekstrakurikuler")).filter(Boolean))]));
         const listKelasMurid = urutAz([...new Set((cacheAkunMurid || []).map(m => m.tingkat_kelas || m["Tingkat/Kelas"]).filter(Boolean))]);
         
@@ -6705,37 +7428,43 @@ async function renderManajemenMurid(container, paksa = false) {
                 <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
                     <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-graduate text-blue-400 mr-2"></i> Manajemen Akun Murid</h2>
                     
-                    <div class="flex gap-2 w-full sm:w-auto flex-wrap justify-end items-center">
-                        <!-- Filter Tahun / Kelas / Ekskul -->
-                        <select id="filter-tahun-murid" class="w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                            <option value="ALL">Semua Tahun</option>
-                            ${tahunOptions}
-                        </select>
+                    <div class="flex flex-col gap-2 w-full">
+                        <!-- Baris 1: Filter Tahun / Kelas / Ekskul / Status / Cari -->
+                        <div class="flex gap-2 flex-wrap items-center">
+                            <select id="filter-tahun-murid" class="h-9 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                                <option value="ALL">Semua Tahun</option>
+                                ${tahunOptions}
+                            </select>
 
-                        <select id="filter-kelas-murid" class="w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                            <option value="ALL">Semua Kelas</option>
-                            ${kelasOptions}
-                        </select>
+                            <select id="filter-kelas-murid" class="h-9 w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                                <option value="ALL">Semua Kelas</option>
+                                ${kelasOptions}
+                            </select>
 
-                        <select id="filter-ekskul-murid" class="w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                            <option value="ALL">Semua Ekskul</option>
-                            ${ekskulOptions}
-                        </select>
+                            <select id="filter-ekskul-murid" class="h-9 w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
+                                <option value="ALL">Semua Ekskul</option>
+                                ${ekskulOptions}
+                            </select>
 
-                        <select id="filter-status-murid" class="w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Status siswa pada TA terpilih">
-                            <option value="ALL">Semua Status</option>
-                            ${STATUS_SISWA.map(s => `<option value="${escJs(s)}">${s}</option>`).join('')}
-                        </select>
-                        
-                        <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="w-full sm:w-40 bg-black/40 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
-                        <button onclick="renderManajemenMurid(document.getElementById('main-content'), true)" class="bg-slate-600 hover:bg-slate-500 text-white px-2.5 py-2 rounded-lg text-xs font-bold transition shadow-md" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
-                        <button onclick="exportExcelMurid()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-excel"></i> Excel</button>
-                        <button onclick="exportPdfMurid()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-                        <button onclick="openExportQRMurid()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-qrcode"></i> Export QR</button>
-<button onclick="openImportMurid()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-import"></i> Import</button>
-<button onclick="prosesKenaikanKelas()" class="bg-violet-600 hover:bg-violet-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Naikkan kelas siswa ke tahun pelajaran berikutnya (X→XI→XII→Lulus)"><i class="fa-solid fa-arrow-up-right-dots"></i> Kenaikan</button>
-<button onclick="cetakMutasiSiswa()" class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> Mutasi</button>
-<button onclick="openFormAkunMurid(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-plus"></i> Tambah Murid</button>
+                            <select id="filter-status-murid" class="h-9 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-2 text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Status siswa pada TA terpilih">
+                                <option value="ALL">Semua Status</option>
+                                ${STATUS_SISWA.map(s => `<option value="${escJs(s)}">${s}</option>`).join('')}
+                            </select>
+
+                            <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="h-9 w-full sm:w-44 bg-black/40 border border-white/20 rounded-lg px-3 text-xs text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
+                        </div>
+
+                        <!-- Baris 2: Tombol aksi -->
+                        <div class="flex gap-2 flex-wrap items-center justify-end">
+                            <button onclick="renderManajemenMurid(document.getElementById('main-content'), true)" class="h-9 bg-slate-600 hover:bg-slate-500 text-white px-2.5 rounded-lg text-xs font-bold transition shadow-md" title="Refresh Data (paksa ambil ulang dari server)"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button onclick="exportExcelMurid()" class="h-9 bg-emerald-600 hover:bg-emerald-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                            <button onclick="exportPdfMurid()" class="h-9 bg-rose-600 hover:bg-rose-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                            <button onclick="openExportQRMurid()" class="h-9 bg-indigo-600 hover:bg-indigo-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-qrcode"></i> Export QR</button>
+                            <button onclick="openImportMurid()" class="h-9 bg-teal-600 hover:bg-teal-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-file-import"></i> Import</button>
+                            <button onclick="prosesKenaikanKelas()" class="h-9 bg-violet-600 hover:bg-violet-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Naikkan kelas siswa ke tahun pelajaran berikutnya (X→XI→XII→Lulus)"><i class="fa-solid fa-arrow-up-right-dots"></i> Kenaikan</button>
+                            <button onclick="cetakMutasiSiswa()" class="h-9 bg-orange-600 hover:bg-orange-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> Mutasi</button>
+                            <button onclick="openFormAkunMurid(true)" class="h-9 bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg text-xs font-bold transition shadow-md whitespace-nowrap"><i class="fa-solid fa-plus"></i> Tambah Murid</button>
+                        </div>
                     </div>
                 </div>
                 <div class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
@@ -6771,11 +7500,23 @@ function denganSto(list) {
   return l;
 }
 
-/** Export data murid (mengikuti filter tabel aktif) ke file Excel. */
+/** Export data murid (kolom penuh, mengikuti filter tabel aktif) ke file Excel. */
 async function exportExcelMurid() {
   if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+  Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
+  let sumber;
+  try {
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas
+    const { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid');
+    if (error) throw error;
+    sumber = data || [];
+  } catch (e) {
+    console.error('exportExcelMurid:', e);
+    sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
+  }
+  Swal.close();
   const petaWali = await petaWaliKelas();
-  const rows = (cacheAkunMurid || []).map((d, i) => ({
+  const rows = muridTersaring(sumber).map((d, i) => ({
     "No": i + 1,
     "ID Tahun Pelajaran": d.tahun_pelajaran || "",
     "Semester": d.semester || "",
@@ -6791,6 +7532,7 @@ async function exportExcelMurid() {
     "Golongan Darah": d.golongan_darah || "",
     "Ekstrakurikuler": d.ekstrakurikuler || "",
     "Jabatan Kelas": d.jabatan || "",
+    "Jabatan Ekstrakurikuler": d.jabatan_ekskul || "",
     "Nama Orang tua Ayah": d.nama_ayah || "",
     "Pekerjaan Ayah": d.pekerjaan_ayah || "",
     "Nama Orang tua Ibu": d.nama_ibu || "",
@@ -6809,22 +7551,34 @@ async function exportExcelMurid() {
   showToast('success', 'Excel murid diunduh');
 }
 
-/** Export data murid ke PDF (A4 landscape, semua kolom utama) via jendela cetak. */
+/** Export data murid ke PDF (A4 landscape, semua kolom utama, ikut filter tabel aktif) via jendela cetak. */
 async function exportPdfMurid() {
-  const rows = cacheAkunMurid || [];
+  Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
+  let sumber;
+  try {
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas
+    const { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid');
+    if (error) throw error;
+    sumber = data || [];
+  } catch (e) {
+    console.error('exportPdfMurid:', e);
+    sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
+  }
+  Swal.close();
+  const rows = muridTersaring(sumber);
   if (rows.length === 0) return showToast('error', 'Tidak ada data murid untuk diexport.');
   const petaWali = await petaWaliKelas();
   const printWindow = window.open('', '_blank');
   if (!printWindow) return Swal.fire({ icon: 'error', title: 'Popup Diblokir', text: 'Izinkan popup untuk mencetak PDF.', background: '#1e293b', color: '#fff' });
 
-  const th = ["No","NIS","NISN","Nama Lengkap","Kelas","Wali Kelas","JK","Tgl Lahir","Agama","Goldar","Ekskul","Jabatan","Ayah","Pk. Ayah","Ibu","Pk. Ibu","Wali Murid","Alamat","No HP/WA","Email","Catatan"];
+  const th = ["No","NIS","NISN","Nama Lengkap","Kelas","Wali Kelas","JK","Tgl Lahir","Agama","Goldar","Ekskul","Jabatan","Jab. Ekskul","Ayah","Pk. Ayah","Ibu","Pk. Ibu","Wali Murid","Alamat","No HP/WA","Email","Catatan"];
   const esc = (v) => escapeHtml(v ?? '');
   const bodyRows = rows.map((d, i) => `<tr>
     <td>${i+1}</td>
     <td>${esc(d.nis_nip)}</td><td>${esc(d.nisn)}</td><td>${esc(d.nama_lengkap)}</td><td>${esc(d.tingkat_kelas)}</td>
     <td>${esc(petaWali[d.tingkat_kelas] || '')}</td>
     <td>${esc((d.jenis_kelamin || '').charAt(0).toUpperCase())}</td><td>${esc(d.tgl_lahir ? String(d.tgl_lahir).split('T')[0] : '')}</td>
-    <td>${esc(d.agama)}</td><td>${esc(d.golongan_darah)}</td><td>${esc(d.ekstrakurikuler)}</td><td>${esc(d.jabatan)}</td>
+    <td>${esc(d.agama)}</td><td>${esc(d.golongan_darah)}</td><td>${esc(d.ekstrakurikuler)}</td><td>${esc(d.jabatan)}</td><td>${esc(d.jabatan_ekskul)}</td>
     <td>${esc(d.nama_ayah)}</td><td>${esc(d.pekerjaan_ayah)}</td><td>${esc(d.nama_ibu)}</td><td>${esc(d.pekerjaan_ibu)}</td>
     <td>${esc(d.nama_wali)}</td><td>${esc(d.alamat)}</td><td>${esc(d.no_telepon)}</td><td>${esc(d.email)}</td><td>${esc(d.catatan_khusus)}</td>
   </tr>`).join('');
@@ -6875,7 +7629,7 @@ function generateTbodyMurid(data, mulaiNo = 0) {
                 </td>
                 <td class="px-4 py-3"><div class="text-[10px] text-slate-400"><i class="fa-solid fa-envelope"></i> ${email}</div></td>
                 <td class="px-4 py-3 text-center whitespace-nowrap">
-                    <button onclick='openFormAkunMurid(false, ${JSON.stringify(d).replace(/'/g, "&#39;")})' class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                    <button onclick="editAkunMurid('${escJs(d.id || '')}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
                     <button onclick="resetPasswordMurid('${escJs(nis)}', '${escJs(nama)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>
                     <button onclick="deleteAkunMurid('${escJs(nis)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
                 </td>
@@ -6884,10 +7638,8 @@ function generateTbodyMurid(data, mulaiNo = 0) {
     }).join('');
 }
 
-/** Render ulang tabel murid sesuai filter aktif (cari/tahun/kelas/ekskul/status) + pagination. */
-function renderTabelMuridTerfilter() {
-    const tbody = document.getElementById('tbody-murid');
-    if (!tbody) return;
+/** Terapkan filter tabel aktif (cari/tahun/kelas/ekskul/status) — dipakai tabel & export Excel/PDF. */
+function muridTersaring(rows) {
     const query = ((document.getElementById('search-murid') || {}).value || '').toLowerCase();
     const filterEks = ((document.getElementById('filter-ekskul-murid') || {}).value || 'ALL').toLowerCase();
     const filterTahun = (document.getElementById('filter-tahun-murid') || {}).value || 'ALL';
@@ -6895,7 +7647,7 @@ function renderTabelMuridTerfilter() {
     const filterStatus = (document.getElementById('filter-status-murid') || {}).value || 'ALL';
     const tahunStatus = filterTahun !== 'ALL' ? filterTahun : currentTahun;
 
-    const cocok = (cacheAkunMurid || []).filter(d => {
+    return (rows || []).filter(d => {
         const text = `${d.nis_nip || ''} ${d.nisn || ''} ${d.nama_lengkap || d.Nama || ''}`.toLowerCase();
         const ekskulRow = (d.ekstrakurikuler || d.Ekstrakurikuler || '').toLowerCase();
         const tahunRow = String(d.tahun_pelajaran || d["ID Tahun Pelajaran"] || '');
@@ -6907,6 +7659,13 @@ function renderTabelMuridTerfilter() {
             && (filterKelas === 'ALL' || kelasRow === filterKelas)
             && (filterStatus === 'ALL' || statusRow === filterStatus);
     });
+}
+
+/** Render ulang tabel murid sesuai filter aktif (cari/tahun/kelas/ekskul/status) + pagination. */
+function renderTabelMuridTerfilter() {
+    const tbody = document.getElementById('tbody-murid');
+    if (!tbody) return;
+    const cocok = muridTersaring(cacheAkunMurid);
 
     const totalHalaman = Math.max(1, Math.ceil(cocok.length / ukuranHalamanMurid));
     if (halamanAktifMurid > totalHalaman) halamanAktifMurid = totalHalaman;
@@ -6944,12 +7703,89 @@ function filterTabelMurid() {
     renderTabelMuridTerfilter();
 }
 
+/** Buka form edit akun murid dengan data PENUH (fetch 1 baris by id; fallback cache tipis).
+ *  Cache daftar memakai kolom ringkas (KOLOM_LIST_MURID) sehingga banyak kolom profil
+ *  (JK, agama, goldar, orang tua, alamat, dst.) tidak ikut — tanpa fetch ini form edit
+ *  selalu terbuka kosong untuk kolom tsb. */
+async function editAkunMurid(id) {
+    const fallback = (cacheAkunMurid || []).find(r => String(r.id) === String(id));
+    try {
+        const { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('id', id).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('Data murid tidak ditemukan.');
+        openFormAkunMurid(false, data);
+    } catch (e) {
+        console.error('editAkunMurid:', e);
+        if (fallback) openFormAkunMurid(false, fallback);
+        else showToast('error', 'Gagal memuat data murid.');
+    }
+}
+
+// ---- Working copy pilihan jabatan di form akun murid (dikelola lewat popup) ----
+let formJabatanKelasSel = [];   // pilihan "Jabatan Kelas"
+let formJabatanEkskulSel = [];  // pilihan "Jabatan Ekstrakurikuler"
+
+/** Render chip/badge jabatan terpilih pada field form akun murid. */
+function renderChipsJabatan(containerId, arr) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = (arr && arr.length)
+        ? arr.map(j => `<span class="inline-flex items-center max-w-full bg-blue-600/30 border border-blue-400/40 text-blue-200 px-1.5 py-0.5 rounded text-[10px] leading-4"><span class="truncate">${escapeHtml(j)}</span></span>`).join(' ')
+        : `<span class="text-[10px] text-slate-500 italic">Belum ada jabatan dipilih</span>`;
+}
+
+/** Popup pilih jabatan: checklist dari Master Data + teks isian custom (pisahkan koma). */
+function openPopupPilihJabatan(jenis) {
+    const isKelas = jenis === 'kelas';
+    const opsi = isKelas
+        ? urutAz([...new Set(masterDataCache.map(m => m["Jabatan Kelas"]).filter(Boolean))])
+        : urutAz([...new Set(masterDataCache.map(m => m["Jabatan Ekstrakurikuler"]).filter(Boolean))]);
+    const terpilih = isKelas ? formJabatanKelasSel : formJabatanEkskulSel;
+    const daftar = urutAz([...new Set([...terpilih, ...opsi])]); // nilai tersimpan selalu ikut dalam daftar
+    const chkClass = isKelas ? 'pchk-jabatan-kelas' : 'pchk-jabatan-ekskul';
+    const inputId = isKelas ? 'pcustom-jabatan-kelas' : 'pcustom-jabatan-ekskul';
+
+    const listHTML = daftar.length ? daftar.map(j => `
+        <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-700 bg-slate-800 px-2 py-1.5 rounded border border-white/10 text-[11px]">
+            <input type="checkbox" class="${chkClass}" value="${escJs(j)}" ${terpilih.includes(j) ? 'checked' : ''}>
+            <span class="truncate">${escapeHtml(j)}</span>
+        </label>
+    `).join('')
+        : `<p class="text-[10px] text-slate-500 italic p-1">Belum ada opsi — tambahkan di Master Data atau ketik manual di bawah.</p>`;
+
+    Swal.fire({
+        title: `<div class="text-base font-bold">Pilih Jabatan ${isKelas ? 'Kelas' : 'Ekstrakurikuler'}</div>`,
+        html: `
+            <div class="text-left text-[11px] text-slate-300">
+                <label class="font-bold text-blue-300 mb-1 block">Pilih Jabatan <span class="font-normal text-slate-400">(boleh pilih lebih dari satu)</span></label>
+                <div class="grid grid-cols-1 gap-1 bg-black/20 p-1.5 rounded border border-white/10 max-h-48 overflow-y-auto custom-scrollbar">
+                    ${listHTML}
+                </div>
+                <label class="font-bold text-blue-300 mt-3 mb-1 block">Jabatan Custom <span class="font-normal text-slate-400">(ketik manual — pisahkan dengan koma bila lebih dari satu)</span></label>
+                <input id="${inputId}" type="text" placeholder="cth: Ketua Robotik, Anggota Futsal" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+            </div>`,
+        width: 480, background: '#1e293b', color: '#fff',
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-check"></i> Terapkan',
+        preConfirm: () => {
+            const pilihan = [];
+            document.querySelectorAll('.' + chkClass + ':checked').forEach(el => pilihan.push(el.value));
+            const custom = document.getElementById(inputId).value.split(',').map(s => s.trim()).filter(Boolean);
+            return [...new Set([...pilihan, ...custom])];
+        }
+    }).then((res) => {
+        if (!res.isConfirmed) return;
+        if (isKelas) formJabatanKelasSel = res.value;
+        else formJabatanEkskulSel = res.value;
+        renderChipsJabatan(isKelas ? 'badge-jabatan-kelas' : 'badge-jabatan-ekskul', res.value);
+    });
+}
+
 function openFormAkunMurid(isNew, data = {}) {
     // Ambil pilihan dari Master Data (nama kolom = nama persis gaya Sheets)
     const listKelas = urutAz([...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
     const listEkskul = urutAz(denganSto([...new Set(masterDataCache.map(m => m["Ekstrakurikuler"]).filter(Boolean))]));
-    const listJabatan = urutAz([...new Set(masterDataCache.map(m => m["Jabatan Kelas"]).filter(Boolean))]);
-    const listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
+    const listTahun = urutAz([...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))]);
     const listAgama = urutAz([...new Set(masterDataCache.map(m => m["Agama"]).filter(Boolean))]);
     // Opsi standar ekskul: STO (bila belum ada di Master Data)
     if (!listEkskul.includes('STO-Siswa Tanpa Organisasi')) listEkskul.push('STO-Siswa Tanpa Organisasi');
@@ -6970,6 +7806,7 @@ function openFormAkunMurid(isNew, data = {}) {
     const agamaV = data.agama || data["Agama"] || "";
     const goldarV = data.golongan_darah || data["Golongan Darah"] || "";
     const jabatanV = data.jabatan || data["Jabatan Kelas"] || "";
+    const jabatanEkskulV = data.jabatan_ekskul || data["Jabatan Ekstrakurikuler"] || "";
     const emailV = data.email || data.Email || "";
     const waV = data.no_telepon || data["No HP/WA"] || "";
     const ekskulV = data.ekstrakurikuler || data.Ekstrakurikuler || "";
@@ -6982,8 +7819,11 @@ function openFormAkunMurid(isNew, data = {}) {
     const catatanV = data.catatan_khusus || data["Catatan Khusus"] || "";
 
     const optKelas = listKelas.map(k => `<option value="${escJs(k)}" ${kelasV === k ? 'selected' : ''}>${k}</option>`).join('');
-    const optJabatan = listJabatan.map(j => `<option value="${escJs(j)}" ${jabatanV === j ? 'selected' : ''}>${j}</option>`).join('');
     const optTahun = listTahun.map(t => `<option value="${escJs(t)}" ${tahunV === t ? 'selected' : ''}>${t}</option>`).join('');
+
+    // Jabatan Kelas & Jabatan Ekstrakurikuler: working copy pilihan — dikelola lewat popup
+    formJabatanKelasSel = jabatanV.split(',').map(j => j.trim()).filter(Boolean);
+    formJabatanEkskulSel = jabatanEkskulV.split(',').map(j => j.trim()).filter(Boolean);
 
     const ekskulArr = ekskulV.split(',').map(e => e.trim()).filter(Boolean);
     const chkEkskulHTML = listEkskul.map(e => `
@@ -7035,8 +7875,19 @@ function openFormAkunMurid(isNew, data = {}) {
             <div><label class="font-bold text-blue-300">Agama</label>
                 <select id="f_agama" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih --</option>${listAgama.map(a => `<option value="${escJs(a)}" ${agamaV === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
             </div>
-            <div><label class="font-bold text-blue-300">Jabatan Kelas</label>
-                <select id="f_jabatan" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Tidak Ada --</option>${optJabatan}</select>
+            <div class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="font-bold text-blue-300 mb-1 block">Jabatan Kelas</label>
+                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
+                        <div id="badge-jabatan-kelas" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                        <button type="button" onclick="openPopupPilihJabatan('kelas')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                    </div>
+                </div>
+                <div><label class="font-bold text-blue-300 mb-1 block">Jabatan Ekstrakurikuler</label>
+                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10">
+                        <div id="badge-jabatan-ekskul" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                        <button type="button" onclick="openPopupPilihJabatan('ekskul')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                    </div>
+                </div>
             </div>
 
             <div><label class="font-bold text-blue-300">Nama Orang tua Ayah</label><input id="f_ayah" value="${escJs(ayahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-blue-500"></div>
@@ -7075,7 +7926,11 @@ function openFormAkunMurid(isNew, data = {}) {
         title: `<div class="text-lg font-bold">${isNew ? 'Tambah' : 'Edit'} Akun Murid</div>`,
         html: formHTML, width: 600, background: '#1e293b', color: '#fff',
         showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan Data',
-        didOpen: () => renderFormRiwayatSiswa(),
+        didOpen: () => {
+            renderFormRiwayatSiswa();
+            renderChipsJabatan('badge-jabatan-kelas', formJabatanKelasSel);
+            renderChipsJabatan('badge-jabatan-ekskul', formJabatanEkskulSel);
+        },
         preConfirm: () => {
             const nisVal = document.getElementById('f_nis').value.trim();
             const namaVal = document.getElementById('f_nama').value.trim();
@@ -7100,7 +7955,8 @@ function openFormAkunMurid(isNew, data = {}) {
                 tgl_lahir: document.getElementById('f_lahir').value,
                 agama: document.getElementById('f_agama').value,
                 golongan_darah: document.getElementById('f_goldar').value,
-                jabatan: document.getElementById('f_jabatan').value,
+                jabatan: formJabatanKelasSel.join(', '),
+                jabatan_ekskul: formJabatanEkskulSel.join(', '),
                 email: document.getElementById('f_email').value.trim(),
                 no_telepon: document.getElementById('f_wa').value.trim(),
                 ekstrakurikuler: ekskulChecked.join(', '),
@@ -7414,6 +8270,7 @@ async function simpanAkunMurid(formData, isNew) {
   } catch (eRw) { console.warn('Riwayat murid (dual-write):', eRw); }
   Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: data.message || 'Data murid tersimpan!', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
   cacheDashboardKosongkan(); // daftar murid berubah → sesi cache dashboard usang
+  invalidasiCacheAkun(); // paksa ambil ulang daftar murid (cache sesi sudah basi)
   if (typeof renderManajemenMurid === 'function') {
     renderManajemenMurid(document.getElementById('main-content'));
   }
@@ -7447,7 +8304,7 @@ function resetPasswordMurid(nis, nama) {
 // ==========================================
 function openExportQRMurid() {
     // Ambil data unik dari cache untuk opsi dropdown (skema tabel akun: snake_case)
-    const listTahun = [...new Set(cacheAkunMurid.map(m => m.tahun_pelajaran || m["ID Tahun Pelajaran"]).filter(Boolean))];
+    const listTahun = urutAz([...new Set(cacheAkunMurid.map(m => m.tahun_pelajaran || m["ID Tahun Pelajaran"]).filter(Boolean))]);
     const listKelas = urutAz([...new Set(cacheAkunMurid.map(m => m.tingkat_kelas || m["Tingkat/Kelas"]).filter(Boolean))]);
     const listSiswa = cacheAkunMurid.slice()
       .sort((a, b) => String(a.nama_lengkap || a["Nama Lengkap"] || '').localeCompare(String(b.nama_lengkap || b["Nama Lengkap"] || ''), 'id', { sensitivity: 'base' }))
@@ -7644,6 +8501,7 @@ function deleteAkunMurid(nisKey) {
         if (hasil.status === 'success') {
             Swal.fire({toast:true, position:'top-end', icon:'success', title:'Terhapus!', showConfirmButton:false, timer:1500, background: '#1e293b', color: '#fff'});
             cacheDashboardKosongkan(); // daftar murid berubah → sesi cache usang
+            invalidasiCacheAkun(); // paksa ambil ulang daftar murid (cache sesi sudah basi)
             renderManajemenMurid(document.getElementById('main-content'));
         } else {
             Swal.fire({icon:'error', title:'Gagal', text: hasil.message || 'Terjadi kesalahan.', background:'#1e293b', color:'#fff'});
@@ -7666,14 +8524,14 @@ function openImportMurid() {
                 <input type="file" id="file-import-murid" accept=".xlsx, .xls" class="w-full bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-teal-500">
             </div>
         `,
-        background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-upload"></i> Proses Import',
+        background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-table-list"></i> Pratinjau Import',
         preConfirm: () => {
             const file = document.getElementById('file-import-murid').files[0];
             if(!file) { Swal.showValidationMessage('Pilih file Excel terlebih dahulu!'); return false; }
             return file;
         }
     }).then(res => {
-        if(res.isConfirmed) prosesImportDataMurid(res.value);
+        if(res.isConfirmed) previewImportMurid(res.value);
     });
 }
 
@@ -7695,67 +8553,116 @@ function downloadTemplateMurid() {
     XLSX.writeFile(wb, 'Template_Data_Murid.xlsx');
 }
 
-function prosesImportDataMurid(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, {type: 'array'});
-            const ws = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonArray = XLSX.utils.sheet_to_json(ws, {header: 1});
+async function previewImportMurid(file) {
+    try {
+        const jsonArray = await bacaExcelPertama(file);
+        if(jsonArray.length < 3) throw new Error("Format template tidak dikenali.");
 
-            if(jsonArray.length < 3) throw new Error("Format template tidak dikenali.");
+        const headers = jsonArray[2].map(h => String(h || '').trim());
+        const idxOf = (nama) => headers.findIndex(h => String(h || '').toLowerCase() === nama.toLowerCase());
+        const idxNis = idxOf('NIS');
+        if (idxNis === -1) throw new Error("Kolom 'NIS' tidak ditemukan di template.");
 
-            const headers = jsonArray[2].map(h => String(h || '').trim());
-            const idxOf = (nama) => headers.findIndex(h => h.toLowerCase() === nama.toLowerCase());
-            const idxNis = idxOf('NIS');
-            if (idxNis === -1) throw new Error("Kolom 'NIS' tidak ditemukan di template.");
+        const ambil = (row, nama) => {
+            const i = idxOf(nama);
+            return (i !== -1 && row[i] !== undefined) ? String(row[i]).trim() : '';
+        };
 
-            const ambil = (row, nama) => {
-                const i = idxOf(nama);
-                return (i !== -1 && row[i] !== undefined) ? String(row[i]).trim() : '';
-            };
-
-            let rows = [];
-            for(let i=3; i<jsonArray.length; i++) {
-                const row = jsonArray[i];
-                if (!row || !row[idxNis]) continue; // Skip jika NIS kosong
-                const tglLahirRaw = ambil(row, 'Tgl Lahir');
-                rows.push({
-                    nis: String(row[idxNis]).trim(),
-                    nisn: ambil(row, 'NISN'),
-                    nama_lengkap: ambil(row, 'Nama Lengkap'),
-                    tahun_pelajaran: ambil(row, 'Tahun Pelajaran'),
-                    semester: ambil(row, 'Semester'),
-                    tingkat_kelas: ambil(row, 'Tingkat/Kelas'),
-                    jenis_kelamin: ambil(row, 'Jenis Kelamin'),
-                    tgl_lahir: tglLahirRaw,
-                    agama: ambil(row, 'Agama'),
-                    golongan_darah: ambil(row, 'Golongan Darah'),
-                    ekstrakurikuler: ambil(row, 'Ekstrakurikuler'),
-                    jabatan: ambil(row, 'Jabatan Kelas'),
-                    nama_ayah: ambil(row, 'Nama Orang tua Ayah'),
-                    pekerjaan_ayah: ambil(row, 'Pekerjaan Ayah'),
-                    nama_ibu: ambil(row, 'Nama Orang tua Ibu'),
-                    pekerjaan_ibu: ambil(row, 'Pekerjaan Ibu'),
-                    nama_wali: ambil(row, 'Nama Wali'),
-                    alamat: ambil(row, 'Alamat'),
-                    no_telepon: ambil(row, 'No HP/WA'),
-                    email: ambil(row, 'Email'),
-                    catatan_khusus: ambil(row, 'Catatan Khusus'),
-                    password: ambil(row, 'Password')
-                });
-            }
-
-            if(rows.length === 0) throw new Error("Tidak ada data murid yang ditemukan untuk diimport.");
-
-            simpanMasalAkunMurid(rows);
-
-        } catch(err) {
-            Swal.fire('Error Import', err.message, 'error');
+        const rows = [];
+        for(let i=3; i<jsonArray.length; i++) {
+            const row = jsonArray[i];
+            if (!row || !row[idxNis]) continue;
+            const tglLahirRaw = ambil(row, 'Tgl Lahir');
+            rows.push({
+                nis: String(row[idxNis]).trim(),
+                nisn: ambil(row, 'NISN'),
+                nama_lengkap: ambil(row, 'Nama Lengkap'),
+                tahun_pelajaran: ambil(row, 'Tahun Pelajaran'),
+                semester: ambil(row, 'Semester'),
+                tingkat_kelas: ambil(row, 'Tingkat/Kelas'),
+                jenis_kelamin: ambil(row, 'Jenis Kelamin'),
+                tgl_lahir: tglLahirRaw,
+                agama: ambil(row, 'Agama'),
+                golongan_darah: ambil(row, 'Golongan Darah'),
+                ekstrakurikuler: ambil(row, 'Ekstrakurikuler'),
+                jabatan: ambil(row, 'Jabatan Kelas'),
+                nama_ayah: ambil(row, 'Nama Orang tua Ayah'),
+                pekerjaan_ayah: ambil(row, 'Pekerjaan Ayah'),
+                nama_ibu: ambil(row, 'Nama Orang tua Ibu'),
+                pekerjaan_ibu: ambil(row, 'Pekerjaan Ibu'),
+                nama_wali: ambil(row, 'Nama Wali'),
+                alamat: ambil(row, 'Alamat'),
+                no_telepon: ambil(row, 'No HP/WA'),
+                email: ambil(row, 'Email'),
+                catatan_khusus: ambil(row, 'Catatan Khusus'),
+                password: ambil(row, 'Password')
+            });
         }
-    };
-    reader.readAsArrayBuffer(file);
+        if(rows.length === 0) throw new Error("Tidak ada data murid yang ditemukan untuk diimport.");
+
+        // Deteksi duplikat vs database (NIS yang sudah terdaftar)
+        const nisFile = rows.map(r => r.nis);
+        const { data: existing } = await supaClient.from('akun')
+            .select('nis_nip').eq('tipe', 'murid').in('nis_nip', nisFile.slice(0, 200));
+        const nisDb = new Set((existing || []).map(e => String(e.nis_nip)));
+
+        const duplikatFile = new Set();
+        // Hitung duplikat dalam file (NIS muncul >1 kali)
+        const hitung = {};
+        rows.forEach(r => { hitung[r.nis] = (hitung[r.nis] || 0) + 1; });
+        Object.keys(hitung).forEach(n => { if (hitung[n] > 1) duplikatFile.add(n); });
+
+        const kolom = [
+            { k: 'nis', l: 'NIS' }, { k: 'nama', l: 'Nama Lengkap' }, { k: 'kelas', l: 'Kelas' },
+            { k: 'nisn', l: 'NISN' }, { k: 'jk', l: 'JK' }, { k: 'tgl', l: 'Tgl Lahir' },
+            { k: 'ekskul', l: 'Ekstrakurikuler' }, { k: 'jab', l: 'Jabatan' }, { k: 'pass', l: 'Password' }, { k: 'status', l: 'Aksi' }
+        ];
+        const baris = rows.map(r => {
+            const masalah = [];
+            const sel = {
+                nis: { v: r.nis }, nama: { v: r.nama_lengkap }, kelas: { v: r.tingkat_kelas },
+                nisn: { v: r.nisn }, jk: { v: r.jenis_kelamin }, tgl: { v: r.tgl_lahir },
+                ekskul: { v: r.ekstrakurikuler }, jab: { v: r.jabatan }
+            };
+            let status = 'ok', alasan = '';
+            if (duplikatFile.has(r.nis)) {
+                status = 'bad'; alasan = `NIS ${r.nis} duplikat di dalam file`;
+                sel.nis = { v: r.nis, cls: 'bad', alasan: 'NIS duplikat di file' };
+            } else if (nisDb.has(r.nis)) {
+                status = 'warn'; alasan = `NIS ${r.nis} sudah terdaftar — data akan diperbarui (edit)`;
+                sel.nis = { v: r.nis, cls: 'warn', alasan: 'Sudah ada di database' };
+            }
+            if (!r.nama_lengkap) {
+                status = 'bad'; alasan = alasan ? alasan + ' · Nama kosong' : 'Nama Lengkap kosong';
+                sel.nama = { v: '', cls: 'bad', alasan: 'Nama wajib diisi' };
+            }
+            if (r.tgl_lahir && !/^\d{4}-\d{2}-\d{2}/.test(r.tgl_lahir)) {
+                if (status === 'ok') status = 'warn';
+                alasan = alasan || 'Format Tgl Lahir bukan YYYY-MM-DD';
+                sel.tgl = { v: r.tgl_lahir, cls: 'warn', alasan: 'Format tanggal di luar standar — pastikan YYYY-MM-DD' };
+            }
+            if (r.password && r.password.length < 6) {
+                if (status === 'ok') status = 'warn';
+                alasan = alasan ? alasan + ' · Password < 6 karakter' : 'Password < 6 karakter (akan diterapkan apa adanya oleh server)';
+                sel.pass = { v: r.password, cls: 'warn', alasan: 'Password kurang dari 6 karakter' };
+            } else {
+                sel.pass = r.password ? { v: '••••••' } : { v: '→ 123456', cls: 'warn', alasan: 'Password kosong — otomatis default 123456' };
+            }
+            sel.status = status === 'ok' ? { v: 'Tambah/Abaikan' } : (status === 'warn' ? { v: 'Perbarui/Koreksi', cls: 'warn' } : { v: 'Ditolak', cls: 'bad' });
+            return { status, alasan, sel, raw: r };
+        });
+
+        bukaPreviewImport({
+            judul: 'Import Data Murid',
+            namaFile: file.name,
+            kolom, baris,
+            labelTerapkan: 'Terapkan & Simpan Murid',
+            onTerapkan: (rowsValid) => simpanMasalAkunMurid(rowsValid.map(r => r.raw).filter(Boolean)),
+            onReupload: openImportMurid
+        });
+    } catch(err) {
+        Swal.fire('Error Import', err.message, 'error');
+    }
 }
 
 async function simpanMasalAkunMurid(rows) {
@@ -7786,6 +8693,7 @@ async function simpanMasalAkunMurid(rows) {
             background: '#1e293b', color: '#fff', confirmButtonColor: '#0ea5e9'
         });
         cacheDashboardKosongkan(); // daftar murid berubah → sesi cache usang
+        invalidasiCacheAkun(); // paksa ambil ulang daftar murid (cache sesi sudah basi)
         renderManajemenMurid(document.getElementById('main-content'));
     } catch (error) {
         console.error("Error import masal murid:", error);
@@ -7967,6 +8875,7 @@ const MASTER_DAFTAR_SECTIONS = [
     { kolom: "Mata Pelajaran", icon: 'fa-book', ph: 'Matematika' },
     { kolom: "Ekstrakurikuler", icon: 'fa-futbol', ph: 'Pramuka' },
     { kolom: "Jabatan Kelas", icon: 'fa-user-tie', ph: 'Ketua Kelas' },
+    { kolom: "Jabatan Ekstrakurikuler", icon: 'fa-medal', ph: 'Ketua Pramuka' },
     { kolom: "Jabatan Guru", icon: 'fa-chalkboard-user', ph: 'Kepala Sekolah' },
     { kolom: "Jurusan", icon: 'fa-graduation-cap', ph: 'Rekayasa Perangkat Lunak' },
     { kolom: "Kategori Nilai", icon: 'fa-star-half-stroke', ph: 'Tugas Harian' },
@@ -10058,13 +10967,13 @@ function importKalenderExcel() {
                 <input type="file" id="file-kal" accept=".xlsx, .xls" class="w-full bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-teal-500">
             </div>`,
         background: '#1e293b', color: '#fff', showCancelButton: true,
-        confirmButtonText: '<i class="fa-solid fa-upload"></i> Proses Import',
+        confirmButtonText: '<i class="fa-solid fa-table-list"></i> Pratinjau Import',
         preConfirm: () => {
             const f = document.getElementById('file-kal').files[0];
             if (!f) { Swal.showValidationMessage('Pilih file Excel terlebih dahulu!'); return false; }
             return f;
         }
-    }).then(res => { if (res.isConfirmed) prosesImportKalenderExcel(res.value); });
+    }).then(res => { if (res.isConfirmed) previewImportKalender(res.value); });
 }
 
 function downloadTemplateKalenderExcel() {
@@ -10097,40 +11006,66 @@ function isoDariSelExcel(v) {
     return '';
 }
 
-function prosesImportKalenderExcel(file) {
-    const reader = new FileReader();
-    reader.onload = async function (e) {
-        try {
-            const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
-            if (rows.length < 2) throw new Error('File kosong / format tidak dikenali.');
-            const labelKeKey = Object.fromEntries(Object.entries(KALENDER_TIPE).map(([k, v]) => [v.label.toLowerCase(), k]));
-            const tahun = kalenderTahun || currentTahun;
-            const baris = [];
-            let ditolak = 0;
-            for (let i = 1; i < rows.length; i++) {
-                const r = rows[i];
-                if (!r || (!r[3] && !r[0])) continue;
-                const mulai = isoDariSelExcel(r[1]);
-                const nama = String(r[3] || '').trim();
-                if (!mulai || !nama) { ditolak++; continue; }
-                const rawTipe = String(r[0] || '').trim().toLowerCase();
-                const tipe = KALENDER_TIPE[rawTipe] ? rawTipe : (labelKeKey[rawTipe] || 'custom');
-                // Semester otomatis dari bulan tanggal mulai (Jul-Des = Ganjil, Jan-Jun = Genap)
-                const bln = parseInt(mulai.slice(5, 7), 10);
-                const semester = bln >= 7 ? 'Ganjil' : 'Genap';
-                baris.push({ tahun, semester, tipe, tanggal_mulai: mulai, tanggal_sampai: isoDariSelExcel(r[2]) || mulai, nama, keterangan: String(r[4] || '').trim() });
-            }
-            if (baris.length === 0) throw new Error(`Tidak ada baris valid${ditolak ? ` (${ditolak} baris ditolak)` : ''}.`);
-            Swal.fire({ title: 'Mengimpor...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
-            const { error } = await supaClient.from('kalender_pendidikan').insert(baris);
-            if (error) throw error;
-            await muatDataJadwalLibur();
-            renderJadwalLiburModule(document.getElementById('main-content'));
-            Swal.fire('Sukses', `${baris.length} kegiatan diimpor${ditolak ? `, ${ditolak} baris ditolak` : ''}.`, 'success');
-        } catch (err) { Swal.fire('Error Import', err.message, 'error'); }
-    };
-    reader.readAsArrayBuffer(file);
+async function previewImportKalender(file) {
+    try {
+        const rows = await bacaExcelPertama(file, { cellDates: true });
+        if (rows.length < 2) throw new Error('File kosong / format tidak dikenali.');
+        const labelKeKey = Object.fromEntries(Object.entries(KALENDER_TIPE).map(([k, v]) => [v.label.toLowerCase(), k]));
+        const tahun = kalenderTahun || currentTahun;
+        const baris = [];
+        let ditolak = 0;
+        for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r || (!r[3] && !r[0])) continue;
+            const mulai = isoDariSelExcel(r[1]);
+            const nama = String(r[3] || '').trim();
+            if (!mulai || !nama) { ditolak++; continue; }
+            const rawTipe = String(r[0] || '').trim().toLowerCase();
+            const tipe = KALENDER_TIPE[rawTipe] ? rawTipe : (labelKeKey[rawTipe] || 'custom');
+            // Semester otomatis dari bulan tanggal mulai (Jul-Des = Ganjil, Jan-Jun = Genap)
+            const bln = parseInt(mulai.slice(5, 7), 10);
+            const semester = bln >= 7 ? 'Ganjil' : 'Genap';
+            const payload = { tahun, semester, tipe, tanggal_mulai: mulai, tanggal_sampai: isoDariSelExcel(r[2]) || mulai, nama, keterangan: String(r[4] || '').trim() };
+            baris.push({ status: 'ok', sel: {
+                tipe: { v: (KALENDER_TIPE[tipe] || KALENDER_TIPE.custom).label },
+                mulai: { v: payload.tanggal_mulai },
+                sampai: { v: payload.tanggal_sampai },
+                nama: { v: payload.nama },
+                ket: { v: payload.keterangan },
+                smt: { v: semester }
+            }, raw: payload });
+        }
+        if (baris.length === 0) throw new Error(`Tidak ada baris valid${ditolak ? ` (${ditolak} baris ditolak)` : ''}.`);
+        const barisPreview = baris.map(b => ({ ...b }));
+        for (let i = 0; i < ditolak; i++) barisPreview.push({ status: 'bad', alasan: 'Tanggal Mulai atau Nama Kegiatan kosong', sel: {} });
+
+        bukaPreviewImport({
+            judul: 'Import Kalender Pendidikan',
+            namaFile: file.name,
+            kolom: [
+                { k: 'tipe', l: 'Tipe' }, { k: 'mulai', l: 'Tanggal Mulai' }, { k: 'sampai', l: 'Tanggal Selesai' },
+                { k: 'nama', l: 'Nama Kegiatan' }, { k: 'ket', l: 'Keterangan' }, { k: 'smt', l: 'Semester (auto)' }, { k: 'status', l: 'Status' }
+            ],
+            baris: barisPreview.map(b => {
+                b.sel = b.sel || {};
+                if (!b.sel.status) b.sel.status = b.status === 'ok' ? { v: 'Siap diimpor' } : { v: 'Ditolak', cls: 'bad' };
+                return b;
+            }),
+            labelTerapkan: 'Terapkan & Simpan Kegiatan',
+            onTerapkan: (rowsValid) => terapkanImportKalender(rowsValid.map(r => r.raw).filter(Boolean)),
+            onReupload: importKalenderExcel
+        });
+    } catch (err) { Swal.fire('Error Import', err.message, 'error'); }
+}
+
+/** Terapkan import kalender: insert ke tabel kalender_pendidikan lalu muat ulang data. */
+async function terapkanImportKalender(baris) {
+    Swal.fire({ title: 'Mengimpor...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    const { error } = await supaClient.from('kalender_pendidikan').insert(baris);
+    if (error) { Swal.fire('Error Import', error.message, 'error'); return; }
+    await muatDataJadwalLibur();
+    renderJadwalLiburModule(document.getElementById('main-content'));
+    Swal.fire('Sukses', `${baris.length} kegiatan diimpor.`, 'success');
 }
 
 /** (E6) Cetak Kalender Pendidikan ke print window (landscape): header, grid 12 bulan, tabel data, keterangan, TTD. */
@@ -12816,6 +13751,8 @@ const ADMIN_DEFS = {
       ['hari', 'Hari', 'teks'],
       ['tanggal', 'Tanggal', 'tanggal'],
       ['nama_siswa', 'Nama Siswa', 'teks'],
+      ['nis', 'NIS', 'teks'],
+      ['nisn', 'NISN', 'teks'],
       ['kelas', 'Kelas', 'teks'],
       ['mapel', 'Mata Pelajaran', 'teks'],
       ['masalah', 'Masalah yang Dihadapi', 'teksarea'],
@@ -13279,7 +14216,7 @@ const ADMIN_EXCEL_MAP = {
   },
   bimbingan_penyuluhan: {
     sheet: 'Bimbingan_Penyuluhan',
-    kolom: [['hari', 'HARI'], ['tanggal', 'TANGGAL'], ['nama_siswa', 'NAMA SISWA'], ['kelas', 'KELAS'], ['mapel', 'MATA PELAJARAN'], ['masalah', 'MASALAH YANG DIHADAPI'], ['jenis_bimbingan', 'JENIS BIMBINGAN'], ['tindak_lanjut', 'TINDAK LANJUT']]
+    kolom: [['hari', 'HARI'], ['tanggal', 'TANGGAL'], ['nama_siswa', 'NAMA SISWA'], ['nis', 'NIS'], ['nisn', 'NISN'], ['kelas', 'KELAS'], ['mapel', 'MATA PELAJARAN'], ['masalah', 'MASALAH YANG DIHADAPI'], ['jenis_bimbingan', 'JENIS BIMBINGAN'], ['tindak_lanjut', 'TINDAK LANJUT']]
   },
   kunjungan_supervisi: {
     sheet: 'Kunjungan_Supervisi',
@@ -13325,7 +14262,7 @@ function importExcelAdmin(tabel) {
       <div class="text-[11px] text-slate-300 text-left mb-3">Kolom yang dibaca: <b class="text-white">${cfg.kolom.map(([, h]) => h).join(', ')}</b>.<br>Unduh template untuk format lengkap (Tahun/Semester/Kelas/Mapel opsional — kosong = ikut header aktif).</div>
       <input type="file" id="file-adm" accept=".xlsx, .xls" class="w-full bg-black/40 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-teal-500">`,
     background: '#1e293b', color: '#fff', showCancelButton: true,
-    confirmButtonText: '<i class="fa-solid fa-upload"></i> Proses Import',
+    confirmButtonText: '<i class="fa-solid fa-table-list"></i> Pratinjau Import',
     preConfirm: () => {
       const f = document.getElementById('file-adm').files[0];
       if (!f) { Swal.showValidationMessage('Pilih file Excel!'); return false; }
@@ -13333,64 +14270,93 @@ function importExcelAdmin(tabel) {
     }
   }).then(res => {
     if (!res.isConfirmed) return;
-    const reader = new FileReader();
-    reader.onload = async function (e) {
-      try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-        if (!rows.length) throw new Error('File kosong / format tidak dikenali.');
-        const baris = rows.map(r => {
-          const get = (...names) => { for (const n of names) { const k = Object.keys(r).find(x => x.toLowerCase().trim() === n.toLowerCase()); if (k && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
-          const tanggal = isoDariSelExcel(get('tanggal', 'tanggal pelaksanaan', 'TANGGAL', 'TANGGAL PELAKSANAAN')) || null;
-          return {
-            tahun: get('tahun') || adminHeaderState.tahun || currentTahun,
-            semester: get('semester') || adminHeaderState.semester || 'Ganjil',
-            kelas: get('kelas') || adminHeaderState.kelas || '',
-            mapel: get('mata pelajaran', 'mapel') || adminHeaderState.mapel || '',
-            nip_guru: nipGuruAktif(),
-            ...(tabel === 'remedial_pelaksanaan' ? {
-              tanggal_pelaksanaan: tanggal,
-              ki_kd: get('ki/kd/(cp/tujuan pembelajaran)', 'ki/kd/(cp/tp)'),
-              program: get('program') || 'Perbaikan',
-              jumlah_siswa: Number(get('jumlah siswa')) || null,
-              tindakan: get('tindakan'),
-              hasil: (get('hasil') || 'TUNTAS').toUpperCase(),
-              bentuk_evaluasi: get('bentuk evaluasi') || adminHeaderState._h_bentuk_evaluasi || ''
-            } : tabel === 'remedial_program' ? {
-              ki_cp: get('ki / cp'),
-              kd_tp: get('kd / tujuan pembelajaran'),
-              ketercapaian: get('ketercapaian'),
-              tindak_lanjut: get('tindak lanjut') || 'Remedial Tes'
-            } : tabel === 'bimbingan_penyuluhan' ? {
-              hari: get('hari') || (tanggal ? hariDariTanggalLengkap(tanggal) : ''),
-              tanggal,
-              nama_siswa: get('nama siswa'), nis: get('nis'),
-              masalah: get('masalah yang dihadapi'),
-              jenis_bimbingan: get('jenis bimbingan') || 'Pelajaran - Individu',
-              tindak_lanjut: get('tindak lanjut')
-            } : {
-              hari: get('hari') || (tanggal ? hariDariTanggalLengkap(tanggal) : ''),
-              tanggal,
-              nama_guru: get('nama guru'), jabatan: get('jabatan'), nip: get('nip'),
-              maksud: get('maksud kunjungan'),
-              kesan: get('kesan (rekomandasi)'), pesan: get('pesan (rekomandasi)'),
-              tanda_tangan: get('tanda tangan'), keterangan: get('keterangan'),
-              nip_pencatat: nipGuruAktif()
-            })
-          };
-        });
-        Swal.fire({ title: 'Mengimpor...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
-        const { error } = await supaClient.from(tabel).insert(baris);
-        if (error) throw error;
-        adminRowsCache[tabel] = null;
-        Swal.fire('Sukses', `${baris.length} baris diimpor.`, 'success');
-        renderTabAdminGuru();
-      } catch (err) {
-        Swal.fire('Error Import', err.message, 'error');
-      }
-    };
-    reader.readAsArrayBuffer(res.value);
+    previewImportAdmin(tabel, res.value);
   });
+}
+
+/** Parse file Excel import Administrasi Guru → pratinjau → insert saat diterapkan. */
+async function previewImportAdmin(tabel, file) {
+  const cfg = ADMIN_EXCEL_MAP[tabel];
+  try {
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array', cellDates: true });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    if (!rows.length) throw new Error('File kosong / format tidak dikenali.');
+    const baris = rows.map(r => {
+      const get = (...names) => { for (const n of names) { const k = Object.keys(r).find(x => x.toLowerCase().trim() === n.toLowerCase()); if (k && String(r[k]).trim() !== '') return String(r[k]).trim(); } return ''; };
+      const tanggal = isoDariSelExcel(get('tanggal', 'tanggal pelaksanaan', 'TANGGAL', 'TANGGAL PELAKSANAAN')) || null;
+      return {
+        tahun: get('tahun') || adminHeaderState.tahun || currentTahun,
+        semester: get('semester') || adminHeaderState.semester || 'Ganjil',
+        kelas: get('kelas') || adminHeaderState.kelas || '',
+        mapel: get('mata pelajaran', 'mapel') || adminHeaderState.mapel || '',
+        nip_guru: nipGuruAktif(),
+        ...(tabel === 'remedial_pelaksanaan' ? {
+          tanggal_pelaksanaan: tanggal,
+          ki_kd: get('ki/kd/(cp/tujuan pembelajaran)', 'ki/kd/(cp/tp)'),
+          program: get('program') || 'Perbaikan',
+          jumlah_siswa: Number(get('jumlah siswa')) || null,
+          tindakan: get('tindakan'),
+          hasil: (get('hasil') || 'TUNTAS').toUpperCase(),
+          bentuk_evaluasi: get('bentuk evaluasi') || adminHeaderState._h_bentuk_evaluasi || ''
+        } : tabel === 'remedial_program' ? {
+          ki_cp: get('ki / cp'),
+          kd_tp: get('kd / tujuan pembelajaran'),
+          ketercapaian: get('ketercapaian'),
+          tindak_lanjut: get('tindak lanjut') || 'Remedial Tes'
+        } : tabel === 'bimbingan_penyuluhan' ? {
+          hari: get('hari') || (tanggal ? hariDariTanggalLengkap(tanggal) : ''),
+          tanggal,
+          nama_siswa: get('nama siswa'), nis: get('nis'), nisn: get('nisn'),
+          masalah: get('masalah yang dihadapi'),
+          jenis_bimbingan: get('jenis bimbingan') || 'Pelajaran - Individu',
+          tindak_lanjut: get('tindak lanjut')
+        } : {
+          hari: get('hari') || (tanggal ? hariDariTanggalLengkap(tanggal) : ''),
+          tanggal,
+          nama_guru: get('nama guru'), jabatan: get('jabatan'), nip: get('nip'),
+          maksud: get('maksud kunjungan'),
+          kesan: get('kesan (rekomandasi)'), pesan: get('pesan (rekomandasi)'),
+          tanda_tangan: get('tanda tangan'), keterangan: get('keterangan'),
+          nip_pencatat: nipGuruAktif()
+        })
+      };
+    });
+
+    // Kolom pratinjau: metadata umum + kolom khusus per tabel
+    const kolom = [
+      { k: 'tahun', l: 'Tahun' }, { k: 'semester', l: 'Smt' }, { k: 'kelas', l: 'Kelas' }, { k: 'mapel', l: 'Mapel' },
+      ...cfg.kolom.slice(0, 5).map(([f, h]) => ({ k: f, l: h })), { k: 'status', l: 'Status' }
+    ];
+    const barisPreview = baris.map(b => {
+      const sel = {
+        tahun: { v: b.tahun }, semester: { v: b.semester }, kelas: { v: b.kelas || '—' }, mapel: { v: b.mapel || '—' },
+        status: { v: 'Siap diimpor' }
+      };
+      cfg.kolom.slice(0, 5).forEach(([f]) => { sel[f] = { v: b[f] != null ? b[f] : '' }; });
+      return { status: 'ok', sel, raw: b };
+    });
+
+    bukaPreviewImport({
+      judul: `Import ${cfg.sheet.replace(/_/g, ' ')}`,
+      namaFile: file.name,
+      kolom, baris: barisPreview,
+      labelTerapkan: 'Terapkan & Simpan',
+      onTerapkan: (rowsValid) => terapkanImportAdmin(tabel, rowsValid.map(r => r.raw).filter(Boolean)),
+      onReupload: () => importExcelAdmin(tabel)
+    });
+  } catch (err) {
+    Swal.fire('Error Import', err.message, 'error');
+  }
+}
+
+/** Terapkan import Administrasi Guru: insert ke tabel terkait lalu render ulang. */
+async function terapkanImportAdmin(tabel, baris) {
+  Swal.fire({ title: 'Mengimpor...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+  const { error } = await supaClient.from(tabel).insert(baris);
+  if (error) { Swal.fire('Error Import', error.message, 'error'); return; }
+  adminRowsCache[tabel] = null;
+  Swal.fire('Sukses', `${baris.length} baris diimpor.`, 'success');
+  renderTabAdminGuru();
 }
 
 /** Footer TTD umum: Kepala Sekolah (kiri) & Guru Mapel (kanan). */

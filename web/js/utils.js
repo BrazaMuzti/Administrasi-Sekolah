@@ -290,7 +290,8 @@ async function apiCall(action, data = {}) {
         tahun: data.tahun || '',
         semester: data.semester || '',
         bulan: data.bulan || '',
-        metode: 'Absen Mandiri (GPS)'
+        metode: 'Absen Mandiri (GPS)',
+        gps: data.gps || ''
       }, { onConflict: 'nis,tanggal,mapel' });
       if (error) throw error;
       return { status: 'success' };
