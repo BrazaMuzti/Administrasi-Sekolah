@@ -409,17 +409,25 @@ let userName = namaDenganGelar(
       { id: 'laporan-absen', icon: 'fa-clipboard-list', text: 'Laporan Saya' },
       { id: 'laporan-nilai', icon: 'fa-file-lines', text: 'Laporan Nilai' },
       { id: 'teman-sejawat', icon: 'fa-user-group', text: 'Penilaian Teman Sejawat' },
+      { id: 'perpustakaan', icon: 'fa-book', text: 'Perpustakaan' },
       { id: 'akun-saya', icon: 'fa-id-card', text: 'Data Akun Murid' }
     ];
   if (role === 'admin') {
       menus.push({ id: 'akun-admin', icon: 'fa-user-shield', text: 'Data Akun Admin' });
       menus.push({ id: 'akun-guru', icon: 'fa-chalkboard-user', text: 'Data Akun Guru' });
       menus.push({ id: 'master-data', icon: 'fa-database', text: 'Master Data' });
+      menus.push({ id: 'surat-pengumuman', icon: 'fa-bullhorn', text: 'Surat & Pengumuman' });
+      menus.push({ id: 'spp-kas', icon: 'fa-money-bill-wave', text: 'SPP & Buku Kas' });
+      menus.push({ id: 'inventaris', icon: 'fa-boxes-stacked', text: 'Inventaris' });
+      menus.push({ id: 'ppdb', icon: 'fa-user-plus', text: 'PPDB' });
   }
   // Guru dan Admin bisa akses Manajemen Murid
   if (role === 'admin' || role === 'guru') {
       menus.push({ id: 'ekstrakurikuler', icon: 'fa-medal', text: 'Ekstrakurikuler' });
       menus.push({ id: 'akun-murid', icon: 'fa-user-graduate', text: 'Data Akun Murid' });
+      menus.push({ id: 'rapor', icon: 'fa-scroll', text: 'Rapor & Leger' });
+      menus.push({ id: 'poin-siswa', icon: 'fa-scale-balanced', text: 'Poin Siswa' });
+      menus.push({ id: 'perpustakaan', icon: 'fa-book', text: 'Perpustakaan' });
       menus.push({ id: 'jadwal-libur', icon: 'fa-calendar-days', text: 'Jadwal & Libur' });
       menus.push({ id: 'administrasi-guru', icon: 'fa-folder-open', text: 'Administrasi Guru Lainnya' });
       if (role === 'guru') menus.push({ id: 'akun-guru', icon: 'fa-chalkboard-user', text: 'Data Akun Guru' });
@@ -658,6 +666,13 @@ function changeMenu(menuId, menuText) {
   else if (menuId === 'administrasi-guru') renderAdministrasiGuru(mainContent);
   else if (menuId === 'ekstrakurikuler') renderEkstrakurikulerModule(mainContent);
   else if (menuId === 'master-data') renderMasterDataModule(mainContent);
+  else if (menuId === 'rapor') renderRaporModule(mainContent);
+  else if (menuId === 'poin-siswa') renderPoinSiswaModule(mainContent);
+  else if (menuId === 'spp-kas') renderSppKasModule(mainContent);
+  else if (menuId === 'perpustakaan') renderPerpustakaanModule(mainContent);
+  else if (menuId === 'inventaris') renderInventarisModule(mainContent);
+  else if (menuId === 'ppdb') renderPpdbModule(mainContent);
+  else if (menuId === 'surat-pengumuman') renderSuratPengumumanModule(mainContent);
   else {
     mainContent.innerHTML = `<div class="glass-card p-6 rounded-xl flex flex-col items-center justify-center h-[70vh] text-slate-400">...</div>`;
   }
@@ -675,6 +690,10 @@ function setupSmartFAB() {
     .text-stroke-hitam { color: white; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 3px 5px rgba(0,0,0,0.9); }
     .fab-child-menu { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); opacity: 0; transform: scale(0.3) translateY(20px); pointer-events: none; }
     .fab-child-menu.show { opacity: 1; transform: scale(1) translateY(0px); pointer-events: auto; }
+    #fab-menu-list { max-height: calc(100vh - 140px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+    #fab-menu-list::-webkit-scrollbar { width: 5px; }
+    #fab-menu-list::-webkit-scrollbar-thumb { background: rgba(148,163,184,.6); border-radius: 4px; }
+    .fab-sub-wrap { transition: max-height .25s ease; }
   `;
   document.head.appendChild(style);
 
@@ -786,25 +805,60 @@ function toggleFabMenu() {
 function renderFabMenuItems(align = 'left') {
   const menuList = document.getElementById('fab-menu-list');
   menuList.innerHTML = '';
-  
-  fabMenusList.forEach((m) => {
+
+  // Modul administrasi dikelompokkan di submenu "Administrasi" agar daftar FAB tidak keluar layar
+  const idsGrup = ['surat-pengumuman', 'spp-kas', 'inventaris', 'ppdb', 'rapor', 'poin-siswa', 'perpustakaan'];
+  const buatItem = (m, sub = false) => {
       const btn = document.createElement('div');
-      btn.className = `fab-child-menu flex items-center gap-3 cursor-pointer hover:scale-110 transition-transform ${align === 'right' ? 'flex-row-reverse' : 'flex-row'}`;
-      
+      btn.className = `fab-child-menu flex items-center gap-3 cursor-pointer hover:scale-110 transition-transform ${align === 'right' ? 'flex-row-reverse' : 'flex-row'} ${sub ? 'ml-2' : ''}`;
+
       // FIX KLIK MENU: Cegah klik ganda merambat ke bawah
-      btn.onclick = (e) => { 
-        e.stopPropagation(); 
-        changeMenu(m.id, m.text); 
-        toggleFabMenu(); 
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        changeMenu(m.id, m.text);
+        toggleFabMenu();
       };
 
-      let colorClass = m.id === 'logout' ? 'bg-red-600' : 'bg-slate-800';
+      let colorClass = m.id === 'logout' ? 'bg-red-600' : (sub ? 'bg-slate-700' : 'bg-slate-800');
       const iconDiv = `<div class="w-11 h-11 rounded-full ${colorClass} border border-white/30 flex items-center justify-center shadow-lg text-white shrink-0"><i class="fa-solid ${m.icon}"></i></div>`;
       const textDiv = `<span class="text-stroke-hitam font-extrabold whitespace-nowrap text-[15px] sm:text-[16px] uppercase tracking-wider drop-shadow-xl">${m.text}</span>`;
 
       btn.innerHTML = align === 'right' ? textDiv + iconDiv : iconDiv + textDiv;
-      menuList.appendChild(btn);
-  });
+      return btn;
+  };
+
+  const utama = fabMenusList.filter(m => !idsGrup.includes(m.id) && m.id !== 'logout');
+  utama.forEach(m => menuList.appendChild(buatItem(m)));
+
+  const grup = fabMenusList.filter(m => idsGrup.includes(m.id));
+  if (grup.length) {
+      const btnGrup = document.createElement('div');
+      btnGrup.className = `fab-child-menu flex items-center gap-3 cursor-pointer hover:scale-110 transition-transform ${align === 'right' ? 'flex-row-reverse' : 'flex-row'}`;
+      const iconGrup = `<div class="w-11 h-11 rounded-full bg-violet-700 border border-white/30 flex items-center justify-center shadow-lg text-white shrink-0"><i class="fa-solid fa-folder-tree" style="transition: transform .25s"></i></div>`;
+      const textGrup = `<span class="text-stroke-hitam font-extrabold whitespace-nowrap text-[15px] sm:text-[16px] uppercase tracking-wider drop-shadow-xl">Administrasi</span>`;
+      btnGrup.innerHTML = align === 'right' ? textGrup + iconGrup : iconGrup + textGrup;
+
+      const subWrap = document.createElement('div');
+      subWrap.className = 'fab-sub-wrap flex flex-col gap-3';
+      subWrap.style.maxHeight = '0px';
+      subWrap.style.overflow = 'hidden';
+      grup.forEach(m => subWrap.appendChild(buatItem(m, true)));
+
+      const toggleSub = (e) => {
+        e.stopPropagation();
+        const buka = subWrap.style.maxHeight === '0px';
+        subWrap.style.maxHeight = buka ? (55 * grup.length + 30) + 'px' : '0px';
+        const ikon = btnGrup.querySelector('i');
+        if (ikon) ikon.style.transform = buka ? 'rotate(90deg)' : '';
+      };
+      btnGrup.onclick = toggleSub;
+
+      menuList.appendChild(btnGrup);
+      menuList.appendChild(subWrap);
+  }
+
+  const keluar = fabMenusList.find(m => m.id === 'logout');
+  if (keluar) menuList.appendChild(buatItem(keluar));
 }
 
 // =====================================
@@ -1292,6 +1346,14 @@ async function renderDashboardMurid(container) {
         <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-chart-simple text-green-400 mr-1"></i> Statistik Kehadiran Saya — Semester ${escapeHtml(smt)}</h3>
         ${statHTML}
       </div>
+      <div id="dash-pengumuman" class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bullhorn text-pink-400 mr-1"></i> Pengumuman Sekolah</h3>
+        <div class="space-y-1.5"><p class="text-[11px] text-slate-500 italic">Memuat pengumuman...</p></div>
+      </div>
+      <div id="dash-poin" class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-scale-balanced text-rose-400 mr-1"></i> Poin Siswa</h3>
+        <div class="space-y-1.5"><p class="text-[11px] text-slate-500 italic">Memuat poin...</p></div>
+      </div>
       <div class="bg-white/5 border border-white/10 rounded-xl p-3">
         <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Agenda 7 Hari Ke Depan (Kalender Pendidikan${ekskulSaya.length ? ' + Ekskul' : ''})</h3>
         <div class="space-y-1.5">${agendaHTML}</div>
@@ -1302,6 +1364,8 @@ async function renderDashboardMurid(container) {
         ${tombolModul('laporan-nilai', 'Laporan Nilai', 'fa-file-lines', 'bg-emerald-600 hover:bg-emerald-700')}
       </div>
     </div>`;
+    muatPengumumanDashboard();
+    muatPoinMuridDashboard();
 }
 
 /** Cetak kartu QR NIS murid (pola cetakQRMuridTerfilter). */
@@ -1566,7 +1630,12 @@ async function renderLaporanNilaiMurid(container) {
   const tahunDef = pref.tahun || currentTahun;
   const smtDef = pref.semester || (now.getMonth() >= 6 ? 'Ganjil' : 'Genap');
 
-  const { data, error } = await supaClient.rpc('ambil_laporan_nilai_murid', { p_nis: nis, p_tahun: tahunDef, p_semester: smtDef });
+  let { data, error } = await supaClient.rpc('ambil_laporan_nilai_murid', { p_nis: nis, p_tahun: tahunDef, p_semester: smtDef });
+  // Fallback: RPC lama (dibuat di luar repo) mungkin tidak ada — pakai RPC repo ambil_rapor_nilai_murid
+  if ((error && /Could not find the function/i.test(error?.message || '')) || (!error && !data)) {
+    const fb = await supaClient.rpc('ambil_rapor_nilai_murid', { p_nis: nis, p_ta: tahunDef, p_smt: smtDef });
+    data = fb.data; error = fb.error;
+  }
   const rows = (!error && data && data.status === 'success') ? (data.nilai || []) : [];
   if (error || (data && data.status === 'error')) {
     container.innerHTML = `<div class="p-6 text-center text-red-300">${escapeHtml((data && data.message) || error?.message || 'Gagal memuat nilai.')}</div>`;
@@ -1599,6 +1668,9 @@ async function renderLaporanNilaiMurid(container) {
       <div class="text-center mt-2">
         <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-file-lines text-emerald-400 mr-2"></i> Laporan Nilai</h2>
         <p class="text-[10px] text-slate-400">${escapeHtml(user["Nama Lengkap"] || '')} · NIS ${escapeHtml(nis)} · ${escapeHtml(tahunDef)} — ${escapeHtml(smtDef)} · Mode Baca Saja</p>
+      </div>
+      <div class="flex justify-center">
+        <button onclick="bukaRaporSaya()" class="bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg shadow transition"><i class="fa-solid fa-scroll mr-1"></i> Rapor Saya (PDF)</button>
       </div>
       ${kategoriList.map(k => `
         <div class="bg-white/5 border border-white/10 rounded-xl p-3">
@@ -7538,7 +7610,7 @@ async function renderManajemenMurid(container, paksa = false) {
                             <button onclick="exportPdfMurid()" class="h-8 bg-rose-600 hover:bg-rose-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Export ke PDF"><i class="fa-solid fa-file-pdf"></i> <span class="hidden sm:inline">PDF</span></button>
                             <button onclick="openExportQRMurid()" class="h-8 bg-indigo-600 hover:bg-indigo-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Export QR Kartu Murid"><i class="fa-solid fa-qrcode"></i> <span class="hidden sm:inline">QR</span></button>
                             <button onclick="openImportMurid()" class="h-8 bg-teal-600 hover:bg-teal-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Import Data Murid (Excel)"><i class="fa-solid fa-file-import"></i> <span class="hidden sm:inline">Import</span></button>
-                            <button onclick="prosesKenaikanKelas()" class="h-8 bg-violet-600 hover:bg-violet-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Naikkan kelas siswa ke tahun pelajaran berikutnya (X→XI→XII→Lulus)"><i class="fa-solid fa-arrow-up-right-dots"></i> <span class="hidden sm:inline">Kenaikan</span></button>
+                            ${isAdminAktif() ? `<button onclick="prosesKenaikanKelas()" class="h-8 bg-violet-600 hover:bg-violet-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Proses kenaikan kelas — khusus admin (X→XI→XII→Lulus, dapat dikoreksi turun)"><i class="fa-solid fa-arrow-up-right-dots"></i> <span class="hidden sm:inline">Kenaikan</span></button>` : ''}
                             <button onclick="cetakMutasiSiswa()" class="h-8 bg-orange-600 hover:bg-orange-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> <span class="hidden sm:inline">Mutasi</span></button>
                             <button onclick="openFormAkunMurid(true)" class="h-8 bg-blue-600 hover:bg-blue-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Tambah Murid"><i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Tambah</span></button>
                         </div>
@@ -7553,6 +7625,7 @@ async function renderManajemenMurid(container, paksa = false) {
                                 <th class="px-4 py-3 border-b border-white/10">NISN</th>
                                 <th class="px-4 py-3 border-b border-white/10">Nama Lengkap</th>
                                 <th class="px-4 py-3 border-b border-white/10 text-center">Kelas</th>
+                                <th class="px-4 py-3 border-b border-white/10">Tahun Pelajaran</th>
                                 <th class="px-4 py-3 border-b border-white/10">Email Login</th>
                                 <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
                             </tr>
@@ -7677,7 +7750,7 @@ async function exportPdfMurid() {
 }
 
 function generateTbodyMurid(data, mulaiNo = 0) {
-    if (!data || data.length === 0) return `<tr><td colspan="7" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
+    if (!data || data.length === 0) return `<tr><td colspan="8" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
 
     return data.map((d, i) => {
         let nis = d.nis_nip || d.NIS || d.nis || "-";
@@ -7700,6 +7773,7 @@ function generateTbodyMurid(data, mulaiNo = 0) {
                     <span class="bg-indigo-900/50 text-indigo-300 px-2 py-1 rounded text-[10px]">${escapeHtml(kelas)}</span>
                     <div class="mt-1"><span class="text-[8px] px-1.5 py-0.5 rounded font-bold ${badgeStatusSiswa(statusSiswa)}">${escapeHtml(statusSiswa)}</span></div>
                 </td>
+                <td class="px-4 py-3 text-[10px] text-slate-400 search-target">${escapeHtml(tahunData || '-')}</td>
                 <td class="px-4 py-3"><div class="text-[10px] text-slate-400"><i class="fa-solid fa-envelope"></i> ${email}</div></td>
                 <td class="px-4 py-3 text-center whitespace-nowrap">
                     <button onclick="editAkunMurid('${escJs(d.id || '')}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
@@ -8130,67 +8204,135 @@ function hapusRiwayatSiswaForm() {
 }
 
 // ---- WIZARD PROSES KENAIKAN KELAS (ADMIN) ----
-/** Dialog: TA sumber → tujuan; kelas tujuan otomatis (X→XI→XII→Lulus), override per siswa, pengecualian tinggal. */
+/** Dialog: filter TA/Kelas/NIS/NISN (default mengikuti filter tabel utama), mode Naik/Turun (koreksi),
+ *  kelas tujuan otomatis per mode + override per siswa, ceklis per siswa.
+ *  Penulisan via RPC proses_kenaikan_kelas (security definer, hanya admin). */
 async function prosesKenaikanKelas() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat memproses kenaikan kelas.');
     const listTahun = riwayatTahunList();
     if (listTahun.length < 1) return showToast('error', 'Tahun Pelajaran belum tersedia di Master Data.');
-    const sumberDefault = currentTahun;
-    const p = String(sumberDefault).split('/');
-    const tujuanDefault = p.length === 2 && !isNaN(parseInt(p[0])) ? `${parseInt(p[0]) + 1}/${parseInt(p[1]) + 1}` : '';
-    if (tujuanDefault && !listTahun.includes(tujuanDefault)) listTahun.push(tujuanDefault);
     const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
 
-    const sumber = sumberDefault;
-    const siswaSumber = (cacheAkunMurid || [])
-        .map(d => ({ id: d.id, nis: d.nis_nip || d.NIS || '', nama: d.nama_lengkap || d["Nama Lengkap"] || '', kelasAsal: kelasSiswaTahun(d, sumber), raw: d }))
-        .filter(s => s.kelasAsal && siswaAktifTahun(s.raw, sumber))
-        .sort((a, b) => a.kelasAsal.localeCompare(b.kelasAsal, 'id', { numeric: true }) || a.nama.localeCompare(b.nama));
-    if (siswaSumber.length === 0) return showToast('error', `Tidak ada siswa aktif pada TA ${sumber}.`);
+    // Default filter diwarisi dari pilihan filter aktif pada tabel "Manajemen Akun Murid",
+    // sehingga daftar wizard sesuai data yang tampil di tabel utama.
+    const fTahun = ((document.getElementById('filter-tahun-murid') || {}).value) || 'ALL';
+    const fKelas = ((document.getElementById('filter-kelas-murid') || {}).value) || 'ALL';
+    const cari = (((document.getElementById('search-murid') || {}).value) || '').trim();
+    const sumberDefault = fTahun !== 'ALL' && listTahun.includes(fTahun) ? fTahun : currentTahun;
+    const kelasDefault = fKelas !== 'ALL' && listKelas.includes(fKelas) ? fKelas : 'ALL';
+    const nisDefault = /^\d+$/.test(cari) ? cari : '';
 
-    const baris = siswaSumber.map((s, i) => {
-        const naikAuto = naikkanKelas(s.kelasAsal);
-        const opts = `<option value="" ${naikAuto.lulus ? '' : 'hidden'} disabled></option>` + listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('');
+    const taBerikut = (ta) => {
+        const p = String(ta || '').split('/');
+        return p.length === 2 && !isNaN(parseInt(p[0])) ? `${parseInt(p[0]) + 1}/${parseInt(p[1]) + 1}` : '';
+    };
+
+    const state = { sumber: sumberDefault, kelas: kelasDefault, nis: nisDefault, nisn: '', mode: 'naik', siswa: [] };
+
+    const saring = () => {
+        state.siswa = (cacheAkunMurid || [])
+            .map(d => ({
+                id: d.id, nis: d.nis_nip || d.NIS || '', nisn: d.nisn || d.NISN || '',
+                nama: d.nama_lengkap || d["Nama Lengkap"] || 'Tanpa Nama',
+                tahun: d.tahun_pelajaran || d["ID Tahun Pelajaran"] || '',
+                kelasAsal: kelasSiswaTahun(d, state.sumber), raw: d
+            }))
+            .filter(s => s.kelasAsal && siswaAktifTahun(s.raw, state.sumber)
+                && (state.kelas === 'ALL' || s.kelasAsal === state.kelas)
+                && (!state.nis || s.nis.toLowerCase().includes(state.nis.toLowerCase()))
+                && (!state.nisn || String(s.nisn).toLowerCase().includes(state.nisn.toLowerCase())))
+            .sort((a, b) => a.kelasAsal.localeCompare(b.kelasAsal, 'id', { numeric: true }) || a.nama.localeCompare(b.nama));
+    };
+
+    const barisHtml = () => state.siswa.map((s, i) => {
+        const auto = state.mode === 'turun' ? turunkanKelas(s.kelasAsal) : naikkanKelas(s.kelasAsal);
+        const lulus = state.mode !== 'turun' && !!auto.lulus;
+        const autoAda = state.mode === 'turun' ? !!auto.turun : (!lulus && !!auto.kelas);
+        const optTinggal = `<option value="${escJs(s.kelasAsal)}">${lulus ? 'Lulus — arsip ' + escapeHtml(s.kelasAsal) : escapeHtml(s.kelasAsal) + (state.mode === 'turun' ? ' (tetap)' : ' (tinggal)')}</option>`;
+        const optAuto = autoAda ? `<option value="${escJs(auto.kelas)}" selected>${escapeHtml(auto.kelas)}${state.mode === 'turun' ? ' (turun)' : ''}</option>` : '';
+        const opts = listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('');
         return `<tr data-idx="${i}" class="kn-row">
             <td class="px-2 py-1 text-center text-slate-400">${i + 1}</td>
             <td class="px-2 py-1 font-mono text-blue-300 text-[10px]">${escapeHtml(s.nis)}</td>
+            <td class="px-2 py-1 font-mono text-slate-300 text-[10px]">${escapeHtml(s.nisn || '-')}</td>
             <td class="px-2 py-1 text-white">${escapeHtml(s.nama)}</td>
+            <td class="px-2 py-1 text-[10px] text-slate-400">${escapeHtml(s.tahun || '-')}</td>
             <td class="px-2 py-1 text-center"><span class="bg-indigo-900/50 text-indigo-300 px-1.5 py-0.5 rounded text-[10px]">${escapeHtml(s.kelasAsal)}</span></td>
             <td class="px-2 py-1 text-center">
-                <label class="inline-flex items-center cursor-pointer mr-1"><input type="checkbox" class="kn-naik accent-green-500" checked data-idx="${i}"><span class="text-[9px] ml-1 text-slate-300">naik</span></label>
+                <label class="inline-flex items-center cursor-pointer"><input type="checkbox" class="kn-naik accent-green-500" ${state.mode === 'naik' || autoAda ? 'checked' : ''} data-idx="${i}"><span class="text-[9px] ml-1 text-slate-300">${state.mode === 'turun' ? 'turun' : 'naik'}</span></label>
             </td>
             <td class="px-2 py-1">
                 <select class="kn-tujuan bg-slate-700 border border-white/20 rounded px-1 py-0.5 text-[10px] text-white outline-none" data-idx="${i}">
-                    <option value="${escJs(s.kelasAsal)}">${naikAuto.lulus ? 'Lulus — arsip ' + escapeHtml(s.kelasAsal) : escapeHtml(s.kelasAsal) + ' (tinggal)'}</option>
-                    ${naikAuto.lulus ? '' : `<option value="${escJs(naikAuto.kelas)}" selected>${escapeHtml(naikAuto.kelas)}${naikAuto.lulus ? ' (Lulus)' : ''}</option>`}
+                    ${optTinggal}
+                    ${optAuto}
                     ${opts}
                 </select>
-                ${naikAuto.lulus ? `<input type="hidden" class="kn-lulus" data-idx="${i}" value="1">` : ''}
+                ${lulus ? `<input type="hidden" class="kn-lulus" data-idx="${i}" value="1">` : ''}
             </td>
         </tr>`;
     }).join('');
+
+    const infoHtml = () => state.mode === 'turun'
+        ? `<span class="px-2 py-1 rounded bg-amber-700/50 text-[10px] font-bold">Koreksi TA: <b class="text-white">${escapeHtml(state.sumber)}</b></span><span class="text-[10px] text-amber-300 ml-2">menulis ulang kelas pada TA yang sama (perbaikan kesalahan kenaikan)</span>`
+        : `<span class="px-2 py-1 rounded bg-slate-700 text-[10px] font-bold">Sumber: <b class="text-white">${escapeHtml(state.sumber)}</b></span><i class="fa-solid fa-arrow-right text-green-400 mx-1.5"></i><span class="px-2 py-1 rounded bg-green-700/50 text-[10px] font-bold">Tujuan: <b class="text-white">${escapeHtml(taBerikut(state.sumber) || '-')}</b></span>`;
+
+    const renderIsi = () => {
+        const tb = document.getElementById('kn-tbody');
+        if (tb) tb.innerHTML = state.siswa.length ? barisHtml() : `<tr><td colspan="8" class="px-2 py-4 text-center text-slate-500 italic">Tidak ada siswa aktif yang cocok dengan filter.</td></tr>`;
+        const info = document.getElementById('kn-info');
+        if (info) info.innerHTML = infoHtml();
+    };
+
+    saring();
+    const tahunOpts = listTahun.map(t => `<option value="${escJs(t)}" ${t === state.sumber ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('');
+    const kelasOpts = listKelas.map(k => `<option value="${escJs(k)}" ${k === state.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('');
 
     const res = await Swal.fire({
         title: 'Proses Kenaikan Kelas',
         html: `
             <div class="text-left text-[11px] text-slate-300 mt-2">
-                <div class="flex items-center gap-2 mb-2">
-                    <span class="px-2 py-1 rounded bg-slate-700 text-[10px] font-bold">Sumber: <b class="text-white">${escapeHtml(sumber)}</b></span>
-                    <i class="fa-solid fa-arrow-right text-green-400"></i>
-                    <span class="px-2 py-1 rounded bg-green-700/50 text-[10px] font-bold">Tujuan: <b class="text-white">${escapeHtml(tujuanDefault)}</b></span>
+                <div id="kn-info" class="flex flex-wrap items-center gap-2 mb-2">${infoHtml()}</div>
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5 mb-1">
+                    <select id="kn-filter-tahun" class="h-7 bg-slate-700 border border-white/20 rounded px-1 text-[10px] text-white outline-none" title="Tahun Pelajaran sumber">${tahunOpts}</select>
+                    <select id="kn-filter-kelas" class="h-7 bg-slate-700 border border-white/20 rounded px-1 text-[10px] text-white outline-none"><option value="ALL" ${state.kelas === 'ALL' ? 'selected' : ''}>Semua Kelas</option>${kelasOpts}</select>
+                    <input id="kn-filter-nis" type="text" value="${escJs(nisDefault)}" placeholder="Filter NIS..." class="h-7 bg-black/40 border border-white/20 rounded px-1.5 text-[10px] text-white outline-none">
+                    <input id="kn-filter-nisn" type="text" placeholder="Filter NISN..." class="h-7 bg-black/40 border border-white/20 rounded px-1.5 text-[10px] text-white outline-none">
+                    <select id="kn-filter-mode" class="h-7 bg-slate-700 border border-white/20 rounded px-1 text-[10px] text-white outline-none" title="Mode koreksi jika terdapat kesalahan kenaikan">
+                        <option value="naik" selected>Mode: Naik (X→XI→XII)</option>
+                        <option value="turun">Mode: Turun/Koreksi (XI→X)</option>
+                    </select>
                 </div>
-                <div class="text-[10px] text-slate-400 mb-2">Kelas tujuan otomatis (X→XI→XII→Lulus) — dapat diubah per siswa (pindah jurusan/rombel). Hilangkan centang "naik" untuk siswa yang tinggal kelas.</div>
+                <div class="text-[10px] text-slate-400 mb-2">Mode Naik: kelas tujuan otomatis X→XI→XII→Lulus. Mode Turun/Koreksi: otomatis mundur (XI→X, XII→XI) dan menulis ulang TA sumber. Keduanya dapat diubah per siswa; hilangkan centang untuk mengecualikan siswa.</div>
                 <div class="max-h-[45vh] overflow-y-auto custom-scrollbar border border-white/10 rounded">
                     <table class="w-full text-left text-[10px]">
                         <thead class="bg-slate-900 text-slate-400 uppercase sticky top-0"><tr>
-                            <th class="px-2 py-1.5 text-center w-8">No</th><th class="px-2 py-1.5">NIS</th><th class="px-2 py-1.5">Nama</th><th class="px-2 py-1.5 text-center">Kelas Asal</th><th class="px-2 py-1.5 text-center">Naik</th><th class="px-2 py-1.5">Kelas Tujuan</th>
+                            <th class="px-2 py-1.5 text-center w-8">No</th><th class="px-2 py-1.5">NIS</th><th class="px-2 py-1.5">NISN</th><th class="px-2 py-1.5">Nama</th><th class="px-2 py-1.5">Tahun Pelajaran</th><th class="px-2 py-1.5 text-center">Kelas Asal</th><th class="px-2 py-1.5 text-center">Proses</th><th class="px-2 py-1.5">Kelas Tujuan</th>
                         </tr></thead>
-                        <tbody class="text-slate-200">${baris}</tbody>
+                        <tbody id="kn-tbody" class="text-slate-200">${barisHtml()}</tbody>
                     </table>
                 </div>
             </div>`,
-        width: 700, background: '#1e293b', color: '#fff', showCancelButton: true,
-        confirmButtonText: '<i class="fa-solid fa-arrow-up-right-dots"></i> Proses Kenaikan',
+        width: 860, background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-arrow-up-right-dots"></i> Proses',
         cancelButtonText: 'Batal',
+        didOpen: () => {
+            const terapkanFilter = () => {
+                state.sumber = (document.getElementById('kn-filter-tahun') || {}).value || state.sumber;
+                state.kelas = (document.getElementById('kn-filter-kelas') || {}).value || 'ALL';
+                state.nis = (((document.getElementById('kn-filter-nis') || {}).value) || '').trim();
+                state.nisn = (((document.getElementById('kn-filter-nisn') || {}).value) || '').trim();
+                state.mode = (document.getElementById('kn-filter-mode') || {}).value || 'naik';
+                saring(); renderIsi();
+            };
+            ['kn-filter-tahun', 'kn-filter-kelas', 'kn-filter-mode'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('change', terapkanFilter);
+            });
+            ['kn-filter-nis', 'kn-filter-nisn'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('input', terapkanFilter);
+            });
+        },
         preConfirm: () => {
             const hasil = [];
             document.querySelectorAll('.kn-row').forEach(tr => {
@@ -8198,47 +8340,48 @@ async function prosesKenaikanKelas() {
                 const naik = document.querySelector(`.kn-naik[data-idx="${idx}"]`).checked;
                 const lulus = !!document.querySelector(`.kn-lulus[data-idx="${idx}"]`);
                 const tujuanSel = document.querySelector(`.kn-tujuan[data-idx="${idx}"]`).value;
-                const s = siswaSumber[parseInt(idx, 10)];
+                const s = state.siswa[parseInt(idx, 10)];
                 hasil.push({
                     id: s.id, nis: s.nis, nama: s.nama, kelasAsal: s.kelasAsal,
                     naik, lulus,
                     kelasTujuan: naik ? (lulus ? s.kelasAsal : tujuanSel) : s.kelasAsal,
                     status: (naik && lulus) ? 'Lulus' : 'Aktif',
-                    ket: naik ? (lulus ? 'Lulus' : 'Naik') : 'Tidak naik'
+                    ket: naik ? (lulus ? 'Lulus' : (state.mode === 'turun' ? 'Koreksi turun' : 'Naik')) : (state.mode === 'turun' ? 'Tidak berubah' : 'Tidak naik')
                 });
             });
-            if (!hasil.length) { Swal.showValidationMessage('Tidak ada data.'); return false; }
+            if (!hasil.length) { Swal.showValidationMessage('Tidak ada siswa pada daftar.'); return false; }
+            if (state.mode !== 'turun' && !taBerikut(state.sumber)) { Swal.showValidationMessage('Format TA sumber tidak dikenali (harus YYYY/YYYY).'); return false; }
             return hasil;
         }
     });
     if (!res.isConfirmed) return;
     const hasil = res.value;
-    const nNaik = hasil.filter(h => h.naik && !h.lulus).length;
+    const taTulis = state.mode === 'turun' ? state.sumber : taBerikut(state.sumber);
+    const nProses = hasil.filter(h => h.naik && !h.lulus).length;
     const nLulus = hasil.filter(h => h.naik && h.lulus).length;
     const nTinggal = hasil.filter(h => !h.naik).length;
+    const ringkas = state.mode === 'turun'
+        ? `Turun/Koreksi: <b class="text-amber-300">${nProses}</b> · Tidak berubah: <b class="text-slate-300">${nTinggal}</b>`
+        : `Naik: <b class="text-green-300">${nProses}</b> · Lulus: <b class="text-indigo-300">${nLulus}</b> · Tinggal: <b class="text-amber-300">${nTinggal}</b>`;
     const konf = await Swal.fire({
-        icon: 'question', title: 'Terapkan Kenaikan?',
-        html: `<div class="text-[11px] text-slate-300">Naik: <b class="text-green-300">${nNaik}</b> · Lulus: <b class="text-indigo-300">${nLulus}</b> · Tinggal: <b class="text-amber-300">${nTinggal}</b><br>TA tujuan: <b class="text-white">${escapeHtml(tujuanDefault)}</b></div>`,
+        icon: 'question', title: state.mode === 'turun' ? 'Terapkan Koreksi Kelas?' : 'Terapkan Kenaikan?',
+        html: `<div class="text-[11px] text-slate-300">${ringkas}<br>TA ditulis: <b class="text-white">${escapeHtml(taTulis)}</b></div>`,
         showCancelButton: true, confirmButtonText: 'Ya, Terapkan', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff'
     });
     if (!konf.isConfirmed) return;
 
-    Swal.fire({ title: 'Memproses kenaikan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
-    let sukses = 0, gagal = 0;
-    for (const h of hasil) {
-        try {
-            const raw = (cacheAkunMurid || []).find(x => String(x.id) === String(h.id));
-            const rw = { ...((raw && raw.riwayat_kelas) || {}) };
-            rw[tujuanDefault] = { kelas: h.kelasTujuan, status: h.status, ket: h.ket };
-            const { error } = await supaClient.from('akun').update({ riwayat_kelas: rw, tingkat_kelas: h.kelasTujuan }).eq('id', h.id);
-            if (error) throw error;
-            sukses++;
-        } catch (e) { gagal++; console.warn('kenaikan:', e); }
+    Swal.fire({ title: state.mode === 'turun' ? 'Memproses koreksi...' : 'Memproses kenaikan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    const payload = hasil.map(h => ({ id: h.id, kelas: h.kelasTujuan, status: h.status, ket: h.ket }));
+    const { data: resRpc, error: rpcErr } = await supaClient.rpc('proses_kenaikan_kelas', { p_ta_tujuan: taTulis, p_siswa: payload });
+    if (rpcErr || !resRpc || resRpc.status !== 'success') {
+        console.error('proses_kenaikan_kelas:', rpcErr || resRpc);
+        await renderManajemenMurid(document.getElementById('main-content'), true);
+        return Swal.fire({ icon: 'error', title: 'Proses Gagal', text: (resRpc && resRpc.message) || (rpcErr && rpcErr.message) || 'RPC proses_kenaikan_kelas tidak tersedia — jalankan supabase/sql/upgrade_20260915_proses_kenaikan_rpc.sql di Supabase SQL Editor.', background: '#1e293b', color: '#fff' });
     }
     cacheDashboardKosongkan();
     await ambilMasterData();
     await renderManajemenMurid(document.getElementById('main-content'), true);
-    Swal.fire({ icon: gagal ? 'warning' : 'success', title: gagal ? 'Selesai dengan Catatan' : 'Kenaikan Selesai!', text: `${sukses} siswa diproses${gagal ? `, ${gagal} gagal (lihat console)` : ''}.`, background: '#1e293b', color: '#fff' });
+    Swal.fire({ icon: 'success', title: state.mode === 'turun' ? 'Koreksi Selesai!' : 'Kenaikan Selesai!', text: `${resRpc.diperbarui || payload.length} siswa diproses pada TA ${taTulis}.`, background: '#1e293b', color: '#fff' });
 }
 
 // ---- LAPORAN MUTASI SISWA (PDF) ----
@@ -9452,6 +9595,16 @@ function naikkanKelas(kelas) {
     return { kelas: s, lulus: false };
 }
 
+/** Koreksi turun tingkat kelas (perbaikan kesalahan kenaikan): XI→X, XII→XI, 11→10, 12→11 (jurusan/rombel tetap). */
+function turunkanKelas(kelas) {
+    const s = String(kelas || '').trim();
+    if (!s) return { kelas: '', turun: false };
+    const kunci = s.split(/\s+/)[0].toUpperCase();
+    const peta = { 'XI': 'X', 'XII': 'XI', '11': '10', '12': '11' };
+    if (peta[kunci]) return { kelas: peta[kunci] + s.slice(kunci.length), turun: true };
+    return { kelas: s, turun: false };
+}
+
 /** Badge warna status siswa (kelas Tailwind). */
 function badgeStatusSiswa(status) {
     const peta = {
@@ -10408,6 +10561,7 @@ async function renderJadwalLiburModule(container) {
                         <button onclick="switchTabJadwal('kalender')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='kalender' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Kalender Pendidikan</button>
                         <button onclick="switchTabJadwal('gcal')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='gcal' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}"><i class="fa-brands fa-google mr-1"></i>Google Kalender</button>
                         <button onclick="switchTabJadwal('master')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='master' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Master Jadwal</button>
+                        <button onclick="switchTabJadwal('ujian')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabJadwal==='ujian' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}"><i class="fa-solid fa-file-pen mr-1"></i>Jadwal Ujian</button>
                     </div>
                 </div>
                 
@@ -10417,6 +10571,7 @@ async function renderJadwalLiburModule(container) {
                       : currentTabJadwal === 'lihat' ? getHTMLLihatJadwal()
                       : currentTabJadwal === 'kalender' ? getHTMLKalenderPendidikan()
                       : currentTabJadwal === 'gcal' ? getHTMLGoogleKalender()
+                      : currentTabJadwal === 'ujian' ? getHTMLJadwalUjian()
                       : `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Master Jadwal...</div>`}
                 </div>
             </div>
@@ -10425,6 +10580,7 @@ async function renderJadwalLiburModule(container) {
         else if (currentTabJadwal === 'kalender') renderKalenderPendidikan();
         else if (currentTabJadwal === 'gcal') renderGoogleKalender();
         else if (currentTabJadwal === 'lihat') renderLihatJadwal();
+        else if (currentTabJadwal === 'ujian') await renderTabJadwalUjian();
     } catch(e) {
         container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul.</div>`;
     }
@@ -11933,6 +12089,10 @@ async function renderDashboardUtama(container) {
                 <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Agenda 7 Hari Ke Depan (Kalender Pendidikan${gcalDash.length ? ' + Google' : ''})</h3>
                 <div class="space-y-1.5">${agendaHTML}</div>
             </div>
+            <div id="dash-pengumuman" class="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bullhorn text-pink-400 mr-1"></i> Pengumuman Sekolah</h3>
+                <div class="space-y-1.5"><p class="text-[11px] text-slate-500 italic">Memuat pengumuman...</p></div>
+            </div>
             <div class="flex flex-wrap gap-2 justify-center">
                 ${tombolModul('absensi', 'Hadir Tatap Muka', 'fa-clipboard-user', 'bg-blue-600 hover:bg-blue-700')}
                 ${tombolModul('nilai', 'Input Nilai', 'fa-star', 'bg-emerald-600 hover:bg-emerald-700')}
@@ -11941,6 +12101,7 @@ async function renderDashboardUtama(container) {
             <div class="text-center text-[9px] text-slate-500">Pengaturan jadwal, libur & kalender tersedia di menu <b class="text-slate-300">Jadwal & Libur</b>.</div>
         </div>
     `;
+    muatPengumumanDashboard();
 }
 
 // ==========================================
@@ -14651,4 +14812,4354 @@ function cetakPdfAdmin(tabel) {
       <script>setTimeout(() => { window.print(); }, 400);<\/script>
     </body></html>`);
   printWindow.document.close();
+}
+
+// ==========================================================
+// ==========================================================
+// FASE 1 — MODUL ADMINISTRASI SEKOLAH TAMBAHAN:
+//   (A) Widget Pengumuman Dashboard    (B) Jadwal Ujian + Kartu Ujian
+//   (C) Rapor & Leger Nilai            (D) Surat & Pengumuman
+// Butuh tabel baru: supabase/sql/upgrade_20260916_fase1.sql
+// ==========================================================
+// ==========================================================
+
+// ---------- Util bersama modul Fase 1 ----------
+/** Pastikan cache murid tersedia (dipakai modul rapor/kartu ujian/surat).
+ *  Memakai KOLOM_LIST_MURID penuh agar cache tetap kompatibel dgn tabel Manajemen Akun Murid. */
+async function pastikanCacheMuridRapor() {
+    if ((cacheAkunMurid || []).length > 0 || cacheAkunMuridSesiAda) return cacheAkunMurid || [];
+    try {
+        cacheAkunMurid = await supaAmbilSemua(
+            supaClient.from('akun').select(KOLOM_LIST_MURID).eq('tipe', 'murid')
+        );
+        cacheAkunMuridSesiAda = true;
+    } catch (e) { console.warn('pastikanCacheMuridRapor:', e); }
+    return cacheAkunMurid || [];
+}
+
+/** Cari 1 murid by NIS (cache dulu, fallback fetch). */
+async function cariMuridRapor(nis) {
+    const cache = await pastikanCacheMuridRapor();
+    const lokal = (cache || []).find(x => String(x.nis_nip) === String(nis));
+    if (lokal) return lokal;
+    try {
+        const { data } = await supaClient.from('akun').select('id, nis_nip, nisn, nama_lengkap, tingkat_kelas, ekstrakurikuler, riwayat_kelas, tahun_pelajaran, semester').eq('nis_nip', String(nis)).eq('tipe', 'murid').maybeSingle();
+        return data || null;
+    } catch (e) { return null; }
+}
+
+// ================= OPSI CETAK CUSTOM (Tahap A: Rapor / Surat / Kuitansi) =================
+/** Preset "Saran Desain" per jenis dokumen — pengaturan tersimpan per perangkat (localStorage). */
+const OPSI_CETAK_DEFAULT = {
+    rapor:    { kertas: 'A4', orientasi: 'potret', margin: 2, font: 'Times New Roman', ukuranFont: 11, logo: true,  garisKop: 'ganda',  alamat: true, kontak: true, npsn: true,  judul: '', judulDefault: 'LEMBAR RAPOR', ttdKiri: 'Wali Kelas',        ttdKanan: 'Kepala Sekolah', selang: true },
+    surat:    { kertas: 'A4', orientasi: 'potret', margin: 2, font: 'Times New Roman', ukuranFont: 12, logo: true,  garisKop: 'ganda',  alamat: true, kontak: true, npsn: true,  judul: '', judulDefault: '(dari perihal)', ttdKiri: '', ttdKanan: 'Kepala Sekolah', selang: false },
+    kuitansi: { kertas: 'A5', orientasi: 'potret', margin: 1, font: 'Times New Roman', ukuranFont: 12, logo: false, garisKop: 'tunggal', alamat: true, kontak: false, npsn: false, judul: '', judulDefault: 'KUITANSI', ttdKiri: 'Bendahara Sekolah', ttdKanan: 'Petugas', selang: false }
+};
+
+function bacaOpsiCetak(jenis) {
+    let tersimpan = {};
+    try { tersimpan = JSON.parse(localStorage.getItem('sisip_cetak_' + jenis) || '{}') || {}; } catch (e) {}
+    return { ...(OPSI_CETAK_DEFAULT[jenis] || {}), ...tersimpan };
+}
+function simpanOpsiCetak(jenis, opsi) {
+    try { localStorage.setItem('sisip_cetak_' + jenis, JSON.stringify(opsi)); } catch (e) {}
+}
+function keluargaFont(f) { return f === 'Times New Roman' ? "'Times New Roman', Times, serif" : `'${f || 'Arial'}', sans-serif`; }
+/** CSS @page size utk pilihan kertas/orientasi. */
+function cssUkuranKertas(o) {
+    const m = { 'A4': 'A4', 'A5': 'A5', 'Letter': 'Letter', 'F4': '215mm 330mm' }[o.kertas] || 'A4';
+    if (m.includes('mm')) return o.orientasi === 'lanskap' ? '330mm 215mm' : m;
+    return `${m} ${o.orientasi === 'lanskap' ? 'landscape' : 'portrait'}`;
+}
+/** Gaya garis kop sesuai opsi. */
+function cssGarisKop(o) {
+    if (o.garisKop === 'tunggal') return 'border-bottom:2px solid #000;';
+    if (o.garisKop === 'tanpa') return '';
+    return 'border-bottom:3px double #000;';
+}
+/** Isi field dialog opsi — dari tersimpan, atau dari preset (pakaiDefault). */
+function isiOpsiCetak(jenis, pakaiDefault = false) {
+    const s = pakaiDefault ? (OPSI_CETAK_DEFAULT[jenis] || {}) : bacaOpsiCetak(jenis);
+    const setV = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+    const setC = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    setV('oc-kertas', s.kertas); setV('oc-orientasi', s.orientasi); setV('oc-margin', s.margin);
+    setV('oc-font', s.font); setV('oc-ukuran', s.ukuranFont); setV('oc-gariskop', s.garisKop);
+    setC('oc-logo', s.logo); setC('oc-alamat', s.alamat); setC('oc-kontak', s.kontak);
+    setC('oc-npsn', s.npsn); setC('oc-selang', s.selang);
+    setV('oc-judul', s.judul || ''); setV('oc-ttdkiri', s.ttdKiri || ''); setV('oc-ttdkanan', s.ttdKanan || '');
+}
+
+/** Dialog opsi cetak per jenis dokumen; return objek opsi (tersimpan otomatis) / null bila batal. */
+async function dialogOpsiCetak(jenis, labelTombol = 'Cetak') {
+    const o = bacaOpsiCetak(jenis);
+    const d = OPSI_CETAK_DEFAULT[jenis] || {};
+    const res = await Swal.fire({
+        title: 'Opsi Cetak',
+        width: 560,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-4 gap-2">
+                    <div><label class="font-bold text-blue-300">Kertas</label>
+                    <select id="oc-kertas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option>A4</option><option>A5</option><option>F4</option><option>Letter</option></select></div>
+                    <div><label class="font-bold text-blue-300">Orientasi</label>
+                    <select id="oc-orientasi" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="potret">Potret</option><option value="lanskap">Lanskap</option></select></div>
+                    <div><label class="font-bold text-blue-300">Margin (cm)</label>
+                    <input id="oc-margin" type="number" step="0.5" min="0" max="5" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"></div>
+                    <div><label class="font-bold text-blue-300">Font (pt)</label>
+                    <input id="oc-ukuran" type="number" step="0.5" min="8" max="14" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-blue-300">Jenis Font</label>
+                    <select id="oc-font" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option>Times New Roman</option><option>Arial</option><option>Calibri</option><option>Verdana</option></select></div>
+                    <div><label class="font-bold text-blue-300">Garis Kop</label>
+                    <select id="oc-gariskop" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="ganda">Garis Ganda</option><option value="tunggal">Garis Tunggal</option><option value="tanpa">Tanpa Garis</option></select></div>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[10px] bg-black/20 rounded p-2">
+                    <label class="inline-flex items-center gap-1 cursor-pointer"><input id="oc-logo" type="checkbox" class="accent-blue-500"> Logo</label>
+                    <label class="inline-flex items-center gap-1 cursor-pointer"><input id="oc-alamat" type="checkbox" class="accent-blue-500"> Alamat</label>
+                    <label class="inline-flex items-center gap-1 cursor-pointer"><input id="oc-kontak" type="checkbox" class="accent-blue-500"> Telp/Email/Web</label>
+                    <label class="inline-flex items-center gap-1 cursor-pointer"><input id="oc-npsn" type="checkbox" class="accent-blue-500"> NPSN</label>
+                    <label class="inline-flex items-center gap-1 cursor-pointer"><input id="oc-selang" type="checkbox" class="accent-blue-500"> Baris Selang-seling</label>
+                </div>
+                <div><label class="font-bold text-blue-300">Judul Dokumen (kosong = ${escapeHtml(d.judulDefault || 'default')})</label>
+                <input id="oc-judul" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-blue-300">Label TTD Kiri (opsional)</label>
+                    <input id="oc-ttdkiri" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"></div>
+                    <div><label class="font-bold text-blue-300">Label TTD Kanan (opsional)</label>
+                    <input id="oc-ttdkanan" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"></div>
+                </div>
+                <button onclick="isiOpsiCetak('${escJs(jenis)}', true)" class="w-full bg-slate-600 hover:bg-slate-500 text-white px-2 py-1 rounded text-[10px] font-bold transition"><i class="fa-solid fa-rotate-left"></i> Kembalikan ke Saran Desain</button>
+                <p class="text-[9px] text-slate-500">Pengaturan otomatis tersimpan di perangkat ini untuk dokumen "${escapeHtml(jenis)}".</p>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-print"></i> ' + labelTombol, cancelButtonText: 'Batal',
+        didOpen: () => isiOpsiCetak(jenis),
+        preConfirm: () => {
+            const v = (id, d) => (document.getElementById(id) || {}).value ?? d;
+            const c = (id, d) => { const el = document.getElementById(id); return el ? el.checked : d; };
+            return {
+                kertas: v('oc-kertas', 'A4'), orientasi: v('oc-orientasi', 'potret'),
+                margin: Math.min(5, Math.max(0, Number(v('oc-margin', 2)) || 0)),
+                font: v('oc-font', 'Times New Roman'),
+                ukuranFont: Math.min(14, Math.max(8, Number(v('oc-ukuran', 11)) || 11)),
+                logo: c('oc-logo', true), garisKop: v('oc-gariskop', 'ganda'),
+                alamat: c('oc-alamat', true), kontak: c('oc-kontak', true), npsn: c('oc-npsn', true), selang: c('oc-selang', false),
+                judul: (v('oc-judul', '') || '').trim(), ttdKiri: (v('oc-ttdkiri', '') || '').trim(), ttdKanan: (v('oc-ttdkanan', '') || '').trim()
+            };
+        }
+    });
+    if (!res.isConfirmed) return null;
+    simpanOpsiCetak(jenis, res.value);
+    return res.value;
+}
+
+/** Buka window cetak berisi HTML siap-print (pola cetakKalenderPendidikanPDF).
+ *  halaman (opsional) = objek opsi cetak → @page size/margin + font dokumen. */
+function bukaCetakHTML(judul, isi, halaman = null) {
+    const win = window.open('', '_blank');
+    if (!win) { showToast('error', 'Popup diblokir browser — izinkan popup untuk mencetak.'); return null; }
+    const cssHalaman = halaman ? `
+  @page { size: ${cssUkuranKertas(halaman)}; margin: ${halaman.margin}cm; }
+  body { font-family: ${keluargaFont(halaman.font)}; font-size: ${halaman.ukuranFont}pt; }
+` : '';
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(judul)}</title>
+<style>${cssHalaman}
+  body { font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; margin: 14px; }
+  table { border-collapse: collapse; }
+  .t th { background: #e2e8f0; }
+  .t th, .t td { border: 1px solid #333; padding: 3px 5px; }
+  .judul-tabel { font-weight: bold; margin: 12px 0 4px; font-size: 11.5px; text-transform: uppercase; }
+  @media print { body { margin: 0; } }
+</style></head><body>${isi}
+<script>setTimeout(function(){ window.print(); }, 600);<\/script>
+</body></html>`);
+    win.document.close();
+    return win;
+}
+
+/** Ambil nilai akhir (sumatif gabungan) dari JSONB data baris nilai. */
+function barisNilaiDariData(d) {
+    const c = d || {};
+    const cek = (v) => (v !== '' && v !== null && v !== undefined && !isNaN(Number(v))) ? Math.round(Number(v)) : '';
+    const gab = cek(c["Nilai Raport"]);
+    if (gab !== '') return gab;
+    return cek(c["Nilai Akhir Raport"]);
+}
+
+/** Semester default dari preferensi sesi / bulan berjalan. */
+function semesterDefaultSistem() {
+    return getPreferensiSesi().semester === 'Genap' ? 'Genap' : ((new Date().getMonth() >= 6) ? 'Ganjil' : 'Genap');
+}
+
+/** TA berikutnya dari "YYYY/YYYY". */
+function taBerikutnyaRapor(ta) {
+    const p = String(ta || '').split('/');
+    return p.length === 2 && !isNaN(parseInt(p[0])) ? `${parseInt(p[0]) + 1}/${parseInt(p[1]) + 1}` : '';
+}
+
+/** Kelas yang boleh diakses modul rapor: admin semua, guru hanya kelas yang diwali. */
+function daftarKelasRapor() {
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    if (isAdminAktif()) return listKelas;
+    const wali = (typeof waliKelasAktif === 'function') ? waliKelasAktif() : '';
+    return wali ? listKelas.filter(k => k === wali) : [];
+}
+
+// ================= A. WIDGET PENGUMUMAN DASHBOARD =================
+/** Muat pengumuman aktif sesuai target & rentang tanggal → isi #dash-pengumuman. */
+async function muatPengumumanDashboard() {
+    const el = document.getElementById('dash-pengumuman');
+    if (!el) return;
+    const role = (currentUser || {}).role || 'murid';
+    const user = (currentUser || {}).user || {};
+    const iso = ISO_HARIAN(new Date());
+    let rows = [];
+    try {
+        const { data } = await supaClient.from('pengumuman').select('*').eq('ta', currentTahun).order('created_at', { ascending: false }).limit(30);
+        rows = data || [];
+    } catch (e) { console.warn('pengumuman dashboard:', e); }
+    const kelasSaya = role === 'murid' ? String(kelasSiswaTahun(user, currentTahun) || user["Tingkat/Kelas"] || '') : '';
+    const cocok = rows.filter(p => {
+        const mulai = p.mulai ? String(p.mulai) : '0000-01-01';
+        const akhir = p.akhir ? String(p.akhir) : '9999-12-31';
+        if (iso < mulai || iso > akhir) return false;
+        const t = p.target || 'semua';
+        if (t === 'semua') return true;
+        if (t === 'guru') return role === 'admin' || role === 'guru';
+        if (t === 'murid') return role === 'murid';
+        if (t === 'kelas') return role === 'murid' && String(p.kelas || '') === kelasSaya;
+        return false;
+    }).slice(0, 6);
+    el.innerHTML = `
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-bullhorn text-pink-400 mr-1"></i> Pengumuman Sekolah</h3>
+        ${cocok.length === 0
+            ? `<p class="text-[11px] text-slate-500 italic">Tidak ada pengumuman aktif.</p>`
+            : cocok.map(p => `<div class="bg-white/5 border border-white/10 rounded px-2 py-1.5">
+                <div class="text-[10px] text-white font-bold">${escapeHtml(p.judul || '-')}</div>
+                ${p.isi ? `<div class="text-[9px] text-slate-400 whitespace-pre-line">${escapeHtml(String(p.isi).slice(0, 240))}</div>` : ''}
+                <div class="text-[8px] text-slate-500 mt-0.5">${p.mulai ? escapeHtml(fmtTglKalender(String(p.mulai))) : ''}${p.penulis ? ' · ' + escapeHtml(p.penulis) : ''} · Target: ${escapeHtml(p.target === 'kelas' ? 'Kelas ' + (p.kelas || '-') : (p.target || 'semua'))}</div>
+            </div>`).join('')}`;
+}
+
+// ================= B. JADWAL UJIAN + KARTU UJIAN =================
+const JENIS_UJIAN_PRESET = ['Sumatif 1', 'Sumatif 2', 'PTS', 'PAS', 'Ujian Praktik'];
+
+function getHTMLJadwalUjian() {
+    return `<div id="wrap-jadwal-ujian" class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Jadwal Ujian...</div>`;
+}
+
+async function renderTabJadwalUjian() {
+    const wrap = document.getElementById('wrap-jadwal-ujian');
+    if (!wrap) return;
+    if (masterDataCache.length === 0) {
+        try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+    }
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('jadwal_ujian').select('*').eq('ta', currentTahun).order('jenis').order('tanggal').order('jam_mulai');
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error('jadwal ujian:', e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat jadwal ujian.<br><span class="text-[10px] text-slate-400">Pastikan <b>supabase/sql/upgrade_20260916_fase1.sql</b> sudah dijalankan di Supabase SQL Editor.</span></div>`;
+        return;
+    }
+    const bolehEdit = isAdminAktif();
+    const baris = rows.length === 0
+        ? `<tr><td colspan="${bolehEdit ? 8 : 7}" class="p-6 text-center text-slate-500 italic">Belum ada jadwal ujian pada TA ${escapeHtml(currentTahun)}.</td></tr>`
+        : rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-3 py-2"><span class="bg-fuchsia-900/50 text-fuchsia-200 px-2 py-0.5 rounded text-[10px] font-bold">${escapeHtml(r.jenis || '-')}</span></td>
+            <td class="px-3 py-2 text-[11px]">${escapeHtml(fmtTglKalender(String(r.tanggal || '').slice(0, 10)))}</td>
+            <td class="px-3 py-2 text-[11px] text-yellow-300">${escapeHtml(`${r.jam_mulai || ''}${r.jam_selesai ? ' - ' + r.jam_selesai : ''}`)}</td>
+            <td class="px-3 py-2"><span class="bg-indigo-900/50 text-indigo-300 px-1.5 py-0.5 rounded text-[10px]">${escapeHtml(r.kelas || '-')}</span></td>
+            <td class="px-3 py-2">${escapeHtml(r.mapel || '-')}</td>
+            <td class="px-3 py-2 text-slate-300">${escapeHtml(r.pengawas || '-')}</td>
+            <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.ket || '')}</td>
+            ${bolehEdit ? `<td class="px-3 py-2 text-center whitespace-nowrap">
+                <button onclick="openFormJadwalUjian(false, '${escJs(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="deleteJadwalUjian('${escJs(r.id)}', '${escJs(r.jenis || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+            </td>` : ''}
+        </tr>`).join('');
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="bg-fuchsia-900/10 border border-fuchsia-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-fuchsia-400"></i> Jadwal ujian Tahun Pelajaran <b class="text-white">${escapeHtml(currentTahun)}</b> — sumber cetak Kartu Ujian ber-QR.</p>
+                <div class="flex gap-2">
+                    ${bolehEdit ? `<button onclick="openFormJadwalUjian(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Jadwal</button>` : ''}
+                    <button onclick="cetakKartuUjian()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-id-card"></i> Cetak Kartu Ujian</button>
+                </div>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Jenis</th><th class="px-3 py-2">Tanggal</th><th class="px-3 py-2">Jam</th><th class="px-3 py-2">Kelas</th><th class="px-3 py-2">Mata Pelajaran</th><th class="px-3 py-2">Pengawas</th><th class="px-3 py-2">Ket</th>${bolehEdit ? '<th class="px-3 py-2 text-center">Aksi</th>' : ''}
+                    </tr></thead>
+                    <tbody class="text-xs text-slate-200">${baris}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+async function openFormJadwalUjian(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengatur jadwal ujian.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('jadwal_ujian').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Data jadwal ujian tidak ditemukan.');
+        row = data;
+    }
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const listMapel = urutAz([...new Set((masterDataCache || []).map(m => m["Mata Pelajaran"] || m["Mapel"]).filter(Boolean))]);
+    const jenisOpts = [...new Set([...JENIS_UJIAN_PRESET, ...[row.jenis].filter(Boolean)])];
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Jadwal Ujian' : 'Edit Jadwal Ujian',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-pink-300">Jenis Ujian</label>
+                <select id="ju-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${jenisOpts.map(j => `<option value="${escJs(j)}" ${j === (row.jenis || 'Sumatif 1') ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('')}</select></div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="font-bold text-pink-300">Tanggal</label>
+                    <input id="ju-tanggal" type="date" value="${escapeHtml(String(row.tanggal || '').slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-pink-300">Jam Mulai</label>
+                    <input id="ju-mulai" type="time" value="${escapeHtml(row.jam_mulai || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-pink-300">Jam Selesai</label>
+                    <input id="ju-selesai" type="time" value="${escapeHtml(row.jam_selesai || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-pink-300">Kelas</label>
+                    <select id="ju-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}" ${k === row.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-pink-300">Mata Pelajaran</label>
+                    <select id="ju-mapel" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listMapel.map(k => `<option value="${escJs(k)}" ${k === row.mapel ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div><label class="font-bold text-pink-300">Pengawas</label>
+                <input id="ju-pengawas" value="${escapeHtml(row.pengawas || '')}" placeholder="Nama guru pengawas..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-pink-300">Keterangan</label>
+                <input id="ju-ket" value="${escapeHtml(row.ket || '')}" placeholder="Catatan (opsional)" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const jenis = document.getElementById('ju-jenis').value.trim();
+            const tanggal = document.getElementById('ju-tanggal').value;
+            const kelas = document.getElementById('ju-kelas').value;
+            const mapel = document.getElementById('ju-mapel').value;
+            if (!jenis) { Swal.showValidationMessage('Jenis ujian wajib dipilih/diisi.'); return false; }
+            if (!tanggal) { Swal.showValidationMessage('Tanggal wajib diisi.'); return false; }
+            if (!kelas) { Swal.showValidationMessage('Kelas wajib dipilih.'); return false; }
+            if (!mapel) { Swal.showValidationMessage('Mata pelajaran wajib dipilih.'); return false; }
+            return {
+                jenis, tanggal,
+                jam_mulai: document.getElementById('ju-mulai').value,
+                jam_selesai: document.getElementById('ju-selesai').value,
+                kelas, mapel,
+                pengawas: document.getElementById('ju-pengawas').value.trim(),
+                ket: document.getElementById('ju-ket').value.trim(),
+                semester: semesterDefaultSistem()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const payload = res.value;
+    try {
+        if (isBaru) {
+            const { error } = await supaClient.from('jadwal_ujian').insert({ ...payload, ta: currentTahun });
+            if (error) throw error;
+        } else {
+            const { error } = await supaClient.from('jadwal_ujian').update(payload).eq('id', id);
+            if (error) throw error;
+        }
+        showToast('success', 'Jadwal ujian tersimpan.');
+        renderJadwalLiburModule(document.getElementById('main-content'));
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan jadwal ujian — pastikan upgrade_20260916_fase1.sql sudah dijalankan.');
+    }
+}
+
+async function deleteJadwalUjian(id, jenis) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus jadwal ujian?', text: `Jenis ${jenis || '-'} — jadwal ini akan dihapus.`, showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('jadwal_ujian').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Jadwal ujian dihapus.');
+        renderJadwalLiburModule(document.getElementById('main-content'));
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus jadwal ujian.'); }
+}
+
+async function cetakKartuUjian() {
+    if (masterDataCache.length === 0) {
+        try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+    }
+    let jenisSet = [];
+    try {
+        const { data } = await supaClient.from('jadwal_ujian').select('jenis').eq('ta', currentTahun);
+        jenisSet = [...new Set((data || []).map(r => r.jenis).filter(Boolean))];
+    } catch (e) { return showToast('error', 'Gagal memuat jadwal ujian — jalankan upgrade_20260916_fase1.sql.'); }
+    if (jenisSet.length === 0) return showToast('error', 'Belum ada jadwal ujian pada TA ini.');
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: 'Cetak Kartu Ujian',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-pink-300">Jenis Ujian</label>
+                <select id="ck-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${jenisSet.map(j => `<option value="${escJs(j)}">${escapeHtml(j)}</option>`).join('')}</select></div>
+                <div><label class="font-bold text-pink-300">Kelas</label>
+                <select id="ck-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-print"></i> Cetak', cancelButtonText: 'Batal',
+        preConfirm: () => ({ jenis: document.getElementById('ck-jenis').value, kelas: document.getElementById('ck-kelas').value })
+    });
+    if (!res.isConfirmed) return;
+    const { jenis, kelas } = res.value;
+    let jadwal = [];
+    try {
+        const { data, error } = await supaClient.from('jadwal_ujian').select('*').eq('ta', currentTahun).eq('jenis', jenis).eq('kelas', kelas).order('tanggal').order('jam_mulai');
+        if (error) throw error;
+        jadwal = data || [];
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat jadwal ujian.'); }
+    if (jadwal.length === 0) return showToast('error', 'Tidak ada jadwal ujian untuk kombinasi tersebut.');
+    const muridAll = await pastikanCacheMuridRapor();
+    const siswa = (muridAll || [])
+        .filter(d => siswaAktifTahun(d, currentTahun) && String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(kelas))
+        .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+    if (siswa.length === 0) return showToast('error', 'Tidak ada siswa aktif pada kelas tersebut.');
+    const idn = barisIdentitasMaster();
+    const smt = semesterDefaultSistem();
+    const jadwalHtml = jadwal.map((j, i) => `<tr>
+        <td style="border:1px solid #333;padding:3px 6px;text-align:center;font-size:11px;">${i + 1}</td>
+        <td style="border:1px solid #333;padding:3px 6px;font-size:11px;">${escapeHtml(fmtTglKalender(String(j.tanggal || '').slice(0, 10)))}</td>
+        <td style="border:1px solid #333;padding:3px 6px;text-align:center;font-size:11px;">${escapeHtml(`${j.jam_mulai || ''}${j.jam_selesai ? ' - ' + j.jam_selesai : ''}`)}</td>
+        <td style="border:1px solid #333;padding:3px 6px;font-size:11px;">${escapeHtml(j.mapel || '-')}</td>
+        <td style="border:1px solid #333;padding:3px 6px;font-size:11px;">${escapeHtml(j.pengawas || '-')}</td>
+    </tr>`).join('');
+    const kartuCss = `
+        .kartu { width: 620px; margin: 0 auto 14px; border: 2px solid #1e3a8a; border-radius: 10px; page-break-after: always; overflow: hidden; background: #fff; }
+        .kartu .kop { text-align: center; padding: 10px 12px 6px; border-bottom: 3px double #1e3a8a; }
+        .kartu .kop h2 { margin: 0; font-size: 17px; letter-spacing: 1px; }
+        .kartu .kop .sub { font-size: 10px; }
+        .kartu .kop h3 { margin: 6px 0 0; font-size: 13px; background: #1e3a8a; color: #fff; padding: 3px; letter-spacing: 2px; }
+        .kartu .isi { padding: 12px; }
+        .kartu .idt { width: 100%; font-size: 12px; border: none; margin-bottom: 8px; }
+        .kartu .idt td { border: none; padding: 1px 4px; }
+        .kartu .idt .lbl { width: 90px; font-weight: bold; }
+        .qrwrap { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+        .qrwrap img { width: 110px; height: 110px; }
+        .qrwrap .nis { font-family: monospace; font-size: 16px; font-weight: bold; letter-spacing: 2px; }
+        .jdw { width: 100%; }
+        .jdw th { background: #1e3a8a; color: #fff; font-size: 11px; padding: 4px 6px; border: 1px solid #333; }
+        .jdw td { border: 1px solid #333; padding: 3px 6px; font-size: 11px; }
+        .cat { font-size: 10px; font-style: italic; margin-top: 8px; color: #334155; }
+    `;
+    const kartu = siswa.map(m => {
+        const nis = m.nis_nip || '';
+        const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(nis)}`;
+        return `<div class="kartu">
+            <div class="kop">
+                <h2>${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</h2>
+                <div class="sub">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+                <h3>KARTU UJIAN ${escapeHtml(String(jenis).toUpperCase())}</h3>
+                <div class="sub">Tahun Pelajaran ${escapeHtml(currentTahun)} — Semester ${escapeHtml(smt)}</div>
+            </div>
+            <div class="isi">
+                <table class="idt">
+                    <tr><td class="lbl">Nama</td><td><b>${escapeHtml(m.nama_lengkap || '-')}</b></td></tr>
+                    <tr><td class="lbl">NIS / NISN</td><td>${escapeHtml(nis || '-')} / ${escapeHtml(m.nisn || '-')}</td></tr>
+                    <tr><td class="lbl">Kelas</td><td>${escapeHtml(kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || kelas)}</td></tr>
+                </table>
+                <div class="qrwrap"><img src="${qr}" alt="QR"><div class="nis">${escapeHtml(nis)}</div></div>
+                <table class="jdw">
+                    <tr><th style="width:5%;">No</th><th style="width:22%;">Tanggal</th><th style="width:18%;">Jam</th><th>Mata Pelajaran</th><th style="width:22%;">Pengawas</th></tr>
+                    ${jadwalHtml}
+                </table>
+                <div class="cat">Kartu ini wajib dibawa pada saat ujian dan ditunjukkan kepada guru pengawas.</div>
+            </div>
+        </div>`;
+    }).join('');
+    bukaCetakHTML(`Kartu Ujian ${jenis} — ${kelas}`, `<style>${kartuCss}</style>${kartu}`);
+}
+
+// ================= C. RAPOR & LEGER NILAI =================
+let currentTabRapor = 'siswa';
+let raporPilih = { ta: '', smt: '', kelas: '', nis: '' };
+let legerPilih = { ta: '', smt: '', kelas: '' };
+
+async function renderRaporModule(container) {
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Rapor...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        await pastikanCacheMuridRapor();
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-scroll text-violet-400 mr-2"></i> Rapor & Leger Nilai</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabRapor('siswa')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabRapor === 'siswa' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}">Rapor Siswa</button>
+                        <button onclick="switchTabRapor('leger')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabRapor === 'leger' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}">Leger Nilai</button>
+                    </div>
+                </div>
+                <div id="content-rapor" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Rapor...</div>
+                </div>
+            </div>`;
+        await renderIsiRapor();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul rapor.</div>`;
+    }
+}
+
+function switchTabRapor(tab) { currentTabRapor = tab; renderRaporModule(document.getElementById('main-content')); }
+
+async function renderIsiRapor() {
+    const wrap = document.getElementById('content-rapor');
+    if (!wrap) return;
+    if (currentTabRapor === 'leger') await renderTabLegerNilai(wrap);
+    else await renderTabRaporSiswa(wrap);
+}
+
+async function renderTabRaporSiswa(wrap) {
+    await pastikanCacheMuridRapor();
+    const listTahun = riwayatTahunList();
+    const listKelas = daftarKelasRapor();
+    if (listTahun.length === 0) { wrap.innerHTML = `<div class="p-6 text-center text-slate-400">Tahun Pelajaran belum tersedia di Master Data.</div>`; return; }
+    if (listKelas.length === 0) {
+        wrap.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Modul rapor hanya untuk <b class="text-white">admin</b> dan <b class="text-white">wali kelas</b>.<br><span class="text-[10px] text-slate-500">Atur wali kelas pada penugasan di Data Akun Guru.</span></div>`;
+        return;
+    }
+    if (!raporPilih.ta) {
+        raporPilih.ta = listTahun.includes(currentTahun) ? currentTahun : listTahun[listTahun.length - 1];
+        raporPilih.smt = semesterDefaultSistem();
+        raporPilih.kelas = listKelas[0];
+    }
+    if (!listKelas.includes(raporPilih.kelas)) raporPilih.kelas = listKelas[0];
+    wrap.innerHTML = `
+        <div class="p-4">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                <select id="rp-ta" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="raporPilih.ta = this.value; isiMuridRaporSelect();" title="Tahun Pelajaran">${listTahun.map(t => `<option value="${escJs(t)}" ${t === raporPilih.ta ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>
+                <select id="rp-smt" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="raporPilih.smt = this.value; renderPratinjauRapor();" title="Semester"><option ${raporPilih.smt === 'Ganjil' ? 'selected' : ''}>Ganjil</option><option ${raporPilih.smt === 'Genap' ? 'selected' : ''}>Genap</option></select>
+                <select id="rp-kelas" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="raporPilih.kelas = this.value; isiMuridRaporSelect();" title="Kelas">${listKelas.map(k => `<option value="${escJs(k)}" ${k === raporPilih.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+                <select id="rp-murid" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="raporPilih.nis = this.value; renderPratinjauRapor();" title="Murid"><option value="">— Pilih Murid —</option></select>
+            </div>
+            <div id="rp-pratinjau"><div class="p-4 text-center text-slate-500 italic text-[11px]">Pilih murid untuk melihat pratinjau rapor.</div></div>
+        </div>`;
+    isiMuridRaporSelect();
+}
+
+function isiMuridRaporSelect() {
+    const selM = document.getElementById('rp-murid');
+    if (!selM) return;
+    const ta = (document.getElementById('rp-ta') || {}).value || currentTahun;
+    const kelas = (document.getElementById('rp-kelas') || {}).value || '';
+    raporPilih.ta = ta;
+    raporPilih.kelas = kelas;
+    const murid = (cacheAkunMurid || [])
+        .filter(d => String(kelasSiswaTahun(d, ta) || d.tingkat_kelas || '') === String(kelas) && siswaAktifTahun(d, ta))
+        .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+    selM.innerHTML = `<option value="">— Pilih Murid (${murid.length}) —</option>` + murid.map(m => `<option value="${escJs(m.nis_nip || '')}">${escapeHtml(m.nama_lengkap || '')} — NIS ${escapeHtml(m.nis_nip || '')}</option>`).join('');
+    renderPratinjauRapor();
+}
+
+/** Ambil seluruh data rapor 1 siswa: nilai sumatif/sikap/ekskul + absensi + catatan wali.
+ *  viaMurid=true → dibaca lewat RPC anon-murid (ambil_rapor_nilai_murid + catatan_wali_murid). */
+/** Kueri aman: fallback bila gagal (versi supabase-js tertentu tidak punya .catch pada builder). */
+async function amanQ(kueri, fallback = null) {
+    try { return await kueri; } catch (e) { return fallback; }
+}
+
+/** Ambil seluruh data rapor 1 siswa: nilai sumatif/sikap/ekskul + absensi + catatan wali.
+ *  viaMurid=true → dibaca lewat RPC anon-murid (ambil_rapor_nilai_murid + catatan_wali_murid). */
+async function muatDataRapor(nis, ta, smt, viaMurid = false) {
+    const [nR, aR, cR] = await Promise.all([
+        amanQ(viaMurid
+            ? supaClient.rpc('ambil_rapor_nilai_murid', { p_nis: nis, p_ta: ta, p_smt: smt })
+            : supaClient.from('nilai').select('kategori, mapel, ekskul, kelas, data').eq('nis', nis).eq('tahun', ta).eq('semester', smt)),
+        amanQ(supaClient.from('absensi').select('status').eq('nis', nis).eq('tahun', ta).eq('semester', smt)),
+        amanQ(viaMurid
+            ? supaClient.rpc('catatan_wali_murid', { p_nis: nis, p_ta: ta, p_smt: smt })
+            : supaClient.from('rapor_catatan').select('catatan').eq('nis', nis).eq('ta', ta).eq('semester', smt).maybeSingle())
+    ]);
+    const nilai = viaMurid ? ((nR && nR.data && nR.data.status === 'success' && nR.data.nilai) || []) : ((nR && nR.data) || []);
+    const sumatif = {};
+    nilai.filter(r => r.kategori === 'Data Nilai Pengetahuan' || r.kategori === 'Data Nilai Keterampilan').forEach(r => {
+        const d = r.data || {};
+        const e = sumatif[r.mapel] = sumatif[r.mapel] || { na: '', predikat: '-', desk: [] };
+        const gab = barisNilaiDariData(d);
+        if (gab !== '') e.na = gab;
+        const ds = String(d["Deskripsi Sumatif"] || '').trim();
+        if (ds && ds !== '-') e.desk.push(ds);
+    });
+    urutAz(Object.keys(sumatif)).forEach(mp => {
+        const e = sumatif[mp];
+        e.desk = [...new Set(e.desk)].join(' ');
+        e.predikat = e.na !== '' ? hitungPredikat(e.na) : '-';
+    });
+    const sikap = {};
+    nilai.filter(r => r.kategori === 'Data Nilai Sikap').forEach(r => {
+        const d = r.data || {};
+        const e = sikap[r.mapel] = sikap[r.mapel] || { predikat: '-', desk: [] };
+        if (d["Predikat"] && d["Predikat"] !== '-') e.predikat = d["Predikat"];
+        const dc = String(d["Deskripsi Capaian"] || '').trim();
+        if (dc && dc !== '-') e.desk.push(dc);
+    });
+    urutAz(Object.keys(sikap)).forEach(mp => { sikap[mp].desk = [...new Set(sikap[mp].desk)].join(' '); });
+    const ekskul = {};
+    nilai.filter(r => r.kategori === 'Data Nilai Eskul').forEach(r => {
+        const d = r.data || {};
+        const kunci = r.ekskul || r.mapel;
+        const e = ekskul[kunci] = ekskul[kunci] || { nilai: '', predikat: '-', desk: '' };
+        if (e.nilai === '' && d["Nilai"] !== undefined && d["Nilai"] !== '') e.nilai = d["Nilai"];
+        if (d["Predikat"] && d["Predikat"] !== '-') e.predikat = d["Predikat"];
+        const ds = String(d["Deskripsi"] || '').trim();
+        if (ds && !e.desk) e.desk = ds;
+    });
+    const absensi = { H: 0, S: 0, I: 0, A: 0 };
+    ((aR && aR.data) || []).forEach(r => { const st = String(r.status || '').toUpperCase(); if (absensi.hasOwnProperty(st)) absensi[st]++; });
+    return { sumatif, sikap, ekskul, absensi, catatan: (cR && cR.data && cR.data.catatan) || '' };
+}
+
+async function renderPratinjauRapor() {
+    const box = document.getElementById('rp-pratinjau');
+    if (!box) return;
+    const nis = raporPilih.nis;
+    if (!nis) { box.innerHTML = `<div class="p-4 text-center text-slate-500 italic text-[11px]">Pilih murid untuk melihat pratinjau rapor.</div>`; return; }
+    const ta = raporPilih.ta, smt = raporPilih.smt;
+    box.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat data rapor...</div>`;
+    const m = await cariMuridRapor(nis);
+    if (!m) { box.innerHTML = `<div class="p-4 text-center text-red-400 text-[11px]">Data murid tidak ditemukan.</div>`; return; }
+    const data = await muatDataRapor(nis, ta, smt);
+    const kelas = kelasSiswaTahun(m, ta) || m.tingkat_kelas || '-';
+    const totAb = data.absensi.H + data.absensi.S + data.absensi.I + data.absensi.A;
+    const pct = totAb ? Math.round(data.absensi.H / totAb * 100) : 0;
+    const listMapel = urutAz(Object.keys(data.sumatif));
+    const status = statusSiswaTahun(m, ta);
+    const bolehCatat = isAdminAktif() || (String(waliKelasAktif() || '') === String(kelas));
+    box.innerHTML = `
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3"><div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Mapel Dinilai</div><div class="text-lg font-extrabold text-white">${listMapel.length}</div></div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3"><div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Kehadiran</div><div class="text-lg font-extrabold ${pct >= 90 ? 'text-green-400' : pct >= 75 ? 'text-yellow-400' : 'text-red-400'}">${totAb ? pct + '%' : '-'}</div></div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3"><div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Ekstrakurikuler</div><div class="text-lg font-extrabold text-white">${Object.keys(data.ekskul).length}</div></div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3"><div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Status Siswa</div><div class="text-lg font-extrabold text-white">${escapeHtml(status)}</div></div>
+        </div>
+        <div class="flex flex-wrap gap-2 mb-3">
+            <button onclick="cetakRaporSiswaPDF('${escJs(nis)}', '${escJs(ta)}', '${escJs(smt)}')" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> Cetak Rapor PDF</button>
+        </div>
+        ${bolehCatat ? `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-pen-to-square text-blue-400 mr-1"></i> Catatan Wali Kelas</h3>
+            <textarea id="rp-catatan" rows="3" placeholder="Catatan wali kelas untuk rapor siswa ini..." class="w-full bg-black/40 border border-white/20 rounded-lg p-2 text-[11px] text-white outline-none focus:border-blue-500">${escapeHtml(data.catatan || '')}</textarea>
+            <button onclick="simpanCatatanWaliRapor('${escJs(nis)}', '${escJs(ta)}', '${escJs(smt)}')" class="mt-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-floppy-disk"></i> Simpan Catatan</button>
+        </div>` : (data.catatan ? `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-pen-to-square text-blue-400 mr-1"></i> Catatan Wali Kelas</h3>
+            <p class="text-[11px] text-slate-300 whitespace-pre-line">${escapeHtml(data.catatan)}</p>
+        </div>` : '')}
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-list text-emerald-400 mr-1"></i> Ringkasan Nilai Sumatif — ${escapeHtml(ta)} / ${escapeHtml(smt)}</h3>
+            ${listMapel.length === 0 ? `<p class="text-[11px] text-slate-500 italic">Belum ada nilai sumatif pada semester ini.</p>` : `
+            <div class="overflow-auto custom-scrollbar">
+                <table class="w-full text-left text-[11px]">
+                    <thead class="text-[10px] uppercase text-slate-400"><tr><th class="px-2 py-1.5">Mapel</th><th class="px-2 py-1.5 text-center">NA</th><th class="px-2 py-1.5 text-center">Predikat</th><th class="px-2 py-1.5">Deskripsi</th></tr></thead>
+                    <tbody class="text-slate-200">${listMapel.map(mp => {
+                        const r = data.sumatif[mp] || {};
+                        return `<tr class="border-b border-white/5"><td class="px-2 py-1.5">${escapeHtml(mp)}</td><td class="px-2 py-1.5 text-center font-bold">${r.na !== '' ? r.na : '-'}</td><td class="px-2 py-1.5 text-center">${escapeHtml(r.predikat || '-')}</td><td class="px-2 py-1.5 text-[10px]">${escapeHtml(r.desk || '')}</td></tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>`}
+        </div>`;
+}
+
+async function simpanCatatanWaliRapor(nis, ta, smt) {
+    const el = document.getElementById('rp-catatan');
+    if (!el) return;
+    try {
+        const { error } = await supaClient.from('rapor_catatan').upsert({ nis, ta, semester: smt, catatan: el.value.trim(), updated_at: new Date().toISOString() }, { onConflict: 'nis,ta,semester' });
+        if (error) throw error;
+        showToast('success', 'Catatan wali kelas tersimpan.');
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan catatan — pastikan upgrade_20260916_fase1.sql sudah dijalankan.');
+    }
+}
+
+/** Susun HTML lembar rapor (Times New Roman, kop sekolah dari master_data). */
+/** Susun HTML lembar rapor (Times New Roman, kop sekolah dari master_data) — mengikuti Opsi Cetak. */
+function htmlRaporSiswa(murid, data, ta, smt, o = bacaOpsiCetak('rapor')) {
+    const idn = barisIdentitasMaster();
+    const logo = idn["URL LOGO 1"] || idn["URL LOGO 2"] || '';
+    const sekolah = idn["Nama Sekolah"] || 'SEKOLAH';
+    const kepsek = idn["Kepala Sekolah"] || (typeof namaKepsekGlobal !== 'undefined' ? namaKepsekGlobal : '') || '_____________________';
+    const kelas = kelasSiswaTahun(murid, ta) || murid.tingkat_kelas || '-';
+    const wali = getNamaWaliKelas(kelas);
+    const listMapel = urutAz(Object.keys(data.sumatif)).map(mp => ({ mapel: mp, ...data.sumatif[mp] }));
+    const listSikap = urutAz(Object.keys(data.sikap)).map(mp => ({ aspek: mp, ...data.sikap[mp] }));
+    const listEkskul = Object.keys(data.ekskul).map(k => ({ ekskul: k, ...data.ekskul[k] }));
+    const sumatifRows = listMapel.map((r, i) => `<tr class="t"${o.selang && i % 2 === 1 ? ' style="background:#f1f5f9;"' : ''}>
+        <td class="t" style="text-align:center;">${i + 1}</td>
+        <td class="t">${escapeHtml(r.mapel)}</td>
+        <td class="t" style="text-align:center;font-weight:bold;">${r.na !== '' ? r.na : '-'}</td>
+        <td class="t" style="text-align:center;">${escapeHtml(r.predikat || '-')}</td>
+        <td class="t" style="font-size:9.5px;">${escapeHtml(r.desk || '')}</td>
+    </tr>`).join('');
+    const sikapRows = listSikap.map((r, i) => `<tr class="t"${o.selang && i % 2 === 1 ? ' style="background:#f1f5f9;"' : ''}>
+        <td class="t" style="text-align:center;">${i + 1}</td>
+        <td class="t">${escapeHtml(r.aspek)}</td>
+        <td class="t" style="text-align:center;">${escapeHtml(r.predikat || '-')}</td>
+        <td class="t" style="font-size:9.5px;">${escapeHtml(r.desk || '')}</td>
+    </tr>`).join('');
+    const ekskulRows = listEkskul.map((r, i) => `<tr class="t"${o.selang && i % 2 === 1 ? ' style="background:#f1f5f9;"' : ''}>
+        <td class="t" style="text-align:center;">${i + 1}</td>
+        <td class="t">${escapeHtml(r.ekskul)}</td>
+        <td class="t" style="text-align:center;">${escapeHtml(r.nilai || '-')}</td>
+        <td class="t" style="text-align:center;">${escapeHtml(r.predikat || '-')}</td>
+        <td class="t" style="font-size:9.5px;">${escapeHtml(r.desk || '')}</td>
+    </tr>`).join('');
+    const totAb = data.absensi.H + data.absensi.S + data.absensi.I + data.absensi.A;
+    const pctAb = totAb ? Math.round(data.absensi.H / totAb * 100) + '%' : '-';
+    const absenRows = `<tr>
+        <td class="t" style="text-align:center;">${data.absensi.H}</td>
+        <td class="t" style="text-align:center;">${data.absensi.S}</td>
+        <td class="t" style="text-align:center;">${data.absensi.I}</td>
+        <td class="t" style="text-align:center;">${data.absensi.A}</td>
+        <td class="t" style="text-align:center;">${totAb}</td>
+        <td class="t" style="text-align:center;">${pctAb}</td>
+    </tr>`;
+    const blokTabel = (judul, kolom, rows, kosong) => rows === ''
+        ? `<div class="judul-tabel">${judul}</div><p style="font-size:10px;color:#64748b;font-style:italic;">${kosong}</p>`
+        : `<div class="judul-tabel">${judul}</div><table class="t" style="width:100%;font-size:10.5px;"><thead><tr>${kolom.map(([lbl, w]) => `<th style="width:${w};">${lbl}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+    return `
+    <div style="text-align:center;${cssGarisKop(o)}padding-bottom:6px;margin-bottom:10px;">
+        <table style="width:100%;border:none;">
+            <tr>
+                ${o.logo && logo ? `<td style="width:80px;border:none;text-align:center;"><img src="${escapeHtml(logo)}" style="height:70px;"></td>` : ''}
+                ${o.logo && logo ? '' : '<td style="width:80px;border:none;"></td>'}
+                <td style="border:none;text-align:center;">
+                    ${idn["Nama Dinas"] ? `<div style="font-size:12px;">${escapeHtml(idn["Nama Dinas"])}</div>` : ''}
+                    <div style="font-size:16px;font-weight:bold;letter-spacing:1px;">${escapeHtml(sekolah)}</div>
+                    ${o.alamat ? `<div style="font-size:10px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>` : ''}
+                    ${o.kontak ? `<div style="font-size:10px;">${[idn["Telepon Sekolah"] ? 'Telp. ' + idn["Telepon Sekolah"] : '', idn["Email Sekolah"] || '', idn["Website Sekolah"] || ''].filter(Boolean).map(x => escapeHtml(String(x))).join(' · ')}</div>` : ''}
+                    ${o.npsn && idn["NPSN"] ? `<div style="font-size:10px;">NPSN ${escapeHtml(idn["NPSN"])}</div>` : ''}
+                </td>
+                ${o.logo && logo ? `<td style="width:80px;border:none;"></td>` : ''}
+            </tr>
+        </table>
+        <div style="font-size:14px;font-weight:bold;letter-spacing:2px;margin-top:8px;">${escapeHtml(o.judul || 'LEMBAR RAPOR')}</div>
+    </div>
+    <table style="width:100%;border:none;margin-bottom:6px;">
+        <tr>
+            <td style="border:none;font-size:11px;">Nama</td><td style="border:none;font-size:11px;">: <b>${escapeHtml(murid.nama_lengkap || '-')}</b></td>
+            <td style="border:none;font-size:11px;">NIS</td><td style="border:none;font-size:11px;">: ${escapeHtml(murid.nis_nip || '-')}</td>
+        </tr>
+        <tr>
+            <td style="border:none;font-size:11px;">Kelas</td><td style="border:none;font-size:11px;">: ${escapeHtml(kelas)}</td>
+            <td style="border:none;font-size:11px;">NISN</td><td style="border:none;font-size:11px;">: ${escapeHtml(murid.nisn || '-')}</td>
+        </tr>
+        <tr>
+            <td style="border:none;font-size:11px;">Tahun Pelajaran</td><td style="border:none;font-size:11px;">: ${escapeHtml(ta)}</td>
+            <td style="border:none;font-size:11px;">Semester</td><td style="border:none;font-size:11px;">: ${escapeHtml(smt)}</td>
+        </tr>
+    </table>
+    ${blokTabel('A. NILAI SUMATIF PER MAPEL', [['No', '4%'], ['Mata Pelajaran', '30%'], ['NA', '8%'], ['Predikat', '10%'], ['Deskripsi Capaian', '48%']], sumatifRows, 'Belum ada nilai sumatif pada semester ini.')}
+    ${blokTabel('B. NILAI SIKAP', [['No', '4%'], ['Aspek', '30%'], ['Predikat', '10%'], ['Deskripsi Capaian', '56%']], sikapRows, 'Belum ada nilai sikap pada semester ini.')}
+    ${blokTabel('C. EKSTRAKURIKULER', [['No', '4%'], ['Ekstrakurikuler', '28%'], ['Nilai', '10%'], ['Predikat', '10%'], ['Deskripsi', '50%']], ekskulRows, 'Belum ada nilai ekstrakurikuler.')}
+    ${blokTabel('D. KEHADIRAN', [['Hadir', '12%'], ['Sakit', '12%'], ['Izin', '12%'], ['Alpa', '12%'], ['Total', '12%'], ['Kehadiran', '20%']], absenRows, '')}
+    ${data.catatan ? `<div class="judul-tabel">E. CATATAN WALI KELAS</div><div style="font-size:10.5px;border:1px solid #333;padding:6px;">${escapeHtml(data.catatan)}</div>` : ''}
+    <table style="width:100%;border:none;margin-top:26px;font-size:11px;">
+        <tr>
+            <td style="width:50%;border:none;vertical-align:top;text-align:center;">${escapeHtml(o.ttdKiri || 'Wali Kelas')}<br><br><br><br><br><b><u>${escapeHtml(wali || '_____________________')}</u></b></td>
+            <td style="width:50%;border:none;vertical-align:top;text-align:center;">${o.ttdKanan ? escapeHtml(o.ttdKanan) : 'Mengetahui,<br>Kepala Sekolah'}<br><br><br><br><br><b><u>${escapeHtml(kepsek)}</u></b></td>
+        </tr>
+    </table>`;
+}
+
+async function cetakRaporSiswaPDF(nis, ta, smt) {
+    const murid = await cariMuridRapor(nis);
+    if (!murid) return showToast('error', 'Data murid tidak ditemukan.');
+    const o = await dialogOpsiCetak('rapor', 'Cetak Rapor');
+    if (!o) return;
+    // Sesi murid memakai anon key — data sendiri dibaca via RPC (sesi guru/admin langsung tabel)
+    const viaMurid = ((currentUser || {}).role === 'murid');
+    const data = await muatDataRapor(nis, ta, smt, viaMurid);
+    bukaCetakHTML(`Rapor — ${murid.nama_lengkap || nis}`, htmlRaporSiswa(murid, data, ta, smt, o), o);
+}
+
+async function renderTabLegerNilai(wrap) {
+    await pastikanCacheMuridRapor();
+    const listTahun = riwayatTahunList();
+    const listKelas = daftarKelasRapor();
+    if (listTahun.length === 0 || listKelas.length === 0) {
+        wrap.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Leger hanya untuk <b class="text-white">admin</b> dan <b class="text-white">wali kelas</b>.</div>`;
+        return;
+    }
+    if (!legerPilih.ta) {
+        legerPilih.ta = listTahun.includes(currentTahun) ? currentTahun : listTahun[listTahun.length - 1];
+        legerPilih.smt = semesterDefaultSistem();
+        legerPilih.kelas = listKelas[0];
+    }
+    if (!listKelas.includes(legerPilih.kelas)) legerPilih.kelas = listKelas[0];
+    wrap.innerHTML = `
+        <div class="p-4">
+            <div class="grid grid-cols-3 gap-2 mb-2">
+                <select id="lg-ta" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="legerPilih.ta = this.value; muatLegerNilai();" title="Tahun Pelajaran">${listTahun.map(t => `<option value="${escJs(t)}" ${t === legerPilih.ta ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>
+                <select id="lg-smt" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="legerPilih.smt = this.value; muatLegerNilai();"><option ${legerPilih.smt === 'Ganjil' ? 'selected' : ''}>Ganjil</option><option ${legerPilih.smt === 'Genap' ? 'selected' : ''}>Genap</option></select>
+                <select id="lg-kelas" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="legerPilih.kelas = this.value; muatLegerNilai();">${listKelas.map(k => `<option value="${escJs(k)}" ${k === legerPilih.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+            </div>
+            <div class="flex gap-2 mb-3">
+                <button onclick="muatLegerNilai()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-magnifying-glass"></i> Tampilkan</button>
+                <button onclick="exportLegerExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                <button onclick="cetakLegerPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+            </div>
+            <div id="leger-wrap"><p class="text-[11px] text-slate-500 italic text-center p-4">Pilih TA, semester & kelas lalu klik Tampilkan.</p></div>
+        </div>`;
+    muatLegerNilai();
+}
+
+async function muatLegerNilai() {
+    const area = document.getElementById('leger-wrap');
+    if (!area) return;
+    const ta = document.getElementById('lg-ta').value;
+    const smt = document.getElementById('lg-smt').value;
+    const kelas = document.getElementById('lg-kelas').value;
+    legerPilih = { ta, smt, kelas };
+    area.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat leger...</div>`;
+    let nilaiRows = [], absRows = [];
+    try {
+        const [nR, aR] = await Promise.all([
+            supaClient.from('nilai').select('nis, nama, kategori, mapel, kelas, data').eq('kelas', kelas).eq('tahun', ta).eq('semester', smt),
+            supaClient.from('absensi').select('nis, status').eq('kelas', kelas).eq('tahun', ta).eq('semester', smt).neq('kelas', 'Semua Kelas')
+        ]);
+        if (nR.error) throw nR.error;
+        nilaiRows = nR.data || [];
+        absRows = (aR && aR.data) || [];
+    } catch (e) {
+        console.error(e);
+        area.innerHTML = `<div class="p-4 text-center text-red-400 text-[11px]">Gagal memuat leger nilai.</div>`;
+        return;
+    }
+    const murid = (cacheAkunMurid || [])
+        .filter(d => String(kelasSiswaTahun(d, ta) || d.tingkat_kelas || '') === String(kelas))
+        .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+    const peta = {};
+    const kolomSet = [];
+    nilaiRows.filter(r => r.kategori === 'Data Nilai Pengetahuan' || r.kategori === 'Data Nilai Keterampilan').forEach(r => {
+        const na = barisNilaiDariData(r.data);
+        if (na === '') return;
+        const key = String(r.nis);
+        peta[key] = peta[key] || {};
+        peta[key][r.mapel] = na;
+        if (!kolomSet.includes(r.mapel)) kolomSet.push(r.mapel);
+    });
+    const absen = {};
+    absRows.forEach(r => { const e = absen[r.nis] = absen[r.nis] || { H: 0, S: 0, I: 0, A: 0 }; const st = String(r.status || '').toUpperCase(); if (e.hasOwnProperty(st)) e[st]++; });
+    window._legerData = { ta, smt, kelas, murid, kolom: urutAz(kolomSet), peta, absen };
+    renderLegerTabel();
+}
+
+function renderLegerTabel() {
+    const area = document.getElementById('leger-wrap');
+    const d = window._legerData;
+    if (!area || !d) return;
+    const thCols = d.kolom.map(mp => `<th class="px-2 py-2 text-center" title="${escapeHtml(mp)}">${escapeHtml(String(mp).length > 14 ? String(mp).slice(0, 13) + '…' : mp)}</th>`).join('');
+    const baris = d.murid.map((m, i) => {
+        const nis = String(m.nis_nip || '');
+        const vals = d.kolom.map(mp => {
+            const v = (d.peta[nis] || {})[mp];
+            return `<td class="px-2 py-2 text-center">${v !== undefined ? v : '<span class="text-slate-600">-</span>'}</td>`;
+        }).join('');
+        const naArr = d.kolom.map(mp => (d.peta[nis] || {})[mp]).filter(v => v !== undefined);
+        const rata = naArr.length ? Math.round(naArr.reduce((a, b) => a + Number(b), 0) / naArr.length) : '-';
+        const ab = d.absen[nis] || { H: 0, S: 0, I: 0, A: 0 };
+        const totAb = ab.H + ab.S + ab.I + ab.A;
+        const pct = totAb ? Math.round(ab.H / totAb * 100) + '%' : '-';
+        return `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-2 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-2 py-2 font-mono text-blue-300 text-[10px]">${escapeHtml(nis || '-')}</td>
+            <td class="px-2 py-2 font-bold">${escapeHtml(m.nama_lengkap || '-')}</td>
+            ${vals}
+            <td class="px-2 py-2 text-center font-extrabold text-emerald-300">${rata}</td>
+            <td class="px-2 py-2 text-center text-[10px] text-slate-300">${totAb ? pct : '-'}</td>
+        </tr>`;
+    }).join('') || `<tr><td colspan="${3 + d.kolom.length + 2}" class="p-6 text-center text-slate-500 italic">Tidak ada murid pada kelas tersebut.</td></tr>`;
+    area.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[62vh]">
+            <table class="w-full text-left text-[11px]">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-2 py-2 text-center">No</th><th class="px-2 py-2">NIS</th><th class="px-2 py-2">Nama</th>${thCols}<th class="px-2 py-2 text-center bg-emerald-900/40">Rata²</th><th class="px-2 py-2 text-center bg-slate-800">Hadir</th>
+                </tr></thead>
+                <tbody class="text-slate-200">${baris}</tbody>
+            </table>
+        </div>
+        <p class="text-[9px] text-slate-500 mt-1">Leger ${escapeHtml(d.kelas)} — ${escapeHtml(d.ta)} Semester ${escapeHtml(d.smt)} · ${d.murid.length} murid · ${d.kolom.length} mapel dinilai.</p>`;
+}
+
+async function exportLegerExcel() {
+    const d = window._legerData;
+    if (!d) return showToast('error', 'Tampilkan leger terlebih dahulu.');
+    if (d.murid.length === 0) return showToast('error', 'Tidak ada data leger untuk diexport.');
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    try {
+        const baris = d.murid.map((m, i) => {
+            const nis = String(m.nis_nip || '');
+            const naArr = d.kolom.map(mp => (d.peta[nis] || {})[mp]).filter(v => v !== undefined);
+            const rata = naArr.length ? Math.round(naArr.reduce((a, b) => a + Number(b), 0) / naArr.length) : '';
+            const ab = d.absen[nis] || { H: 0, S: 0, I: 0, A: 0 };
+            const totAb = ab.H + ab.S + ab.I + ab.A;
+            const pct = totAb ? Math.round(ab.H / totAb * 100) : '';
+            return [i + 1, nis, m.nama_lengkap || '', ...d.kolom.map(mp => (d.peta[nis] || {})[mp] ?? ''), rata, pct];
+        });
+        const aoa = [
+            ['LEGER NILAI — ' + d.kelas],
+            ['Tahun Pelajaran: ' + d.ta + ' · Semester: ' + d.smt],
+            [],
+            ['No', 'NIS', 'Nama Lengkap', ...d.kolom, 'Rata-rata', 'Kehadiran %'],
+            ...baris
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Leger Nilai');
+        XLSX.writeFile(wb, `Leger_${d.kelas}_${d.ta}_${d.smt}.xlsx`);
+        showToast('success', 'Leger Excel diunduh.');
+    } catch (e) { console.error(e); showToast('error', 'Gagal export Excel.'); }
+}
+
+async function cetakLegerPDF() {
+    const d = window._legerData;
+    if (!d) return showToast('error', 'Tampilkan leger terlebih dahulu.');
+    if (d.murid.length === 0) return showToast('error', 'Tidak ada data leger untuk dicetak.');
+    const idn = barisIdentitasMaster();
+    const kepsek = idn["Kepala Sekolah"] || (typeof namaKepsekGlobal !== 'undefined' ? namaKepsekGlobal : '') || '_____________________';
+    const kolomTh = d.kolom.map(mp => `<th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:9.5px;width:52px;">${escapeHtml(mp)}</th>`).join('');
+    const rows = d.murid.map((m, i) => {
+        const nis = String(m.nis_nip || '');
+        const naArr = d.kolom.map(mp => (d.peta[nis] || {})[mp]).filter(v => v !== undefined);
+        const rata = naArr.length ? Math.round(naArr.reduce((a, b) => a + Number(b), 0) / naArr.length) : '';
+        const ab = d.absen[nis] || { H: 0, S: 0, I: 0, A: 0 };
+        const totAb = ab.H + ab.S + ab.I + ab.A;
+        const pct = totAb ? Math.round(ab.H / totAb * 100) + '%' : '';
+        return `<tr>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${i + 1}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(nis || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(m.nama_lengkap || '-')}</td>
+            ${d.kolom.map(mp => { const v = (d.peta[nis] || {})[mp]; return `<td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${v !== undefined ? v : ''}</td>`; }).join('')}
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;font-weight:bold;">${rata}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${pct}</td>
+        </tr>`;
+    }).join('');
+    const isi = `
+        <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            <div style="font-size:11px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+            <div style="font-size:12px;font-weight:bold;margin-top:6px;">LEGER NILAI SUMATIF</div>
+        </div>
+        <div style="font-size:11px;margin-bottom:6px;">Kelas: <b>${escapeHtml(d.kelas)}</b> · Tahun Pelajaran: <b>${escapeHtml(d.ta)}</b> · Semester: <b>${escapeHtml(d.smt)}</b></div>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>
+                <th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;width:4%;">No</th>
+                <th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;width:9%;">NIS</th>
+                <th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;width:22%;">Nama Lengkap</th>
+                ${kolomTh}
+                <th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;width:6%;">Rata²</th>
+                <th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;width:7%;">Hadir</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <table style="width:100%;border:none;margin-top:24px;font-size:11px;"><tr>
+            <td style="width:60%;border:none;"></td>
+            <td style="border:none;text-align:center;">Kepala Sekolah<br><br><br><br><br><b><u>${escapeHtml(kepsek)}</u></b></td>
+        </tr></table>`;
+    bukaCetakHTML(`Leger — ${d.kelas}`, isi);
+}
+
+/** Modal murid: pilih TA & semester → cetak rapor sendiri (data sendiri saja). */
+async function bukaRaporSaya() {
+    const user = (currentUser || {}).user || {};
+    const nis = user["NIS"] || '';
+    if (!nis) return showToast('error', 'NIS tidak ditemukan pada akun Anda.');
+    const listTahun = riwayatTahunList();
+    if (listTahun.length === 0) return showToast('error', 'Tahun Pelajaran belum tersedia di Master Data.');
+    const smtDef = semesterDefaultSistem();
+    const res = await Swal.fire({
+        title: 'Rapor Saya',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-violet-300">Tahun Pelajaran</label>
+                <select id="rs-ta" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listTahun.map(t => `<option value="${escJs(t)}" ${t === currentTahun ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+                <div><label class="font-bold text-violet-300">Semester</label>
+                <select id="rs-smt" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option ${smtDef === 'Ganjil' ? 'selected' : ''}>Ganjil</option><option ${smtDef === 'Genap' ? 'selected' : ''}>Genap</option></select></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-file-pdf"></i> Cetak Rapor', cancelButtonText: 'Batal',
+        preConfirm: () => ({ ta: document.getElementById('rs-ta').value, smt: document.getElementById('rs-smt').value })
+    });
+    if (!res.isConfirmed) return;
+    cetakRaporSiswaPDF(nis, res.value.ta, res.value.smt);
+}
+
+// ================= D. SURAT & PENGUMUMAN =================
+let currentTabSuratPeng = 'pengumuman';
+const JENIS_SURAT_PRESET = [
+    { kode: 'KET-AKT', label: 'Keterangan Aktif', perihal: 'Surat Keterangan Aktif Sekolah' },
+    { kode: 'KET-PND', label: 'Keterangan Pindah', perihal: 'Surat Keterangan Pindah Sekolah' },
+    { kode: 'KET-LLS', label: 'Keterangan Lulus', perihal: 'Surat Keterangan Lulus' },
+    { kode: 'PGL-ORTU', label: 'Panggilan Orang Tua', perihal: 'Undangan/Panggilan Orang Tua atau Wali' }
+];
+
+async function renderSuratPengumumanModule(container) {
+    if (!isAdminAktif()) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Menu ini hanya untuk admin.</div>`;
+        return;
+    }
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Surat & Pengumuman...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-bullhorn text-pink-400 mr-2"></i> Surat & Pengumuman</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabSuratPeng('pengumuman')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabSuratPeng === 'pengumuman' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Pengumuman</button>
+                        <button onclick="switchTabSuratPeng('surat')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabSuratPeng === 'surat' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Arsip Surat</button>
+                        <button onclick="switchTabSuratPeng('dokumen')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabSuratPeng === 'dokumen' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'}">Arsip Dokumen</button>
+                    </div>
+                </div>
+                <div id="content-surat-peng" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiSuratPeng();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul.</div>`;
+    }
+}
+
+async function renderIsiSuratPeng() {
+    const wrap = document.getElementById('content-surat-peng');
+    if (!wrap) return;
+    if (currentTabSuratPeng === 'surat') await renderTabSurat();
+    else if (currentTabSuratPeng === 'dokumen') await renderTabDokumen();
+    else await renderTabPengumuman();
+}
+
+function switchTabSuratPeng(tab) { currentTabSuratPeng = tab; renderSuratPengumumanModule(document.getElementById('main-content')); }
+
+async function renderTabPengumuman() {
+    const wrap = document.getElementById('content-surat-peng');
+    if (!wrap) return;
+    wrap.innerHTML = `
+        <div class="p-4 space-y-3">
+            <div class="bg-blue-900/10 border border-blue-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-blue-400"></i> Pengumuman tampil di dashboard sesuai target & rentang tanggal (TA ${escapeHtml(currentTahun)}).</p>
+                <button onclick="openFormPengumuman(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Pengumuman</button>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Judul & Isi</th><th class="px-3 py-2">Target</th><th class="px-3 py-2">Berlaku</th><th class="px-3 py-2">Penulis</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-pengumuman" class="text-xs text-slate-200"></tbody>
+                </table>
+            </div>
+        </div>`;
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('pengumuman').select('*').eq('ta', currentTahun).order('created_at', { ascending: false }).limit(200);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        document.getElementById('tbody-pengumuman').innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat pengumuman — pastikan upgrade_20260916_fase1.sql sudah dijalankan.</td></tr>`;
+        return;
+    }
+    const tb = document.getElementById('tbody-pengumuman');
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500 italic">Belum ada pengumuman pada TA ini.</td></tr>`; return; }
+    const targetLabel = { semua: 'Semua', guru: 'Guru', murid: 'Murid', kelas: 'Kelas' };
+    tb.innerHTML = rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+        <td class="px-3 py-2"><div class="font-bold text-white">${escapeHtml(r.judul || '-')}</div><div class="text-[10px] text-slate-400 max-w-[320px] truncate" title="${escapeHtml(r.isi || '')}">${escapeHtml(r.isi || '')}</div></td>
+        <td class="px-3 py-2"><span class="bg-indigo-900/50 text-indigo-300 px-2 py-0.5 rounded text-[10px]">${escapeHtml((targetLabel[r.target] || r.target || '-') + (r.target === 'kelas' && r.kelas ? ' ' + r.kelas : ''))}</span></td>
+        <td class="px-3 py-2 text-[10px] text-slate-300">${r.mulai ? escapeHtml(fmtTglKalender(String(r.mulai))) : '-'} → ${r.akhir ? escapeHtml(fmtTglKalender(String(r.akhir))) : '-'}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.penulis || '-')}</td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+            <button onclick="openFormPengumuman(false, '${escJs(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deletePengumuman('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </td>
+    </tr>`).join('');
+}
+
+async function openFormPengumuman(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengelola pengumuman.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('pengumuman').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Pengumuman tidak ditemukan.');
+        row = data;
+    }
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Pengumuman' : 'Edit Pengumuman',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-blue-300">Judul</label>
+                <input id="pg-judul" value="${escapeHtml(row.judul || '')}" placeholder="Judul pengumuman..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-blue-300">Isi</label>
+                <textarea id="pg-isi" rows="3" placeholder="Isi pengumuman..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(row.isi || '')}</textarea></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-blue-300">Target</label>
+                    <select id="pg-target" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+                        <option value="semua" ${row.target === 'semua' ? 'selected' : ''}>Semua</option>
+                        <option value="guru" ${row.target === 'guru' ? 'selected' : ''}>Guru</option>
+                        <option value="murid" ${row.target === 'murid' ? 'selected' : ''}>Murid</option>
+                        <option value="kelas" ${row.target === 'kelas' ? 'selected' : ''}>Kelas Tertentu</option>
+                    </select></div>
+                    <div id="pg-wrap-kelas" style="display:${row.target === 'kelas' ? '' : 'none'};"><label class="font-bold text-blue-300">Kelas</label>
+                    <select id="pg-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}" ${k === row.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-blue-300">Mulai</label>
+                    <input id="pg-mulai" type="date" value="${escapeHtml(String(row.mulai || '').slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-blue-300">Berakhir</label>
+                    <input id="pg-akhir" type="date" value="${escapeHtml(String(row.akhir || '').slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const t = document.getElementById('pg-target'), k = document.getElementById('pg-wrap-kelas');
+            if (t && k) t.addEventListener('change', () => { k.style.display = t.value === 'kelas' ? '' : 'none'; });
+        },
+        preConfirm: () => {
+            const judul = document.getElementById('pg-judul').value.trim();
+            if (!judul) { Swal.showValidationMessage('Judul wajib diisi.'); return false; }
+            const target = document.getElementById('pg-target').value;
+            return {
+                judul,
+                isi: document.getElementById('pg-isi').value.trim(),
+                target,
+                kelas: target === 'kelas' ? document.getElementById('pg-kelas').value : '',
+                mulai: document.getElementById('pg-mulai').value || null,
+                akhir: document.getElementById('pg-akhir').value || null,
+                penulis: ((currentUser || {}).user || {})["Nama Lengkap"] || ((currentUser || {}).user || {})["Nama Guru"] || '',
+                ta: currentTahun
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('pengumuman').insert(res.value));
+        else ({ error } = await supaClient.from('pengumuman').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Pengumuman tersimpan.');
+        renderTabPengumuman();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan pengumuman — pastikan upgrade_20260916_fase1.sql sudah dijalankan.');
+    }
+}
+
+async function deletePengumuman(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus pengumuman?', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('pengumuman').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Pengumuman dihapus.');
+        renderTabPengumuman();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus pengumuman.'); }
+}
+
+async function renderTabSurat() {
+    const wrap = document.getElementById('content-surat-peng');
+    if (!wrap) return;
+    await pastikanCacheMuridRapor();
+    wrap.innerHTML = `
+        <div class="p-4 space-y-3">
+            <div class="bg-pink-900/10 border border-pink-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-pink-400"></i> Generator surat resmi ber-nomor otomatis, tersimpan di arsip dan dapat dicetak ulang.</p>
+                <button onclick="bukaFormSurat()" class="bg-pink-600 hover:bg-pink-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-signature"></i> Buat Surat</button>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Nomor Surat</th><th class="px-3 py-2">Jenis</th><th class="px-3 py-2">Nama (Kelas)</th><th class="px-3 py-2">Tanggal Surat</th><th class="px-3 py-2">Dibuat Oleh</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-arsip-surat" class="text-xs text-slate-200"><tr><td colspan="7" class="p-4 text-center text-slate-500 italic">Memuat arsip...</td></tr></tbody>
+                </table>
+            </div>
+        </div>`;
+    await muatArsipSurat();
+}
+
+async function muatArsipSurat() {
+    const tb = document.getElementById('tbody-arsip-surat');
+    if (!tb) return;
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('arsip_surat').select('*').eq('ta', currentTahun).order('dibuat_at', { ascending: false }).limit(200);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        tb.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat arsip — pastikan upgrade_20260916_fase1.sql sudah dijalankan.</td></tr>`;
+        return;
+    }
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500 italic">Belum ada surat terarsip pada TA ini.</td></tr>`; return; }
+    tb.innerHTML = rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+        <td class="px-3 py-2 font-mono text-pink-300 text-[10px]">${escapeHtml(r.nomor_surat || '-')}</td>
+        <td class="px-3 py-2">${escapeHtml((JENIS_SURAT_PRESET.find(j => j.kode === r.jenis) || {}).label || r.jenis || '-')}</td>
+        <td class="px-3 py-2">${escapeHtml(r.nama || '-')} <span class="text-[9px] text-slate-400">(${escapeHtml(r.kelas || '-')})</span></td>
+        <td class="px-3 py-2 text-[10px] text-slate-300">${escapeHtml(r.payload && r.payload.tanggal ? fmtTglKalender(String(r.payload.tanggal)) : '-')}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.dibuat_oleh || '-')}</td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+            <button onclick="cetakUlangSurat('${escJs(r.id)}')" class="w-7 h-7 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded transition mr-1" title="Cetak Ulang"><i class="fa-solid fa-print"></i></button>
+            <button onclick="deleteArsipSurat('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </td>
+    </tr>`).join('');
+}
+
+async function bukaFormSurat() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat membuat surat resmi.');
+    await pastikanCacheMuridRapor();
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: 'Buat Surat Resmi',
+        width: 540,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-pink-300">Jenis Surat</label>
+                    <select id="st-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none" onchange="perbaruiNomorSurat()">${JENIS_SURAT_PRESET.map(j => `<option value="${escJs(j.kode)}">${escapeHtml(j.label)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-pink-300">Kelas</label>
+                    <select id="st-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none" onchange="isiOpsiMuridSurat()">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div><label class="font-bold text-pink-300">Murid</label>
+                <select id="st-murid" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">— pilih kelas dulu —</option></select></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-pink-300">Nomor Surat</label>
+                    <input id="st-nomor" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                    <div><label class="font-bold text-pink-300">Tanggal Surat</label>
+                    <input id="st-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-pink-300">Tanggal Kegiatan/Panggilan (opsional)</label>
+                <input id="st-perihal" type="date" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-pink-300">Keperluan / Keterangan</label>
+                <textarea id="st-keperluan" rows="2" placeholder="Keperluan surat (mis. pengurusan berkas, dispensasi, dsb.)..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></textarea></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-print"></i> Cetak & Arsipkan', cancelButtonText: 'Batal',
+        didOpen: () => { isiOpsiMuridSurat(); perbaruiNomorSurat(); },
+        preConfirm: () => {
+            const nis = document.getElementById('st-murid').value;
+            if (!nis) { Swal.showValidationMessage('Pilih murid terlebih dahulu.'); return false; }
+            const m = (cacheAkunMurid || []).find(x => String(x.nis_nip) === String(nis)) || {};
+            const jenis = JENIS_SURAT_PRESET.find(j => j.kode === document.getElementById('st-jenis').value) || JENIS_SURAT_PRESET[0];
+            return {
+                jenis: jenis.kode, jenisLabel: jenis.label, perihal: jenis.perihal,
+                nomor: document.getElementById('st-nomor').value.trim() || '-',
+                tanggal: document.getElementById('st-tanggal').value,
+                tanggal_perihal: document.getElementById('st-perihal').value,
+                keperluan: document.getElementById('st-keperluan').value.trim(),
+                nis: String(m.nis_nip || ''), nama: m.nama_lengkap || '', nisn: m.nisn || '',
+                kelas: kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || document.getElementById('st-kelas').value,
+                ta: currentTahun, semester: semesterDefaultSistem()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const payload = res.value;
+    try {
+        const { error } = await supaClient.from('arsip_surat').insert({
+            ta: payload.ta, jenis: payload.jenis, nomor_surat: payload.nomor,
+            nis: payload.nis, nama: payload.nama, kelas: payload.kelas,
+            payload, dibuat_oleh: ((currentUser || {}).user || {})["Nama Lengkap"] || ''
+        });
+        if (error) throw error;
+        const o = await dialogOpsiCetak('surat', 'Cetak Surat');
+        if (o) bukaCetakHTML(`Surat ${payload.nomor}`, htmlSuratPdf(payload, o), o);
+        muatArsipSurat();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mengarsipkan surat — pastikan upgrade_20260916_fase1.sql sudah dijalankan.');
+    }
+}
+
+function isiOpsiMuridSurat() {
+    const selK = document.getElementById('st-kelas');
+    const selM = document.getElementById('st-murid');
+    if (!selK || !selM) return;
+    const kelas = selK.value;
+    const murid = (cacheAkunMurid || [])
+        .filter(d => String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(kelas) && siswaAktifTahun(d, currentTahun))
+        .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+    selM.innerHTML = murid.length
+        ? murid.map(m => `<option value="${escJs(m.nis_nip || '')}">${escapeHtml(m.nama_lengkap || '')} — NIS ${escapeHtml(m.nis_nip || '')}</option>`).join('')
+        : `<option value="">(tidak ada murid aktif di kelas ini)</option>`;
+}
+
+async function perbaruiNomorSurat() {
+    const el = document.getElementById('st-nomor');
+    const selJ = document.getElementById('st-jenis');
+    if (!el || !selJ) return;
+    const kode = selJ.value;
+    const now = new Date();
+    let urut = 1;
+    try {
+        const { count } = await supaClient.from('arsip_surat').select('id', { count: 'exact', head: true }).eq('jenis', kode).eq('ta', currentTahun);
+        if (count != null) urut = count + 1;
+    } catch (e) { console.warn('nomor surat:', e); }
+    el.value = `${String(urut).padStart(3, '0')}/${kode}/${ROMAWI[now.getMonth() + 1]}/${now.getFullYear()}`;
+}
+
+function htmlSuratPdf(p, o = bacaOpsiCetak('surat')) {
+    const idn = barisIdentitasMaster();
+    const sekolah = idn["Nama Sekolah"] || 'SEKOLAH';
+    const logo = idn["URL LOGO 1"] || idn["URL LOGO 2"] || '';
+    const kepsek = idn["Kepala Sekolah"] || (typeof namaKepsekGlobal !== 'undefined' ? namaKepsekGlobal : '') || '_____________________';
+    const tglSurat = p.tanggal ? fmtTglKalender(p.tanggal) : '';
+    const dataTabel = `
+        <table style="border:none;font-size:11.5px;margin:8px 0 8px 20px;">
+            <tr><td style="border:none;padding:1px 6px;width:150px;">Nama Lengkap</td><td style="border:none;padding:1px 6px;">:</td><td style="border:none;padding:1px 6px;"><b>${escapeHtml(p.nama || '-')}</b></td></tr>
+            <tr><td style="border:none;padding:1px 6px;">NIS / NISN</td><td style="border:none;padding:1px 6px;">:</td><td style="border:none;padding:1px 6px;">${escapeHtml(p.nis || '-')} / ${escapeHtml(p.nisn || '-')}</td></tr>
+            <tr><td style="border:none;padding:1px 6px;">Kelas</td><td style="border:none;padding:1px 6px;">:</td><td style="border:none;padding:1px 6px;">${escapeHtml(p.kelas || '-')}</td></tr>
+            <tr><td style="border:none;padding:1px 6px;">Tahun Pelajaran</td><td style="border:none;padding:1px 6px;">:</td><td style="border:none;padding:1px 6px;">${escapeHtml(p.ta || '-')}</td></tr>
+        </table>`;
+    const pembuka = `Yang bertanda tangan di bawah ini Kepala ${escapeHtml(sekolah)}, dengan ini menerangkan bahwa murid berikut:`;
+    let isi = '';
+    if (p.jenis === 'KET-PND') {
+        isi = `${pembuka}${dataTabel}akan <b>PINDAH</b> dari ${escapeHtml(sekolah)} untuk melanjutkan pendidikan.${p.keperluan ? `<div style="margin-top:8px;">Keterangan pindah: <b>${escapeHtml(p.keperluan)}</b>.</div>` : ''}<div style="margin-top:10px;">Demikian surat keterangan ini dibuat agar dapat dipergunakan sebagaimana mestinya.</div>`;
+    } else if (p.jenis === 'KET-LLS') {
+        isi = `${pembuka}${dataTabel}selama mengikuti proses pembelajaran di ${escapeHtml(sekolah)} dinyatakan <b>LULUS</b> pada Tahun Pelajaran <b>${escapeHtml(p.ta || '-')}</b>.${p.keperluan ? `<div style="margin-top:8px;">Surat keterangan ini dibuat untuk keperluan: <b>${escapeHtml(p.keperluan)}</b>.</div>` : ''}<div style="margin-top:10px;">Demikian surat keterangan ini dibuat agar dapat dipergunakan sebagaimana mestinya.</div>`;
+    } else if (p.jenis === 'PGL-ORTU') {
+        isi = `Dengan hormat,<div style="margin-top:6px;">kami mengharap kehadiran Bapak/Ibu/Wali dari murid berikut untuk hadir ke ${escapeHtml(sekolah)}${p.tanggal_perihal ? ` pada <b>${escapeHtml(fmtTglKalender(p.tanggal_perihal))}</b>` : ''} berkaitan dengan perkembangan putra/putri Bapak/Ibu:</div>${dataTabel}${p.keperluan ? `<div style="margin-top:6px;">Perihal: <b>${escapeHtml(p.keperluan)}</b>.</div>` : ''}<div style="margin-top:8px;">Demikian surat ini kami sampaikan; atas perhatian dan kehadiran Bapak/Ibu, kami sampaikan terima kasih.</div>`;
+    } else {
+        isi = `${pembuka}${dataTabel}benar-benar terdaftar dan <b>AKTIF</b> sebagai murid ${escapeHtml(sekolah)} pada Tahun Pelajaran <b>${escapeHtml(p.ta || '-')}</b>.${p.keperluan ? `<div style="margin-top:8px;">Surat keterangan ini dibuat untuk keperluan: <b>${escapeHtml(p.keperluan)}</b>.</div>` : ''}<div style="margin-top:10px;">Demikian surat keterangan ini dibuat agar dapat dipergunakan sebagaimana mestinya.</div>`;
+    }
+    return `
+    <div style="text-align:center;${cssGarisKop(o)}padding-bottom:8px;margin-bottom:14px;">
+        <table style="width:100%;border:none;">
+            <tr>
+                ${o.logo && logo ? `<td style="width:80px;border:none;text-align:center;"><img src="${escapeHtml(logo)}" style="height:80px;"></td>` : ''}
+                ${o.logo && logo ? '' : '<td style="width:80px;border:none;"></td>'}
+                <td style="border:none;text-align:center;">
+                    ${idn["Nama Dinas"] ? `<div style="font-size:12px;">${escapeHtml(idn["Nama Dinas"])}</div>` : ''}
+                    <div style="font-size:17px;font-weight:bold;letter-spacing:1px;">${escapeHtml(sekolah)}</div>
+                    ${o.alamat ? `<div style="font-size:10px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>` : ''}
+                    ${o.kontak ? `<div style="font-size:10px;">${[idn["Telepon Sekolah"] ? 'Telp. ' + idn["Telepon Sekolah"] : '', idn["Email Sekolah"] || '', idn["Website Sekolah"] || ''].filter(Boolean).map(x => escapeHtml(String(x))).join(' · ')}</div>` : ''}
+                    ${o.npsn && idn["NPSN"] ? `<div style="font-size:10px;">NPSN ${escapeHtml(idn["NPSN"])}</div>` : ''}
+                </td>
+                ${o.logo && logo ? '<td style="width:80px;border:none;"></td>' : ''}
+            </tr>
+        </table>
+    </div>
+    <table style="border:none;font-size:12px;margin-bottom:6px;">
+        <tr><td style="border:none;width:110px;padding:1px 0;">Nomor</td><td style="border:none;">: <b>${escapeHtml(p.nomor || '-')}</b></td></tr>
+        <tr><td style="border:none;padding:1px 0;">Lampiran</td><td style="border:none;">: -</td></tr>
+        <tr><td style="border:none;padding:1px 0;">Perihal</td><td style="border:none;">: <b>${escapeHtml(p.perihal || p.jenisLabel || '-')}</b></td></tr>
+    </table>
+    ${p.jenis === 'PGL-ORTU' ? `<div style="font-size:12px;margin-bottom:6px;">Kepada Yth.<br>Bapak/Ibu/Wali Murid<br>di tempat</div>` : ''}
+    <div style="font-size:12.5px;line-height:1.7;text-align:justify;">${isi}</div>
+    <table style="width:100%;border:none;margin-top:30px;font-size:12px;">
+        <tr>
+            <td style="width:60%;border:none;"></td>
+            <td style="border:none;text-align:center;">${tglSurat ? escapeHtml(tglSurat) + '<br>' : ''}Kepala Sekolah,<br><br><br><br><br><b><u>${escapeHtml(kepsek)}</u></b></td>
+        </tr>
+    </table>`;
+}
+
+async function cetakUlangSurat(id) {
+    try {
+        const { data, error } = await supaClient.from('arsip_surat').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Data surat tidak ditemukan.');
+        const p = data.payload || {};
+        if (!p.jenis) return showToast('error', 'Data surat tidak lengkap untuk dicetak ulang.');
+        const o = await dialogOpsiCetak('surat', 'Cetak Ulang');
+        if (o) bukaCetakHTML(`Surat ${data.nomor_surat || ''}`, htmlSuratPdf(p, o), o);
+    } catch (e) { console.error(e); showToast('error', 'Gagal memuat surat.'); }
+}
+
+async function deleteArsipSurat(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus surat terarsip?', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('arsip_surat').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Surat dihapus.');
+        muatArsipSurat();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus surat.'); }
+}
+
+// ==========================================================
+// ==========================================================
+// FASE 2 — MODUL ADMINISTRASI SEKOLAH TAMBAHAN:
+//   (E) Poin Siswa (Prestasi & Pelanggaran + ambang A-D)
+//   (F) SPP & Buku Kas (tagihan, bayar+kuitansi, kas manual)
+//   (G) Arsip Dokumen Sekolah (tab di Surat & Pengumuman)
+// Butuh tabel baru: supabase/sql/upgrade_20260917_fase2.sql
+// ==========================================================
+// ==========================================================
+
+// ---------- Util bersama Fase 2 ----------
+/** Nama petugas dari sesi aktif (untuk kolom pelapor/petugas). */
+function namaPetugasSekolah() {
+    const u = (currentUser || {}).user || {};
+    return u["Nama Lengkap"] || u["Nama Guru"] || '';
+}
+
+/** Format rupiah ringkas. */
+function fmtRupiah(n) { return 'Rp ' + Number(n || 0).toLocaleString('id-ID'); }
+
+/** Ambang poin pelanggaran kumulatif per TA (pola OSIS): A 0-25 Baik, B 26-50 Cukup, C 51-75 Kurang, D >75 Peringatan. */
+function ambangStatusPoin(total) {
+    const t = Number(total || 0);
+    if (t <= 25) return { kode: 'A', label: 'Baik', warna: 'bg-green-600/40 text-green-200' };
+    if (t <= 50) return { kode: 'B', label: 'Cukup', warna: 'bg-amber-600/40 text-amber-200' };
+    if (t <= 75) return { kode: 'C', label: 'Kurang', warna: 'bg-orange-600/40 text-orange-200' };
+    return { kode: 'D', label: 'Peringatan', warna: 'bg-red-600/40 text-red-200' };
+}
+
+/** Preset kategori poin standar (dipakai tombol "Muat Preset", upsert ignoreDuplicates). */
+const POIN_PRESET = {
+    pelanggaran: [
+        ['Datang Terlambat', 5, 'Terlambat masuk sekolah/pelajaran'],
+        ['Atribut Tidak Lengkap', 5, 'Seragam/dinas/atribut tidak sesuai'],
+        ['Alpa (Tanpa Keterangan)', 10, 'Tidak masuk tanpa keterangan'],
+        ['Tidak Mengerjakan Tugas', 5, 'Pengumpulan tugas'],
+        ['Merokok di Lingkungan Sekolah', 25, ''],
+        ['Membawa Barang Terlarang', 40, ''],
+        ['Perbuatan Tidak Sopan kepada Guru', 30, ''],
+        ['Berkelahi', 50, ''],
+        ['Merusak Fasilitas Sekolah', 20, 'Kerusakan yang disengaja']
+    ],
+    prestasi: [
+        ['Juara 1 Tingkat Sekolah', 15, ''],
+        ['Juara 2 Tingkat Sekolah', 10, ''],
+        ['Juara 3 Tingkat Sekolah', 5, ''],
+        ['Juara Tingkat Kabupaten/Kota', 25, ''],
+        ['Juara Tingkat Provinsi/Nasional', 40, ''],
+        ['Petugas Upacara/Pelantik', 3, ''],
+        ['Ketua/Pengurus Kelas Aktif', 3, 'Dinilai wali kelas per semester']
+    ]
+};
+
+/** Daftar periode bulan TA "YYYY/YYYY" (Juli..Juni) → [['2026-07', 'Juli 2026'], ...]. */
+function bulanListTa(ta) {
+    const p = String(ta || '').split('/').map(Number);
+    if (p.length !== 2 || isNaN(p[0])) return [];
+    const out = [];
+    for (let y = p[0]; y <= p[1]; y++) {
+        for (let m = 1; m <= 12; m++) {
+            if (y === p[0] && m < 7) continue;
+            if (y === p[1] && m > 6) continue;
+            out.push([`${y}-${String(m).padStart(2, '0')}`, `${arrBulan[m - 1]} ${y}`]);
+        }
+    }
+    return out;
+}
+
+/** Label periode "2026-07" → "Juli 2026". */
+function labelPeriodeSpp(p) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(p || ''));
+    if (!m) return p || '-';
+    return `${arrBulan[parseInt(m[2], 10) - 1]} ${m[1]}`;
+}
+
+/** Peta NIS → {nama, kelas} dari cache murid (untuk rekap poin). */
+function petaMuridKelasFase(ta = currentTahun) {
+    const m = {};
+    (cacheAkunMurid || []).forEach(d => {
+        m[String(d.nis_nip || '')] = { nama: d.nama_lengkap || '-', kelas: kelasSiswaTahun(d, ta) || d.tingkat_kelas || '-' };
+    });
+    return m;
+}
+
+// ================= F2-A. POIN SISWA (PRESTASI & PELANGGARAN) =================
+let currentTabPoin = 'catat';
+
+async function renderPoinSiswaModule(container) {
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Poin Siswa...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        await pastikanCacheMuridRapor();
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-scale-balanced text-rose-400 mr-2"></i> Poin Siswa — Prestasi & Pelanggaran</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabPoin('catat')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPoin === 'catat' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'}">Catat Poin</button>
+                        <button onclick="switchTabPoin('rekap')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPoin === 'rekap' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'}">Rekap Poin</button>
+                        ${isAdminAktif() ? `<button onclick="switchTabPoin('kategori')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPoin === 'kategori' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'}">Kategori Poin</button>` : ''}
+                    </div>
+                </div>
+                <div id="content-poin" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiPoin();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul poin.</div>`;
+    }
+}
+
+function switchTabPoin(tab) { currentTabPoin = tab; renderPoinSiswaModule(document.getElementById('main-content')); }
+
+async function renderIsiPoin() {
+    const wrap = document.getElementById('content-poin');
+    if (!wrap) return;
+    if (currentTabPoin === 'rekap') await renderTabRekapPoin(wrap);
+    else if (currentTabPoin === 'kategori' && isAdminAktif()) await renderTabKategoriPoin(wrap);
+    else await renderTabCatatPoin(wrap);
+}
+
+async function muatKategoriPoinList() {
+    try {
+        const { data, error } = await supaClient.from('poin_kategori').select('*').eq('aktif', true).order('jenis').order('poin', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    } catch (e) { console.warn('poin kategori:', e); return []; }
+}
+
+async function renderTabCatatPoin(wrap) {
+    let entri = [];
+    try {
+        const { data, error } = await supaClient.from('poin_siswa').select('*').eq('ta', currentTahun).order('tanggal', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+        if (error) throw error;
+        entri = data || [];
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat catatan poin.<br><span class="text-[10px] text-slate-400">Pastikan <b>supabase/sql/upgrade_20260917_fase2.sql</b> sudah dijalankan di Supabase SQL Editor.</span></div>`;
+        return;
+    }
+    const peta = petaMuridKelasFase(currentTahun);
+    const baris = entri.length === 0
+        ? `<tr><td colspan="${isAdminAktif() ? 8 : 7}" class="p-6 text-center text-slate-500 italic">Belum ada catatan poin pada TA ${escapeHtml(currentTahun)}.</td></tr>`
+        : entri.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal ? fmtTglKalender(String(r.tanggal).slice(0, 10)) : '-')}</td>
+            <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(r.nama || peta[String(r.nis)]?.nama || '-')}</span> <span class="text-[9px] text-indigo-300">(${escapeHtml(r.kelas || peta[String(r.nis)]?.kelas || '-')})</span></td>
+            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.jenis === 'prestasi' ? 'bg-emerald-600/40 text-emerald-200' : 'bg-rose-600/40 text-rose-200'}">${r.jenis === 'prestasi' ? 'Prestasi' : 'Pelanggaran'}</span></td>
+            <td class="px-3 py-2">${escapeHtml(r.kategori_nama || '-')}</td>
+            <td class="px-3 py-2 text-center font-extrabold ${r.jenis === 'prestasi' ? 'text-emerald-300' : 'text-rose-300'}">${r.jenis === 'prestasi' ? '+' : ''}${r.poin}</td>
+            <td class="px-3 py-2 text-[10px] text-slate-400 max-w-[200px] truncate" title="${escapeHtml(r.catatan || '')}">${escapeHtml(r.catatan || '')}</td>
+            <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.pelapor || '-')}</td>
+            ${isAdminAktif() ? `<td class="px-3 py-2 text-center"><button onclick="deletePoinSiswa('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button></td>` : ''}
+        </tr>`).join('');
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="bg-rose-900/10 border border-rose-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-rose-400"></i> Poin pelanggaran TA ini menentukan status ambang (A-D); hanya admin yang dapat menghapus catatan.</p>
+                <div class="flex gap-2">
+                    <button onclick="openFormCatatPoin()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Catat Poin</button>
+                </div>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Tanggal</th><th class="px-3 py-2">Siswa</th><th class="px-3 py-2">Jenis</th><th class="px-3 py-2">Kategori</th><th class="px-3 py-2 text-center">Poin</th><th class="px-3 py-2">Catatan</th><th class="px-3 py-2">Pelapor</th>${isAdminAktif() ? '<th class="px-3 py-2 text-center">Aksi</th>' : ''}
+                    </tr></thead>
+                    <tbody class="text-xs text-slate-200">${baris}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+async function openFormCatatPoin() {
+    const role = (currentUser || {}).role || '';
+    if (role !== 'admin' && role !== 'guru') return showToast('error', 'Hanya admin/guru yang dapat mencatat poin.');
+    const kategori = await muatKategoriPoinList();
+    if (kategori.length === 0) return showToast('error', 'Kategori poin kosong — admin perlu memuat preset di tab Kategori.');
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: 'Catat Poin Siswa',
+        width: 540,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-rose-300">Kelas</label>
+                    <select id="cp-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-rose-300">Tanggal</label>
+                    <input id="cp-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-rose-300">Murid</label>
+                <select id="cp-murid" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">— pilih kelas dulu —</option></select></div>
+                <div><label class="font-bold text-rose-300">Kategori Poin</label>
+                <select id="cp-kategori" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+                    <optgroup label="Pelanggaran">${kategori.filter(k => k.jenis === 'pelanggaran').map(k => `<option value="${escJs(k.id)}">${escapeHtml(k.nama)} (${k.poin} poin)</option>`).join('')}</optgroup>
+                    <optgroup label="Prestasi">${kategori.filter(k => k.jenis === 'prestasi').map(k => `<option value="${escJs(k.id)}">${escapeHtml(k.nama)} (+${k.poin} poin)</option>`).join('')}</optgroup>
+                </select>
+                <div id="cp-info-poin" class="text-[10px] text-slate-400 mt-1">Bobot: <b class="text-white">${kategori[0] ? kategori[0].poin : '-'} poin</b> · ${kategori[0] ? (kategori[0].jenis === 'prestasi' ? 'Prestasi' : 'Pelanggaran') : '-'}</div></div>
+                <div><label class="font-bold text-rose-300">Catatan</label>
+                <textarea id="cp-catatan" rows="2" placeholder="Uraian kejadian (opsional)..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></textarea></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan Poin', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const isi = () => {
+                const k = document.getElementById('cp-kelas').value;
+                const ops = (cacheAkunMurid || [])
+                    .filter(d => String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(k) && siswaAktifTahun(d, currentTahun))
+                    .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+                document.getElementById('cp-murid').innerHTML = ops.length
+                    ? ops.map(m => `<option value="${escJs(m.nis_nip || '')}">${escapeHtml(m.nama_lengkap || '')} — NIS ${escapeHtml(m.nis_nip || '')}</option>`).join('')
+                    : `<option value="">(tidak ada murid aktif di kelas ini)</option>`;
+            };
+            isi();
+            document.getElementById('cp-kelas').addEventListener('change', isi);
+            document.getElementById('cp-kategori').addEventListener('change', (e) => {
+                const k = kategori.find(x => String(x.id) === String(e.target.value));
+                document.getElementById('cp-info-poin').innerHTML = k ? `Bobot: <b>${k.poin} poin</b> · ${k.jenis === 'prestasi' ? 'Prestasi' : 'Pelanggaran'}` : 'Bobot: -';
+            });
+        },
+        preConfirm: () => {
+            const nis = document.getElementById('cp-murid').value;
+            if (!nis) { Swal.showValidationMessage('Pilih murid terlebih dahulu.'); return false; }
+            const kat = kategori.find(x => String(x.id) === String(document.getElementById('cp-kategori').value));
+            if (!kat) { Swal.showValidationMessage('Pilih kategori poin.'); return false; }
+            const m = (cacheAkunMurid || []).find(x => String(x.nis_nip) === String(nis)) || {};
+            return {
+                nis: String(m.nis_nip || ''),
+                nama: m.nama_lengkap || '',
+                kelas: kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || '',
+                ta: currentTahun,
+                semester: semesterDefaultSistem(),
+                tanggal: document.getElementById('cp-tanggal').value,
+                jenis: kat.jenis,
+                kategori_id: kat.id,
+                kategori_nama: kat.nama,
+                poin: Number(kat.poin) || 0,
+                catatan: document.getElementById('cp-catatan').value.trim(),
+                pelapor: namaPetugasSekolah()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('poin_siswa').insert(res.value);
+        if (error) throw error;
+        showToast('success', 'Poin tersimpan.');
+        renderIsiPoin();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan poin — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+async function deletePoinSiswa(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus catatan poin?', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('poin_siswa').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Catatan poin dihapus.');
+        renderIsiPoin();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus catatan poin.'); }
+}
+
+// ---------- Rekap poin per kelas (ambang A-D) ----------
+let rekapPoinPilih = { kelas: '' };
+
+async function renderTabRekapPoin(wrap) {
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    if (!rekapPoinPilih.kelas && listKelas.length) rekapPoinPilih.kelas = listKelas[0];
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
+                <select id="rp2-kelas" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="rekapPoinPilih.kelas = this.value; muatRekapPoin();">${listKelas.map(k => `<option value="${escJs(k)}" ${k === rekapPoinPilih.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+                <div class="flex gap-2">
+                    <button onclick="muatRekapPoin()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-magnifying-glass"></i> Tampilkan</button>
+                    <button onclick="exportRekapPoinExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                    <button onclick="cetakRekapPoinPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                </div>
+            </div>
+            <div id="rekap-poin-wrap"><p class="text-[11px] text-slate-500 italic text-center p-4">Pilih kelas lalu klik Tampilkan.</p></div>
+        </div>`;
+    muatRekapPoin();
+}
+
+async function muatRekapPoin() {
+    const area = document.getElementById('rekap-poin-wrap');
+    if (!area) return;
+    const kelas = rekapPoinPilih.kelas;
+    if (!kelas) return;
+    area.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat rekap...</div>`;
+    let entri = [];
+    try {
+        const { data, error } = await supaClient.from('poin_siswa').select('*').eq('ta', currentTahun);
+        if (error) throw error;
+        entri = data || [];
+    } catch (e) {
+        console.error(e);
+        area.innerHTML = `<div class="p-4 text-center text-red-400 text-[11px]">Gagal memuat rekap poin.</div>`;
+        return;
+    }
+    const peta = petaMuridKelasFase(currentTahun);
+    const murid = (cacheAkunMurid || []).filter(d => String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(kelas))
+        .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+    const rekap = {};
+    entri.forEach(r => {
+        const mk = peta[String(r.nis)];
+        if (!mk || mk.kelas !== kelas) return;
+        const e = rekap[String(r.nis)] = rekap[String(r.nis)] || { pel: 0, pre: 0, catatan: [] };
+        if (r.jenis === 'pelanggaran') { e.pel += Number(r.poin || 0); }
+        else { e.pre += Number(r.poin || 0); }
+        e.catatan.push(r);
+    });
+    const baris = murid.map((m, i) => {
+        const nis = String(m.nis_nip || '');
+        const e = rekap[nis] || { pel: 0, pre: 0, catatan: [] };
+        const st = ambangStatusPoin(e.pel);
+        return `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-2 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-2 py-2 font-mono text-blue-300 text-[10px]">${escapeHtml(nis || '-')}</td>
+            <td class="px-2 py-2 font-bold">${escapeHtml(m.nama_lengkap || '-')}</td>
+            <td class="px-2 py-2 text-center text-emerald-300 font-bold">${e.pre ? '+' + e.pre : '-'}</td>
+            <td class="px-2 py-2 text-center text-rose-300 font-extrabold">${e.pel}</td>
+            <td class="px-2 py-2 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${st.warna}">${st.kode} · ${st.label}</span></td>
+            <td class="px-2 py-2 text-center">${e.catatan.length ? `<button onclick="lihatDetailPoin('${escJs(nis)}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] font-bold transition" title="Lihat catatan">${e.catatan.length} catatan</button>` : '<span class="text-[9px] text-slate-600 italic">-</span>'}</td>
+        </tr>`;
+    }).join('');
+    window._rekapPoin = { kelas, ta: currentTahun, murid, rekap };
+    area.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[62vh]">
+            <table class="w-full text-left text-[11px]">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-2 py-2 text-center">No</th><th class="px-2 py-2">NIS</th><th class="px-2 py-2">Nama</th><th class="px-2 py-2 text-center">Prestasi</th><th class="px-2 py-2 text-center">Poin Pelanggaran</th><th class="px-2 py-2 text-center">Status (Ambang TA)</th><th class="px-2 py-2 text-center">Detail</th>
+                </tr></thead>
+                <tbody class="text-slate-200">${baris}</tbody>
+            </table>
+        </div>
+        <p class="text-[9px] text-slate-500 mt-1">Ambang: A 0–25 Baik · B 26–50 Cukup · C 51–75 Kurang · D &gt;75 Peringatan — TA ${escapeHtml(currentTahun)}.</p>`;
+}
+
+async function lihatDetailPoin(nis) {
+    const d = window._rekapPoin || {};
+    const e = (d.rekap || {})[String(nis)];
+    if (!e || !e.catatan.length) return showToast('error', 'Tidak ada catatan.');
+    const murid = (d.murid || []).find(m => String(m.nis_nip) === String(nis)) || {};
+    Swal.fire({
+        title: 'Rincian Poin — ' + (murid.nama_lengkap || nis),
+        html: `<div class="text-left text-[11px] max-h-[50vh] overflow-y-auto custom-scrollbar">${e.catatan.map(c => `
+            <div class="bg-white/5 border border-white/10 rounded px-2 py-1.5 mb-1.5">
+                <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${c.jenis === 'prestasi' ? 'bg-emerald-600/40 text-emerald-200' : 'bg-rose-600/40 text-rose-200'}">${c.jenis === 'prestasi' ? 'Prestasi' : 'Pelanggaran'}</span>
+                    <span class="text-white font-bold text-[10px] truncate">${escapeHtml(c.kategori_nama || '-')}</span>
+                    <span class="text-[9px] font-extrabold ml-auto ${c.jenis === 'prestasi' ? 'text-emerald-300' : 'text-rose-300'}">${c.jenis === 'prestasi' ? '+' : ''}${c.poin}</span>
+                </div>
+                <div class="text-[9px] text-slate-400 mt-0.5">${escapeHtml(c.tanggal ? fmtTglKalender(String(c.tanggal).slice(0, 10)) : '-')} · Pelapor: ${escapeHtml(c.pelapor || '-')}${c.catatan ? ' · ' + escapeHtml(c.catatan) : ''}</div>
+            </div>`).join('')}</div>`,
+        width: 560, background: '#1e293b', color: '#fff', confirmButtonText: 'Tutup'
+    });
+}
+
+async function exportRekapPoinExcel() {
+    const d = window._rekapPoin;
+    if (!d || !d.murid) return showToast('error', 'Tampilkan rekap terlebih dahulu.');
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    try {
+        const aoa = [
+            ['REKAP POIN SISWA — ' + d.kelas],
+            ['Tahun Pelajaran: ' + d.ta],
+            [],
+            ['No', 'NIS', 'Nama Lengkap', 'Prestasi (+)', 'Poin Pelanggaran', 'Status'],
+            ...d.murid.map((m, i) => {
+                const e = d.rekap[String(m.nis_nip || '')] || { pel: 0, pre: 0 };
+                const st = ambangStatusPoin(e.pel);
+                return [i + 1, m.nis_nip || '', m.nama_lengkap || '', e.pre || 0, e.pel || 0, st.kode + ' — ' + st.label];
+            })
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Rekap Poin');
+        XLSX.writeFile(wb, `Rekap_Poin_${d.kelas}_${d.ta}.xlsx`);
+        showToast('success', 'Rekap poin Excel diunduh.');
+    } catch (e) { console.error(e); showToast('error', 'Gagal export Excel.'); }
+}
+
+async function cetakRekapPoinPDF() {
+    const d = window._rekapPoin;
+    if (!d || !d.murid) return showToast('error', 'Tampilkan rekap terlebih dahulu.');
+    const idn = barisIdentitasMaster();
+    const kepsek = idn["Kepala Sekolah"] || (typeof namaKepsekGlobal !== 'undefined' ? namaKepsekGlobal : '') || '_____________________';
+    const rows = d.murid.map((m, i) => {
+        const e = d.rekap[String(m.nis_nip || '')] || { pel: 0, pre: 0 };
+        const st = ambangStatusPoin(e.pel);
+        return `<tr>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${i + 1}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(m.nis_nip || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(m.nama_lengkap || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${e.pre || 0}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;font-weight:bold;">${e.pel || 0}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${st.kode} — ${escapeHtml(st.label)}</td>
+        </tr>`;
+    }).join('');
+    const isi = `
+        <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            <div style="font-size:11px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+            <div style="font-size:12px;font-weight:bold;margin-top:6px;">REKAP POIN SISWA (PRESTASI & PELANGGARAN)</div>
+        </div>
+        <div style="font-size:11px;margin-bottom:6px;">Kelas: <b>${escapeHtml(d.kelas)}</b> · Tahun Pelajaran: <b>${escapeHtml(d.ta)}</b> · Ambang: A ≤25 Baik, B ≤50 Cukup, C ≤75 Kurang, D >75 Peringatan</div>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>${['No', 'NIS', 'Nama Lengkap', 'Prestasi (+)', 'Poin Pelanggaran', 'Status'].map((h, i) => `<th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;${i === 2 ? 'width:34%;' : ''}">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <table style="width:100%;border:none;margin-top:24px;font-size:11px;"><tr>
+            <td style="width:60%;border:none;"></td>
+            <td style="border:none;text-align:center;">Kepala Sekolah<br><br><br><br><br><b><u>${escapeHtml(idn["Kepala Sekolah"] || '_____________________')}</u></b></td>
+        </tr></table>`;
+    bukaCetakHTML(`Rekap Poin — ${d.kelas}`, isi);
+}
+
+// ---------- Kategori poin (admin) ----------
+async function renderTabKategoriPoin(wrap) {
+    let kategori = [];
+    try {
+        const { data, error } = await supaClient.from('poin_kategori').select('*').order('jenis').order('poin', { ascending: false });
+        if (error) throw error;
+        kategori = data || [];
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat kategori poin — pastikan upgrade_20260917_fase2.sql sudah dijalankan.</div>`;
+        return;
+    }
+    const baris = kategori.length === 0
+        ? `<tr><td colspan="5" class="p-6 text-center text-slate-500 italic">Kategori kosong — klik "Muat Preset Standar".</td></tr>`
+        : kategori.map((k, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${k.jenis === 'prestasi' ? 'bg-emerald-600/40 text-emerald-200' : 'bg-rose-600/40 text-rose-200'}">${k.jenis === 'prestasi' ? 'Prestasi' : 'Pelanggaran'}</span></td>
+            <td class="px-3 py-2 font-bold text-white">${escapeHtml(k.nama)}</td>
+            <td class="px-3 py-2 text-center font-extrabold ${k.jenis === 'prestasi' ? 'text-emerald-300' : 'text-rose-300'}">${k.poin}</td>
+            <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(k.ket || '')} ${k.aktif ? '' : ' · <span class="text-amber-300">nonaktif</span>'}</td>
+            <td class="px-3 py-2 text-center whitespace-nowrap">
+                <button onclick="openFormKategoriPoin(false, '${escJs(k.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="deleteKategoriPoin('${escJs(k.id)}', '${escJs(k.nama || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>`).join('');
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="bg-blue-900/10 border border-blue-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-blue-400"></i> Kategori & bobot poin — dipakai guru saat mencatat poin siswa.</p>
+                <div class="flex gap-2">
+                    <button onclick="muatPresetPoin()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-wand-magic-sparkles"></i> Muat Preset Standar</button>
+                    <button onclick="openFormKategoriPoin(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Kategori</button>
+                </div>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Jenis</th><th class="px-3 py-2">Nama</th><th class="px-3 py-2 text-center">Poin</th><th class="px-3 py-2">Ket</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody class="text-xs text-slate-200">${baris}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+async function openFormKategoriPoin(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengatur kategori poin.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('poin_kategori').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Kategori tidak ditemukan.');
+        row = data;
+    }
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Kategori Poin' : 'Edit Kategori Poin',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-blue-300">Jenis</label>
+                    <select id="kp-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+                        <option value="pelanggaran" ${row.jenis !== 'prestasi' ? 'selected' : ''}>Pelanggaran</option>
+                        <option value="prestasi" ${row.jenis === 'prestasi' ? 'selected' : ''}>Prestasi</option>
+                    </select></div>
+                    <div><label class="font-bold text-blue-300">Bobot Poin</label>
+                    <input id="kp-poin" type="number" min="1" max="200" value="${row.poin || 5}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-blue-300">Nama Kategori</label>
+                <input id="kp-nama" value="${escapeHtml(row.nama || '')}" placeholder="mis. Datang Terlambat" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-blue-300">Keterangan</label>
+                <input id="kp-ket" value="${escapeHtml(row.ket || '')}" placeholder="Opsional" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="inline-flex items-center gap-2 cursor-pointer"><input id="kp-aktif" type="checkbox" class="accent-blue-500" ${row.aktif !== false ? 'checked' : ''}><span> Aktif</span></label></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const nama = document.getElementById('kp-nama').value.trim();
+            if (!nama) { Swal.showValidationMessage('Nama kategori wajib diisi.'); return false; }
+            return {
+                jenis: document.getElementById('kp-jenis').value,
+                nama,
+                poin: Math.max(1, Number(document.getElementById('kp-poin').value) || 1),
+                ket: document.getElementById('kp-ket').value.trim(),
+                aktif: document.getElementById('kp-aktif').checked
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('poin_kategori').insert(res.value));
+        else ({ error } = await supaClient.from('poin_kategori').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Kategori poin tersimpan.');
+        renderIsiPoin();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan kategori (nama & jenis harus unik).');
+    }
+}
+
+async function deleteKategoriPoin(id, nama) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus kategori poin?', text: nama, showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('poin_kategori').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Kategori dihapus.');
+        renderIsiPoin();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus kategori.'); }
+}
+
+async function muatPresetPoin() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat memuat preset.');
+    const konf = await Swal.fire({ icon: 'question', title: 'Muat Preset Standar?', html: `<div class="text-[11px] text-slate-300">${POIN_PRESET.pelanggaran.length} pelanggaran + ${POIN_PRESET.prestasi.length} prestasi.<br>Kategori yang sudah ada tidak ditimpa.</div>`, showCancelButton: true, confirmButtonText: 'Ya, Muat', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    const rows = [
+        ...POIN_PRESET.pelanggaran.map(([nama, poin, ket]) => ({ jenis: 'pelanggaran', nama, poin, ket, aktif: true })),
+        ...POIN_PRESET.prestasi.map(([nama, poin, ket]) => ({ jenis: 'prestasi', nama, poin, ket, aktif: true }))
+    ];
+    try {
+        const { error } = await supaClient.from('poin_kategori').upsert(rows, { onConflict: 'jenis,nama', ignoreDuplicates: true });
+        if (error) throw error;
+        showToast('success', 'Preset kategori poin dimuat.');
+        renderIsiPoin();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal memuat preset — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+/** Widget dashboard murid: poin saya (read-only, via RPC anon-murid). */
+async function muatPoinMuridDashboard() {
+    const el = document.getElementById('dash-poin');
+    if (!el) return;
+    const user = (currentUser || {}).user || {};
+    const nis = user["NIS"] || '';
+    if (!nis) {
+        el.innerHTML = `
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-scale-balanced text-rose-400 mr-1"></i> Poin Siswa</h3>
+            <p class="text-[11px] text-slate-500 italic">NIS tidak ditemukan pada akun Anda.</p>`;
+        return;
+    }
+    let entri = [], totalPel = 0, totalPre = 0;
+    try {
+        const { data, error } = await supaClient.rpc('poin_murid', { p_nis: nis, p_ta: currentTahun });
+        if (error) throw error;
+        if (data && data.status === 'success') {
+            entri = data.entri || [];
+            totalPel = Number(data.total_pelanggaran) || 0;
+            totalPre = Number(data.total_prestasi) || 0;
+        }
+    } catch (e) { console.warn('poin murid:', e); }
+    const st = ambangStatusPoin(totalPel);
+    el.innerHTML = `
+        <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-scale-balanced text-rose-400 mr-1"></i> Poin Saya — TA ${escapeHtml(currentTahun)}</h3>
+        <div class="flex items-center gap-2 mb-2 flex-wrap">
+            <span class="text-lg font-extrabold text-white">${totalPel} poin</span>
+            <span class="text-[9px] px-2 py-0.5 rounded font-bold ${st.warna}">${st.kode} · ${st.label}</span>
+            <span class="text-[9px] font-bold text-emerald-300 ml-auto">Prestasi +${totalPre}</span>
+        </div>
+        ${entri.length === 0
+            ? `<p class="text-[11px] text-slate-500 italic">Belum ada catatan poin. Pertahankan!</p>`
+            : entri.slice(0, 3).map(c => `<div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1">
+                <span class="text-[9px] font-extrabold w-8 shrink-0 ${c.jenis === 'prestasi' ? 'text-emerald-300' : 'text-rose-300'}">${c.jenis === 'prestasi' ? '+' : ''}${c.poin}</span>
+                <span class="text-[10px] text-white font-bold truncate flex-1">${escapeHtml(c.kategori_nama || '-')}</span>
+                <span class="text-[8px] text-slate-500">${escapeHtml(c.tanggal ? fmtTglKalender(String(c.tanggal).slice(0, 10)) : '')}</span>
+            </div>`).join('')}`;
+}
+
+// ================= F2-B. SPP & BUKU KAS (ADMIN) =================
+let currentTabSpp = 'tagihan';
+let sppPilih = { jenis: 'SPP', kelas: '', periode: 'ALL' };
+let kasPilih = { periode: 'ALL' };
+const KATEGORI_KAS = ['SPP', 'Donasi', 'Belanja Alat', 'Operasional', 'Kegiatan Sekolah', 'Lainnya'];
+
+async function renderSppKasModule(container) {
+    if (!isAdminAktif()) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Menu SPP & Buku Kas hanya untuk admin.</div>`;
+        return;
+    }
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul SPP & Buku Kas...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        await pastikanCacheMuridRapor();
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-money-bill-wave text-emerald-400 mr-2"></i> SPP & Buku Kas</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabSppKas('tagihan')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabSpp === 'tagihan' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}">Tagihan SPP</button>
+                        <button onclick="switchTabSppKas('kas')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabSpp === 'kas' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}">Kas Sekolah</button>
+                    </div>
+                </div>
+                <div id="content-spp-kas" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiSppKas();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul SPP & Kas.</div>`;
+    }
+}
+
+function switchTabSppKas(tab) { currentTabSpp = tab; renderSppKasModule(document.getElementById('main-content')); }
+
+async function renderIsiSppKas() {
+    const wrap = document.getElementById('content-spp-kas');
+    if (!wrap) return;
+    if (currentTabSpp === 'kas') await renderTabKasSekolah(wrap);
+    else await renderTabSppTagihan(wrap);
+}
+
+async function renderTabSppTagihan(wrap) {
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const bulan = bulanListTa(currentTahun);
+    if (!sppPilih.kelas && listKelas.length) sppPilih.kelas = listKelas[0];
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
+                <select id="spp-f-jenis" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="sppPilih.jenis = this.value; muatSppTagihan();">
+                    <option value="SPP" ${sppPilih.jenis === 'SPP' ? 'selected' : ''}>SPP</option>
+                    <option value="Daftar Ulang" ${sppPilih.jenis === 'Daftar Ulang' ? 'selected' : ''}>Daftar Ulang</option>
+                    <option value="Lainnya" ${sppPilih.jenis === 'Lainnya' ? 'selected' : ''}>Lainnya</option>
+                </select>
+                <select id="spp-f-kelas" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="sppPilih.kelas = this.value; muatSppTagihan();">${listKelas.map(k => `<option value="${escJs(k)}" ${k === sppPilih.kelas ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+                <select id="spp-f-periode" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="sppPilih.periode = this.value; muatSppTagihan();"><option value="ALL">Semua Periode</option>${bulan.map(([v, l]) => `<option value="${escJs(v)}" ${v === sppPilih.periode ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+                <button onclick="generateTagihanSpp()" class="h-8 bg-blue-600 hover:bg-blue-700 text-white px-3 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-gears"></i> Generate Tagihan</button>
+            </div>
+            <div id="spp-rekap" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[52vh]">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Nama (Kelas)</th><th class="px-3 py-2">Periode</th><th class="px-3 py-2 text-center">Nominal</th><th class="px-3 py-2">Jatuh Tempo</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Bukti / Tgl Bayar</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-spp" class="text-xs text-slate-200"><tr><td colspan="8" class="p-4 text-center text-slate-500 italic">Memuat tagihan...</td></tr></tbody>
+                </table>
+            </div>
+        </div>`;
+    muatSppTagihan();
+}
+
+async function muatSppTagihan() {
+    const tb = document.getElementById('tbody-spp');
+    const rk = document.getElementById('spp-rekap');
+    if (!tb || !rk) return;
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('spp_tagihan').select('*').eq('ta', currentTahun).eq('jenis', sppPilih.jenis).order('periode').order('nama');
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        tb.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat tagihan — pastikan upgrade_20260917_fase2.sql sudah dijalankan.</td></tr>`;
+        return;
+    }
+    rows = rows.filter(r => (!sppPilih.kelas || String(r.kelas || '') === String(sppPilih.kelas)) && (sppPilih.periode === 'ALL' || String(r.periode) === sppPilih.periode));
+    const totTag = rows.reduce((a, b) => a + Number(b.nominal || 0), 0);
+    const totLunas = rows.filter(r => r.lunas).reduce((a, b) => a + Number(b.nominal || 0), 0);
+    const tunggakRows = rows.filter(r => !r.lunas);
+    const totTunggak = tunggakRows.reduce((a, b) => a + Number(b.nominal || 0), 0);
+    const iso = ISO_HARIAN(new Date());
+    const nTerlambat = tunggakRows.filter(r => r.jatuh_tempo && String(r.jatuh_tempo) < iso).length;
+    const nSiswaTunggak = new Set(tunggakRows.map(r => r.nis)).size;
+    const mini = (icon, warna, judul, v1, v2) => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ${warna} shrink-0"><i class="fa-solid ${icon} text-xs"></i></div>
+            <div><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-[13px] font-extrabold text-white leading-tight">${v1}</div><div class="text-[8px] text-slate-400">${v2}</div></div>
+        </div>`;
+    rk.innerHTML = `
+        ${mini('fa-file-invoice-dollar', 'bg-blue-600/20 text-blue-400', 'Total Tagihan', rows.length, fmtRupiah(totTag))}
+        ${mini('fa-circle-check', 'bg-green-600/20 text-green-400', 'Terbayar', rows.filter(r => r.lunas).length, fmtRupiah(totLunas))}
+        ${mini('fa-hourglass-half', 'bg-amber-600/20 text-amber-400', 'Tunggakan', tunggakRows.length + (nTerlambat ? ` (${nTerlambat} telat)` : ''), fmtRupiah(totTunggak))}
+        ${mini('fa-user-clock', 'bg-rose-600/20 text-rose-400', 'Siswa Menunggak', nSiswaTunggak, 'siswa belum lunas')}`;
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-slate-500 italic">Belum ada tagihan untuk filter ini — gunakan "Generate Tagihan".</td></tr>`; return; }
+    tb.innerHTML = rows.map((r, i) => {
+        const terlambat = !r.lunas && r.jatuh_tempo && String(r.jatuh_tempo) < iso;
+        return `<tr class="hover:bg-white/5 border-b border-white/5">
+            <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+            <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(r.nama || '-')}</span> <span class="text-[9px] text-indigo-300">(${escapeHtml(r.kelas || '-')})</span></td>
+            <td class="px-3 py-2 text-[10px]">${escapeHtml(labelPeriodeSpp(r.periode))}</td>
+            <td class="px-3 py-2 text-[10px] font-bold">${fmtRupiah(r.nominal)}</td>
+            <td class="px-3 py-2 text-[10px]">${r.jatuh_tempo ? escapeHtml(fmtTglKalender(String(r.jatuh_tempo).slice(0, 10))) : '-'}${terlambat ? ' <span class="text-[8px] px-1 py-0.5 rounded bg-rose-600/40 text-rose-200 font-bold">TERLAMBAT</span>' : ''}</td>
+            <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.lunas ? 'bg-green-600/40 text-green-200' : 'bg-amber-600/40 text-amber-200'}">${r.lunas ? 'Lunas' : 'Tunggakan'}</span></td>
+            <td class="px-3 py-2 text-[9px] text-slate-400">${r.lunas ? `${escapeHtml(r.no_bukti || '-')} · ${r.tanggal_bayar ? escapeHtml(fmtTglKalender(String(r.tanggal_bayar).slice(0, 10))) : '-'}` : '-'}</td>
+            <td class="px-3 py-2 text-center whitespace-nowrap">
+                ${r.lunas
+                    ? `<button onclick="cetakKuitansiSpp('${escJs(r.id)}')" class="w-7 h-7 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded transition mr-1" title="Cetak Kuitansi"><i class="fa-solid fa-receipt"></i></button>`
+                    : `<button onclick="bayarTagihanSpp('${escJs(r.id)}')" class="w-7 h-7 bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white rounded transition mr-1" title="Bayar"><i class="fa-solid fa-cash-register"></i></button>`}
+                <button onclick="deleteTagihanSpp('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function generateTagihanSpp() {
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const bulan = bulanListTa(currentTahun);
+    if (!bulan.length) return showToast('error', 'Format tahun pelajaran tidak dikenali.');
+    const res = await Swal.fire({
+        title: 'Generate Tagihan Massal',
+        width: 520,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-emerald-300">Jenis Tagihan</label>
+                    <select id="spp-g-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option>SPP</option><option>Daftar Ulang</option><option>Lainnya</option></select></div>
+                    <div><label class="font-bold text-emerald-300">Kelas</label>
+                    <select id="spp-g-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-emerald-300">Periode (Bulan)</label>
+                    <select id="spp-g-periode" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${bulan.map(([v, l]) => `<option value="${escJs(v)}">${escapeHtml(l)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-emerald-300">Nominal / Siswa (Rp)</label>
+                    <input id="spp-g-nominal" type="number" min="0" step="500" value="50000" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-emerald-300">Jatuh Tempo</label>
+                <input id="spp-g-tempo" type="date" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <p class="text-[9px] text-slate-500">Tagihan dibuat untuk seluruh murid aktif kelas terpilih; siswa yang sudah memiliki tagihan jenis+periode sama akan dilewati.</p>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-gears"></i> Generate', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const p = document.getElementById('spp-g-periode');
+            const t = document.getElementById('spp-g-tempo');
+            const up = () => { t.value = p.value ? p.value + '-10' : ''; };
+            p.addEventListener('change', up);
+            up();
+        },
+        preConfirm: () => {
+            const nominal = Number(document.getElementById('spp-g-nominal').value);
+            if (!nominal || nominal <= 0) { Swal.showValidationMessage('Nominal harus lebih dari 0.'); return false; }
+            return {
+                jenis: document.getElementById('spp-g-jenis').value,
+                kelas: document.getElementById('spp-g-kelas').value,
+                periode: document.getElementById('spp-g-periode').value,
+                nominal,
+                jatuh_tempo: document.getElementById('spp-g-tempo').value || null
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const g = res.value;
+    const murid = (cacheAkunMurid || [])
+        .filter(d => siswaAktifTahun(d, currentTahun) && String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(g.kelas));
+    if (murid.length === 0) return showToast('error', 'Tidak ada murid aktif pada kelas tersebut.');
+    let ada = [];
+    try {
+        const { data, error } = await supaClient.from('spp_tagihan').select('nis').eq('ta', currentTahun).eq('jenis', g.jenis).eq('periode', g.periode);
+        if (error) throw error;
+        ada = data || [];
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memeriksa tagihan lama.'); }
+    const setAda = new Set((ada || []).map(x => String(x.nis)));
+    const baru = murid
+        .filter(m => !setAda.has(String(m.nis_nip || '')))
+        .map(m => ({
+            nis: String(m.nis_nip || ''), nama: m.nama_lengkap || '',
+            kelas: kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || g.kelas,
+            ta: currentTahun, semester: semesterDefaultSistem(),
+            jenis: g.jenis, periode: g.periode, nominal: g.nominal, jatuh_tempo: g.jatuh_tempo
+        }));
+    if (baru.length === 0) return showToast('success', 'Semua murid kelas ini sudah memiliki tagihan jenis+periode tersebut.');
+    try {
+        const { error } = await supaClient.from('spp_tagihan').insert(baru);
+        if (error) throw error;
+        showToast('success', `${baru.length} tagihan dibuat (${murid.length - baru.length} dilewati).`);
+        muatSppTagihan();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal generate tagihan — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+async function bayarTagihanSpp(id) {
+    let t;
+    try {
+        const { data, error } = await supaClient.from('spp_tagihan').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Tagihan tidak ditemukan.');
+        t = data;
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat tagihan.'); }
+    if (t.lunas) return showToast('success', 'Tagihan ini sudah lunas.');
+    const res = await Swal.fire({
+        title: `Pembayaran — ${t.nama || t.nis}`,
+        width: 480,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <p class="text-[10px] text-slate-400">${escapeHtml(t.jenis || '-')} ${escapeHtml(labelPeriodeSpp(t.periode))} · ${escapeHtml(t.kelas || '-')}</p>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-emerald-300">Tanggal Bayar</label>
+                    <input id="py-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-emerald-300">Metode</label>
+                    <select id="py-metode" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Lainnya</option></select></div>
+                </div>
+                <div><label class="font-bold text-emerald-300">Nominal Diterima (Rp)</label>
+                <input id="py-nominal" type="number" min="0" step="500" value="${Number(t.nominal) || 0}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-emerald-300">Keterangan</label>
+                <input id="py-ket" placeholder="Opsional" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-cash-register"></i> Bayar & Cetak Kuitansi', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const nominal = Number(document.getElementById('py-nominal').value);
+            if (!nominal || nominal <= 0) { Swal.showValidationMessage('Nominal harus lebih dari 0.'); return false; }
+            return {
+                tanggal_bayar: document.getElementById('py-tanggal').value,
+                metode: document.getElementById('py-metode').value,
+                nominal,
+                ket: document.getElementById('py-ket').value.trim()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const py = res.value;
+    const noBukti = await nomorBuktiKasBaru();
+    try {
+        const { error: eUpd } = await supaClient.from('spp_tagihan').update({ lunas: true, tanggal_bayar: py.tanggal_bayar, metode: py.metode, petugas: namaPetugasSekolah(), no_bukti: noBukti, ket: py.ket }).eq('id', id);
+        if (eUpd) throw eUpd;
+        const { error: eKas } = await supaClient.from('kas_transaksi').insert({
+            ta: currentTahun, tanggal: py.tanggal_bayar, jenis: 'Masuk',
+            kategori: t.jenis || 'SPP', nis: t.nis, nominal: py.nominal,
+            keterangan: `Pembayaran ${t.jenis} ${labelPeriodeSpp(t.periode)} — ${t.nama || ''} (${t.kelas || '-'})${py.ket ? ' · ' + py.ket : ''}`,
+            petugas: namaPetugasSekolah(), no_bukti: noBukti
+        });
+        if (eKas) throw eKas;
+        showToast('success', 'Pembayaran tercatat & masuk ke buku kas.');
+        muatSppTagihan();
+        bukaCetakHTML(`Kuitansi ${noBukti}`, htmlKuitansiSpp({ ...t, tanggal_bayar: py.tanggal_bayar, nominal: py.nominal, no_bukti: noBukti, petugas: namaPetugasSekolah() }, bacaOpsiCetak('kuitansi')), bacaOpsiCetak('kuitansi'));
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mencatat pembayaran — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+async function nomorBuktiKasBaru() {
+    const now = new Date();
+    let urut = 1;
+    try {
+        const { count } = await supaClient.from('kas_transaksi').select('id', { count: 'exact', head: true }).eq('ta', currentTahun);
+        if (count != null) urut = count + 1;
+    } catch (e) { console.warn('no bukti kas:', e); }
+    return `${String(urut).padStart(3, '0')}/KWT/${ROMAWI[now.getMonth() + 1]}/${now.getFullYear()}`;
+}
+
+async function cetakKuitansiSpp(id) {
+    try {
+        const { data, error } = await supaClient.from('spp_tagihan').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Tagihan tidak ditemukan.');
+        if (!data.lunas) return showToast('error', 'Tagihan belum lunas — tidak ada kuitansi.');
+        const o = await dialogOpsiCetak('kuitansi', 'Cetak Kuitansi');
+        if (o) bukaCetakHTML(`Kuitansi ${data.no_bukti || ''}`, htmlKuitansiSpp(data, o), o);
+    } catch (e) { console.error(e); showToast('error', 'Gagal memuat kuitansi.'); }
+}
+
+function htmlKuitansiSpp(t, o = bacaOpsiCetak('kuitansi')) {
+    const idn = barisIdentitasMaster();
+    const logo = idn["URL LOGO 1"] || idn["URL LOGO 2"] || '';
+    const kontak = [idn["Telepon Sekolah"] ? 'Telp. ' + idn["Telepon Sekolah"] : '', idn["Email Sekolah"] || '', idn["Website Sekolah"] || ''].filter(Boolean);
+    return `<div style="width:430px;margin:0 auto;border:2px solid #333;border-radius:6px;overflow:hidden;page-break-after:always;background:#fff;">
+        <div style="text-align:center;padding:8px 12px;${cssGarisKop(o)}">
+            ${o.logo && logo ? `<img src="${escapeHtml(logo)}" style="height:44px;">` : ''}
+            <div style="font-size:13px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            ${o.alamat ? `<div style="font-size:9px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>` : ''}
+            ${o.kontak && kontak.length ? `<div style="font-size:8.5px;">${kontak.map(x => escapeHtml(String(x))).join(' · ')}</div>` : ''}
+        </div>
+        <div style="text-align:center;font-weight:bold;font-size:15px;letter-spacing:3px;margin:10px 0;">${escapeHtml(o.judul || 'KUITANSI')}</div>
+        <table style="width:100%;border:none;font-size:11.5px;">
+            <tr><td style="border:none;padding:2px 14px;width:135px;">No. Bukti</td><td style="border:none;">: <b>${escapeHtml(t.no_bukti || '-')}</b></td></tr>
+            <tr><td style="border:none;padding:2px 14px;">Tanggal</td><td style="border:none;">: ${escapeHtml(t.tanggal_bayar ? fmtTglKalender(String(t.tanggal_bayar).slice(0, 10)) : '-')}</td></tr>
+            <tr><td style="border:none;padding:2px 14px;">Telah Terima Dari</td><td style="border:none;">: <b>${escapeHtml(t.nama || '-')}</b> (${escapeHtml(t.kelas || '-')})</td></tr>
+            <tr><td style="border:none;padding:2px 14px;">Uang Sebanyak</td><td style="border:none;">: <b>${fmtRupiah(t.nominal)}</b></td></tr>
+            <tr><td style="border:none;padding:2px 14px;">Untuk Pembayaran</td><td style="border:none;">: ${escapeHtml(t.jenis || '-')} ${escapeHtml(labelPeriodeSpp(t.periode))} — TA ${escapeHtml(t.ta || '-')}</td></tr>
+        </table>
+        <table style="width:100%;border:none;margin-top:26px;font-size:11px;">
+            <tr>
+                <td style="width:50%;border:none;text-align:center;">${escapeHtml(o.ttdKiri || 'Bendahara Sekolah')}<br><br><br><br><br><b>_____________________</b></td>
+                <td style="width:50%;border:none;text-align:center;">${escapeHtml(o.ttdKanan || 'Petugas')}<br><br><br><br><br><b><u>${escapeHtml(t.petugas || '_____________________')}</u></b></td>
+            </tr>
+        </table>
+    </div>`;
+}
+
+async function deleteTagihanSpp(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus tagihan?', text: 'Tagihan yang dihapus tidak dapat dikembalikan.', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('spp_tagihan').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Tagihan dihapus.');
+        muatSppTagihan();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus tagihan.'); }
+}
+
+async function renderTabKasSekolah(wrap) {
+    const bulan = bulanListTa(currentTahun);
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 items-center">
+                <select id="kas-f-periode" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="kasPilih.periode = this.value; muatKasSekolah();"><option value="ALL">Semua Periode</option>${bulan.map(([v, l]) => `<option value="${escJs(v)}" ${v === kasPilih.periode ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+                <div class="flex"><button onclick="openFormKasTransaksi()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Transaksi</button></div>
+            </div>
+            <div id="kas-ringkasan" class="grid grid-cols-3 gap-2"></div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[50vh]">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Tanggal</th><th class="px-3 py-2">No. Bukti</th><th class="px-3 py-2">Jenis</th><th class="px-3 py-2">Kategori</th><th class="px-3 py-2">Keterangan</th><th class="px-3 py-2 text-center">Nominal</th><th class="px-3 py-2">Petugas</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-kas" class="text-xs text-slate-200"><tr><td colspan="9" class="p-4 text-center text-slate-500 italic">Memuat kas...</td></tr></tbody>
+                </table>
+            </div>
+        </div>`;
+    muatKasSekolah();
+}
+
+async function muatKasSekolah() {
+    const tb = document.getElementById('tbody-kas');
+    const rk = document.getElementById('kas-ringkasan');
+    if (!tb || !rk) return;
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('kas_transaksi').select('*').eq('ta', currentTahun).order('tanggal', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        tb.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat buku kas — pastikan upgrade_20260917_fase2.sql sudah dijalankan.</td></tr>`;
+        return;
+    }
+    rows = rows.filter(r => kasPilih.periode === 'ALL' || String(r.tanggal || '').slice(0, 7) === kasPilih.periode);
+    const masuk = rows.filter(r => r.jenis === 'Masuk').reduce((a, b) => a + Number(b.nominal || 0), 0);
+    const keluar = rows.filter(r => r.jenis === 'Keluar').reduce((a, b) => a + Number(b.nominal || 0), 0);
+    const mini = (icon, warna, judul, v, teks) => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ${warna} shrink-0"><i class="fa-solid ${icon} text-xs"></i></div>
+            <div><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-[13px] font-extrabold ${teks} leading-tight">${fmtRupiah(v)}</div></div>
+        </div>`;
+    rk.innerHTML = `${mini('fa-arrow-down', 'bg-green-600/20 text-green-400', 'Pemasukan', masuk)}${mini('fa-arrow-up', 'bg-rose-600/20 text-rose-400', 'Pengeluaran', keluar)}${mini('fa-scale-unbalanced', 'bg-blue-600/20 text-blue-400', 'Saldo', masuk - keluar)}`;
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-slate-500 italic">Belum ada transaksi kas pada periode ini.</td></tr>`; return; }
+    tb.innerHTML = rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal ? fmtTglKalender(String(r.tanggal).slice(0, 10)) : '-')}</td>
+        <td class="px-3 py-2 font-mono text-[10px] text-pink-300">${escapeHtml(r.no_bukti || '-')}</td>
+        <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.jenis === 'Masuk' ? 'bg-green-600/40 text-green-200' : 'bg-rose-600/40 text-rose-200'}">${r.jenis}</span></td>
+        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.kategori || '-')}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-300 max-w-[280px] truncate" title="${escapeHtml(r.keterangan || '')}">${escapeHtml(r.keterangan || '-')}</td>
+        <td class="px-3 py-2 text-[10px] font-extrabold ${r.jenis === 'Masuk' ? 'text-green-300' : 'text-rose-300'}">${r.jenis === 'Masuk' ? '+' : '-'}${fmtRupiah(r.nominal)}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.petugas || '-')}</td>
+        <td class="px-3 py-2 text-center"><button onclick="deleteKasTransaksi('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button></td>
+    </tr>`).join('');
+}
+
+async function openFormKasTransaksi() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mencatat kas.');
+    const res = await Swal.fire({
+        title: 'Tambah Transaksi Kas',
+        width: 480,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-emerald-300">Jenis</label>
+                    <select id="ks-jenis" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option>Masuk</option><option>Keluar</option></select></div>
+                    <div><label class="font-bold text-emerald-300">Kategori</label>
+                    <select id="ks-kategori" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${KATEGORI_KAS.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-emerald-300">Tanggal</label>
+                    <input id="ks-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-emerald-300">Nominal (Rp)</label>
+                    <input id="ks-nominal" type="number" min="0" step="500" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-emerald-300">Keterangan</label>
+                <input id="ks-ket" placeholder="Keterangan transaksi..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const nominal = Number(document.getElementById('ks-nominal').value);
+            if (!nominal || nominal <= 0) { Swal.showValidationMessage('Nominal harus lebih dari 0.'); return false; }
+            const ket = document.getElementById('ks-ket').value.trim();
+            if (!ket) { Swal.showValidationMessage('Keterangan wajib diisi.'); return false; }
+            return { jenis: document.getElementById('ks-jenis').value, kategori: document.getElementById('ks-kategori').value, nominal, ket };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const v = res.value;
+    try {
+        const noBukti = await nomorBuktiKasBaru();
+        const { error } = await supaClient.from('kas_transaksi').insert({
+            ta: currentTahun, tanggal: ISO_HARIAN(new Date()), jenis: v.jenis, kategori: v.kategori,
+            nominal: v.nominal, keterangan: v.ket, petugas: namaPetugasSekolah(), no_bukti: noBukti
+        });
+        if (error) throw error;
+        showToast('success', 'Transaksi kas tersimpan.');
+        muatKasSekolah();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan transaksi — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+async function deleteKasTransaksi(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus transaksi kas?', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('kas_transaksi').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Transaksi dihapus.');
+        muatKasSekolah();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus transaksi.'); }
+}
+
+// ================= F2-C. ARSIP DOKUMEN SEKOLAH =================
+const KATEGORI_DOKUMEN = ['Surat Keputusan (SK)', 'Berita Acara', 'Surat Masuk', 'Surat Keluar', 'Sertifikat/Penghargaan', 'Lainnya'];
+
+async function renderTabDokumen() {
+    const wrap = document.getElementById('content-surat-peng');
+    if (!wrap) return;
+    wrap.innerHTML = `
+        <div class="p-4 space-y-3">
+            <div class="bg-teal-900/10 border border-teal-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-teal-400"></i> Arsip dokumen sekolah berkategori dengan tautan berkas (Google Drive/dll) — TA ${escapeHtml(currentTahun)}.</p>
+                <div class="flex gap-2">
+                    <button onclick="exportDokumenExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                    <button onclick="openFormDokumen(true)" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Dokumen</button>
+                </div>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Kategori</th><th class="px-3 py-2">Judul & Deskripsi</th><th class="px-3 py-2">Tanggal</th><th class="px-3 py-2">Tautan</th><th class="px-3 py-2">Dibuat Oleh</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-dokumen" class="text-xs text-slate-200"><tr><td colspan="7" class="p-4 text-center text-slate-500 italic">Memuat arsip dokumen...</td></tr></tbody>
+                </table>
+            </div>
+        </div>`;
+    await muatArsipDokumen();
+}
+
+async function muatArsipDokumen() {
+    const tb = document.getElementById('tbody-dokumen');
+    if (!tb) return;
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('arsip_dokumen').select('*').eq('ta', currentTahun).order('tanggal', { ascending: false }).order('created_at', { ascending: false }).limit(300);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        tb.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat arsip dokumen — pastikan upgrade_20260917_fase2.sql sudah dijalankan.</td></tr>`;
+        return;
+    }
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500 italic">Belum ada dokumen terarsip pada TA ini.</td></tr>`; return; }
+    tb.innerHTML = rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+        <td class="px-3 py-2"><span class="bg-teal-900/50 text-teal-200 px-2 py-0.5 rounded text-[10px] font-bold">${escapeHtml(r.kategori || 'Lainnya')}</span></td>
+        <td class="px-3 py-2"><div class="font-bold text-white">${escapeHtml(r.judul || '-')}</div>${r.deskripsi ? `<div class="text-[10px] text-slate-400 max-w-[300px] truncate" title="${escapeHtml(r.deskripsi)}">${escapeHtml(r.deskripsi)}</div>` : ''}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-300">${r.tanggal ? escapeHtml(fmtTglKalender(String(r.tanggal).slice(0, 10))) : '-'}</td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">${r.link_url ? `
+            <button onclick="bukaLinkDokumen('${escJs(r.link_url)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Buka Tautan"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+            <button onclick="copyLinkDokumen('${escJs(r.link_url)}')" class="w-7 h-7 bg-slate-600/20 hover:bg-slate-600 text-slate-400 hover:text-white rounded transition" title="Salin Tautan"><i class="fa-solid fa-copy"></i></button>` : '<span class="text-[9px] text-slate-600 italic">tanpa link</span>'}</td>
+        <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.dibuat_oleh || '-')}</td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+            <button onclick="openFormDokumen(false, '${escJs(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deleteArsipDokumen('${escJs(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </td>
+    </tr>`).join('');
+}
+
+async function openFormDokumen(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengelola arsip dokumen.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('arsip_dokumen').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Dokumen tidak ditemukan.');
+        row = data;
+    }
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Arsip Dokumen' : 'Edit Arsip Dokumen',
+        width: 520,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Kategori</label>
+                    <select id="dk-kategori" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${KATEGORI_DOKUMEN.map(k => `<option value="${escJs(k)}" ${k === row.kategori ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-teal-300">Tanggal</label>
+                    <input id="dk-tanggal" type="date" value="${escapeHtml(String(row.tanggal || '').slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-teal-300">Judul Dokumen</label>
+                <input id="dk-judul" value="${escapeHtml(row.judul || '')}" placeholder="mis. SK Tim Seleksi PPDB 2026/2027" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-teal-300">Tautan Berkas (Google Drive/dll)</label>
+                <input id="dk-link" value="${escapeHtml(row.link_url || '')}" placeholder="https://..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-teal-300">Deskripsi</label>
+                <textarea id="dk-deskripsi" rows="2" placeholder="Ringkasan isi dokumen (opsional)..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(row.deskripsi || '')}</textarea></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const judul = document.getElementById('dk-judul').value.trim();
+            if (!judul) { Swal.showValidationMessage('Judul wajib diisi.'); return false; }
+            return {
+                kategori: document.getElementById('dk-kategori').value,
+                judul,
+                link_url: document.getElementById('dk-link').value.trim(),
+                deskripsi: document.getElementById('dk-deskripsi').value.trim(),
+                tanggal: document.getElementById('dk-tanggal').value || null,
+                ta: currentTahun,
+                dibuat_oleh: namaPetugasSekolah()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('arsip_dokumen').insert(res.value));
+        else ({ error } = await supaClient.from('arsip_dokumen').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Dokumen tersimpan.');
+        muatArsipDokumen();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan dokumen — pastikan upgrade_20260917_fase2.sql sudah dijalankan.');
+    }
+}
+
+function bukaLinkDokumen(url) { if (url) window.open(url, '_blank'); }
+
+function copyLinkDokumen(url) {
+    if (!url) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(() => showToast('success', 'Tautan disalin.')).catch(() => showToast('error', 'Gagal menyalin tautan.'));
+    else showToast('error', 'Browser tidak mendukung salin otomatis.');
+}
+
+async function deleteArsipDokumen(id) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus dokumen terarsip?', showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('arsip_dokumen').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Dokumen dihapus.');
+        muatArsipDokumen();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus dokumen.'); }
+}
+
+// ==========================================================
+// ==========================================================
+// FASE 3 — MODUL ADMINISTRASI SEKOLAH TAMBAHAN:
+//   (H) Perpustakaan (katalog, pinjam/kembali + denda, pinjaman murid)
+//   (I) Inventaris Sarpras (barang + peminjaman)
+// Butuh tabel baru: supabase/sql/upgrade_20260918_fase3.sql
+// ==========================================================
+// ==========================================================
+
+// ---------- Util bersama Fase 3 ----------
+function prefPerpus() {
+    try { return JSON.parse(localStorage.getItem('sisip_perpus_pref') || '{}') || {}; }
+    catch (e) { return {}; }
+}
+function simpanPrefPerpus(patch) {
+    try { localStorage.setItem('sisip_perpus_pref', JSON.stringify({ ...prefPerpus(), ...patch })); } catch (e) {}
+}
+
+/** Peta buku_id → jumlah eksemplar sedang dipinjam. */
+async function muatPerpusDipinjamPeta() {
+    const m = {};
+    try {
+        const { data } = await supaClient.from('perpus_pinjam').select('buku_id').eq('status', 'Dipinjam');
+        (data || []).forEach(r => { if (r.buku_id) m[r.buku_id] = (m[r.buku_id] || 0) + 1; });
+    } catch (e) { console.warn('perpus dipinjam:', e); }
+    return m;
+}
+
+/** Peta barang_id → jumlah unit sedang dipinjam. */
+async function muatInvDipinjamPeta() {
+    const m = {};
+    try {
+        const { data } = await supaClient.from('inv_pinjam').select('barang_id, jumlah').eq('status', 'Dipinjam');
+        (data || []).forEach(r => { if (r.barang_id) m[r.barang_id] = (m[r.barang_id] || 0) + Number(r.jumlah || 0); });
+    } catch (e) { console.warn('inv dipinjam:', e); }
+    return m;
+}
+
+// ================= F3-A. PERPUSTAKAAN =================
+let currentTabPerpus = 'katalog';
+let bukuPerpusCache = [];
+let perpusPilih = { cari: '', riwayatTa: 'ALL' };
+const KATEGORI_BUKU = ['Pelajaran', 'Fiksi', 'Non-Fiksi', 'Referensi', 'Agama', 'Lainnya'];
+
+async function renderPerpustakaanModule(container) {
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Perpustakaan...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        await pastikanCacheMuridRapor();
+        const role = (currentUser || {}).role || 'murid';
+        const tabAllowed = role === 'murid' ? ['katalog', 'saya'] : ['katalog', 'pinjam'];
+        if (!tabAllowed.includes(currentTabPerpus)) currentTabPerpus = role === 'murid' ? 'saya' : 'katalog';
+        const labelTab = { katalog: 'Katalog Buku', pinjam: 'Peminjaman', saya: 'Pinjaman Saya' };
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-book text-sky-400 mr-2"></i> Perpustakaan</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        ${tabAllowed.map(t => `<button onclick="switchTabPerpus('${t}')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPerpus === t ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}">${labelTab[t]}</button>`).join('')}
+                    </div>
+                </div>
+                <div id="content-perpus" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiPerpus();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul perpustakaan.</div>`;
+    }
+}
+
+function switchTabPerpus(tab) { currentTabPerpus = tab; renderPerpustakaanModule(document.getElementById('main-content')); }
+
+async function renderIsiPerpus() {
+    const wrap = document.getElementById('content-perpus');
+    if (!wrap) return;
+    if (currentTabPerpus === 'pinjam') await renderTabPerpusPinjam(wrap);
+    else if (currentTabPerpus === 'saya') await renderTabPinjamanSaya(wrap);
+    else await renderTabPerpusKatalog(wrap);
+}
+
+async function renderTabPerpusKatalog(wrap) {
+    const isAdmin = isAdminAktif();
+    const role = (currentUser || {}).role || '';
+    try {
+        const { data, error } = await supaClient.from('perpus_buku').select('*').order('judul');
+        if (error) throw error;
+        bukuPerpusCache = data || [];
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat katalog — pastikan <b>supabase/sql/upgrade_20260918_fase3.sql</b> sudah dijalankan di Supabase SQL Editor.</div>`;
+        return;
+    }
+    // Sesi murid (anon) tidak dapat membaca perpus_pinjam — peta dipinjam hanya untuk admin/guru
+    const dipinjamPeta = role !== 'murid' ? await muatPerpusDipinjamPeta() : {};
+    window._perpusPetaDipinjam = dipinjamPeta;
+    const totalEksemplar = bukuPerpusCache.reduce((a, b) => a + Number(b.eksemplar || 0), 0);
+    const totalDipinjam = Object.values(dipinjamPeta).reduce((a, b) => a + b, 0);
+    const mini = (icon, warna, judul, v) => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ${warna} shrink-0"><i class="fa-solid ${icon} text-xs"></i></div>
+            <div><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-[13px] font-extrabold text-white leading-tight">${v}</div></div>
+        </div>`;
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-3 gap-2">
+                ${mini('fa-book', 'bg-sky-600/20 text-sky-400', 'Judul Buku', bukuPerpusCache.length)}
+                ${mini('fa-layer-group', 'bg-indigo-600/20 text-indigo-400', 'Total Eksemplar', totalEksemplar)}
+                ${mini('fa-hourglass-half', 'bg-amber-600/20 text-amber-400', 'Sedang Dipinjam', totalDipinjam)}
+            </div>
+            <div class="bg-sky-900/10 border border-sky-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <input id="perpus-search" value="${escapeHtml(perpusPilih.cari)}" oninput="perpusPilih.cari = this.value; renderTabelPerpusKatalog();" placeholder="Cari judul / kode / pengarang..." class="flex-1 min-w-[160px] h-8 bg-black/40 border border-white/20 rounded-lg px-3 text-[11px] text-white outline-none focus:border-blue-500">
+                <div class="flex gap-2 flex-wrap">
+                    ${isAdmin ? `<button onclick="openPengaturanPerpus()" class="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow" title="Atur tarif denda/hari & tenggat pinjam"><i class="fa-solid fa-gear"></i> <span class="hidden sm:inline">Denda & Tenggat</span></button>
+                    <button onclick="openFormPerpusBuku(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Buku</button>` : ''}
+                    ${role !== 'murid' ? `<button onclick="exportPerpusExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                    <button onclick="cetakKatalogPerpusPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> PDF</button>` : ''}
+                </div>
+            </div>
+            <div id="perpus-tabel-wrap"></div>
+        </div>`;
+    renderTabelPerpusKatalog();
+}
+
+function renderTabelPerpusKatalog() {
+    const box = document.getElementById('perpus-tabel-wrap');
+    if (!box) return;
+    const isAdmin = isAdminAktif();
+    const role = (currentUser || {}).role || '';
+    const dipinjamPeta = window._perpusPetaDipinjam || {};
+    const q = (perpusPilih.cari || '').toLowerCase();
+    const rows = bukuPerpusCache.filter(b => !q || `${b.kode || ''} ${b.judul || ''} ${b.pengarang || ''} ${b.penerbit || ''}`.toLowerCase().includes(q));
+    const baris = rows.length === 0
+        ? `<tr><td colspan="${isAdmin ? 7 : 6}" class="p-6 text-center text-slate-500 italic">Tidak ada buku pada katalog${q ? ' yang cocok dengan pencarian' : ''}.</td></tr>`
+        : rows.map((b, i) => {
+            const dipinjam = Number(dipinjamPeta[b.id] || 0);
+            const tersedia = Math.max(0, Number(b.eksemplar || 0) - dipinjam);
+            return `<tr class="hover:bg-white/5 border-b border-white/5">
+                <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                <td class="px-3 py-2 font-mono text-sky-300 text-[10px]">${escapeHtml(b.kode || '-')}</td>
+                <td class="px-3 py-2"><div class="font-bold text-white">${escapeHtml(b.judul || '-')}</div><div class="text-[9px] text-slate-400">${escapeHtml(b.pengarang || '')}${b.penerbit ? ' · ' + escapeHtml(b.penerbit) : ''}${b.tahun ? ' · ' + escapeHtml(String(b.tahun)) : ''}</div></td>
+                <td class="px-3 py-2"><span class="bg-sky-900/50 text-sky-200 px-2 py-0.5 rounded text-[10px]">${escapeHtml(b.kategori || 'Lainnya')}</span></td>
+                <td class="px-3 py-2 text-center"><span class="font-bold ${tersedia > 0 ? 'text-emerald-300' : 'text-rose-300'}">${tersedia}</span><span class="text-slate-500"> / ${b.eksemplar}</span></td>
+                <td class="px-3 py-2 text-[10px] text-slate-300">${escapeHtml(b.lokasi || '-')}</td>
+                <td class="px-3 py-2 text-center whitespace-nowrap">
+                    ${role !== 'murid' && tersedia > 0 ? `<button onclick="openFormPinjamBuku('${escJs(b.id)}')" class="w-7 h-7 bg-green-600/20 hover:bg-green-600 text-green-400 hover:text-white rounded transition mr-1" title="Pinjam Buku Ini"><i class="fa-solid fa-bookmark"></i></button>` : ''}
+                    ${isAdmin ? `<button onclick="openFormPerpusBuku(false, '${escJs(b.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                    <button onclick="deletePerpusBuku('${escJs(b.id)}', '${escJs(b.judul || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[52vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Kode</th><th class="px-3 py-2">Judul</th><th class="px-3 py-2">Kategori</th><th class="px-3 py-2 text-center">Tersedia</th><th class="px-3 py-2">Lokasi</th><th class="px-3 py-2 text-center">Aksi</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${baris}</tbody>
+            </table>
+        </div>
+        <p class="text-[9px] text-slate-500 mt-1">${rows.length} judul · ${isAdmin ? 'admin dapat mengelola katalog' : 'baca-saja'}.</p>`;
+}
+
+async function openFormPerpusBuku(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengelola katalog.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('perpus_buku').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Buku tidak ditemukan.');
+        row = data;
+    }
+    const kategoriOpts = [...new Set([...KATEGORI_BUKU, ...[row.kategori].filter(Boolean)])];
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Buku' : 'Edit Buku',
+        width: 520,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-sky-300">Kode Buku</label>
+                    <input id="pb-kode" value="${escapeHtml(row.kode || '')}" placeholder="mis. PB-001" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                    <div><label class="font-bold text-sky-300">Tahun</label>
+                    <input id="pb-tahun" value="${escapeHtml(row.tahun || '')}" placeholder="mis. 2024" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-sky-300">Judul</label>
+                <input id="pb-judul" value="${escapeHtml(row.judul || '')}" placeholder="Judul buku..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-sky-300">Pengarang</label>
+                    <input id="pb-pengarang" value="${escapeHtml(row.pengarang || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-sky-300">Penerbit</label>
+                    <input id="pb-penerbit" value="${escapeHtml(row.penerbit || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-4 gap-2">
+                    <div class="col-span-2"><label class="font-bold text-sky-300">Kategori</label>
+                    <select id="pb-kategori" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${kategoriOpts.map(k => `<option value="${escJs(k)}" ${k === row.kategori ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-sky-300">Eksemplar</label>
+                    <input id="pb-eksemplar" type="number" min="1" value="${row.eksemplar || 1}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-sky-300">Lokasi</label>
+                    <input id="pb-lokasi" value="${escapeHtml(row.lokasi || '')}" placeholder="Rak..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-sky-300">Keterangan</label>
+                <input id="pb-ket" value="${escapeHtml(row.ket || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="inline-flex items-center gap-2 cursor-pointer"><input id="pb-aktif" type="checkbox" class="accent-sky-500" ${row.aktif !== false ? 'checked' : ''}><span> Aktif</span></label></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const kode = document.getElementById('pb-kode').value.trim();
+            const judul = document.getElementById('pb-judul').value.trim();
+            if (!kode) { Swal.showValidationMessage('Kode buku wajib diisi.'); return false; }
+            if (!judul) { Swal.showValidationMessage('Judul wajib diisi.'); return false; }
+            return {
+                kode, judul,
+                pengarang: document.getElementById('pb-pengarang').value.trim(),
+                penerbit: document.getElementById('pb-penerbit').value.trim(),
+                tahun: document.getElementById('pb-tahun').value.trim(),
+                kategori: document.getElementById('pb-kategori').value,
+                eksemplar: Math.max(1, Number(document.getElementById('pb-eksemplar').value) || 1),
+                lokasi: document.getElementById('pb-lokasi').value.trim(),
+                ket: document.getElementById('pb-ket').value.trim(),
+                aktif: document.getElementById('pb-aktif').checked
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('perpus_buku').insert(res.value));
+        else ({ error } = await supaClient.from('perpus_buku').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Buku tersimpan.');
+        renderIsiPerpus();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan buku (kode harus unik) — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+async function deletePerpusBuku(id, judul) {
+    const peta = await muatPerpusDipinjamPeta();
+    if (Number(peta[id] || 0) > 0) return showToast('error', `Buku sedang dipinjam (${peta[id]} eksemplar) — tidak dapat dihapus.`);
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus buku dari katalog?', text: judul, showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('perpus_buku').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Buku dihapus.');
+        renderIsiPerpus();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus buku.'); }
+}
+
+function openPengaturanPerpus() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengatur denda & tenggat.');
+    const pref = prefPerpus();
+    Swal.fire({
+        title: 'Denda & Tenggat Pinjam',
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-sky-300">Denda Keterlambatan (Rp/hari)</label>
+                <input id="pp-denda" type="number" min="0" step="100" value="${Number(pref.dendaPerHari) || 500}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-sky-300">Tenggat Pinjam (hari)</label>
+                <input id="pp-tenggat" type="number" min="1" max="90" value="${Number(pref.tenggatHari) || 7}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <p class="text-[9px] text-slate-500">Pengaturan tersimpan di perangkat admin ini (localStorage).</p>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => ({ dendaPerHari: Math.max(0, Number(document.getElementById('pp-denda').value) || 0), tenggatHari: Math.max(1, Number(document.getElementById('pp-tenggat').value) || 7) })
+    }).then(r => {
+        if (!r.isConfirmed) return;
+        simpanPrefPerpus(r.value);
+        showToast('success', 'Pengaturan perpustakaan tersimpan.');
+    });
+}
+
+async function renderTabPerpusPinjam(wrap) {
+    const listTa = riwayatTahunList();
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="bg-sky-900/10 border border-sky-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-sky-400"></i> Scan QR NIS murid (kartu QR) atau pilih manual — eksemplar diperiksa otomatis.</p>
+                <button onclick="openFormPinjamBuku()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-bookmark"></i> Pinjam Buku</button>
+            </div>
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-hourglass-half text-amber-400 mr-1"></i> Pinjaman Aktif</h3>
+            <div id="perpus-aktif"></div>
+            <div class="flex items-center gap-2 mt-2">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-clock-rotate-left text-slate-400 mr-1"></i> Riwayat Peminjaman</h3>
+                <select id="perpus-riwayat-ta" class="h-7 bg-slate-700 border border-white/20 rounded px-1.5 text-[10px] text-white outline-none cursor-pointer" onchange="perpusPilih.riwayatTa = this.value; renderRiwayatPerpus();"><option value="ALL">Semua TA</option>${riwayatTahunList().map(t => `<option value="${escJs(t)}" ${t === perpusPilih.riwayatTa ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>
+            </div>
+            <div id="perpus-riwayat"></div>
+        </div>`;
+    await muatPerpusPinjamView();
+}
+
+async function muatPerpusPinjamView() {
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('perpus_pinjam').select('*').order('created_at', { ascending: false }).limit(400);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        const a = document.getElementById('perpus-aktif');
+        if (a) a.innerHTML = `<div class="p-4 text-center text-red-400 text-[11px]">Gagal memuat peminjaman — pastikan upgrade_20260918_fase3.sql sudah dijalankan.</div>`;
+        return;
+    }
+    window._perpusPinjamRows = rows;
+    renderPerpusAktif();
+    renderRiwayatPerpus();
+}
+
+function renderPerpusAktif() {
+    const box = document.getElementById('perpus-aktif');
+    if (!box) return;
+    const rows = (window._perpusPinjamRows || []).filter(r => r.status === 'Dipinjam').sort((a, b) => String(a.tenggat || '').localeCompare(String(b.tenggat || '')));
+    const iso = ISO_HARIAN(new Date());
+    if (rows.length === 0) { box.innerHTML = `<p class="text-[11px] text-slate-500 italic p-2">Tidak ada buku yang sedang dipinjam.</p>`; return; }
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[30vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Kode</th><th class="px-3 py-2">Judul</th><th class="px-3 py-2">Peminjam</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Tenggat</th><th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2 text-center">Aksi</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${rows.map((r, i) => {
+                    const telat = r.tenggat && String(r.tenggat) < iso ? Math.max(0, Math.round((new Date(iso) - new Date(String(r.tenggat))) / 86400000)) : 0;
+                    return `<tr class="hover:bg-white/5 border-b border-white/5">
+                        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                        <td class="px-3 py-2 font-mono text-[10px] text-sky-300">${escapeHtml(r.kode_buku || '-')}</td>
+                        <td class="px-3 py-2">${escapeHtml(r.judul_buku || '-')}</td>
+                        <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(r.nama || '-')}</span> <span class="text-[9px] text-indigo-300">(${escapeHtml(r.kelas || '-')})</span></td>
+                        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tenggat ? fmtTglKalender(String(r.tenggat).slice(0, 10)) : '-')}</td>
+                        <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${telat ? 'bg-rose-600/40 text-rose-200' : 'bg-green-600/40 text-green-200'}">${telat ? `TELAT ${telat} hr` : 'Tepat Waktu'}</span></td>
+                        <td class="px-3 py-2 text-center"><button onclick="kembalikanBuku('${escJs(r.id)}')" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-[10px] font-bold transition" title="Kembalikan"><i class="fa-solid fa-rotate-left"></i> Kembalikan</button></td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>
+        </div>`;
+}
+
+function renderRiwayatPerpus() {
+    const box = document.getElementById('perpus-riwayat');
+    if (!box) return;
+    const rows = (window._perpusPinjamRows || []).filter(r => r.status === 'Kembali' && (perpusPilih.riwayatTa === 'ALL' || String(r.ta) === String(perpusPilih.riwayatTa)));
+    if (rows.length === 0) { box.innerHTML = `<p class="text-[11px] text-slate-500 italic p-2">Belum ada riwayat pengembalian${perpusPilih.riwayatTa !== 'ALL' ? ' pada TA terpilih' : ''}.</p>`; return; }
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[28vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Kembali</th><th class="px-3 py-2">Kode</th><th class="px-3 py-2">Judul</th><th class="px-3 py-2">Peminjam</th><th class="px-3 py-2 text-center">Telat</th><th class="px-3 py-2 text-center">Denda</th><th class="px-3 py-2">Petugas</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+                    <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                    <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                    <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_kembali ? fmtTglKalender(String(r.tanggal_kembali).slice(0, 10)) : '-')}</td>
+                    <td class="px-3 py-2 font-mono text-[10px] text-sky-300">${escapeHtml(r.kode_buku || '-')}</td>
+                    <td class="px-3 py-2">${escapeHtml(r.judul_buku || '-')}</td>
+                    <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(r.nama || '-')}</span> <span class="text-[9px] text-indigo-300">(${escapeHtml(r.kelas || '-')})</span></td>
+                    <td class="px-3 py-2 text-center ${r.hari_telat ? 'text-rose-300' : 'text-emerald-300'}">${r.hari_telat || 0} hr</td>
+                    <td class="px-3 py-2 text-center font-bold text-amber-300">${Number(r.denda || 0) ? fmtRupiah(r.denda) : '-'}</td>
+                    <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.petugas || '-')}</td>
+                </tr>`).join('')}</tbody>
+            </table>
+        </div>`;
+}
+
+async function openFormPinjamBuku(bukuId = null) {
+    const role = (currentUser || {}).role || '';
+    if (role !== 'admin' && role !== 'guru') return showToast('error', 'Hanya admin/guru yang dapat memproses peminjaman.');
+    if (!bukuPerpusCache.length) await renderTabPerpusKatalogSafe();
+    const bukuAktif = bukuPerpusCache.filter(b => b.aktif !== false);
+    if (bukuAktif.length === 0) return showToast('error', 'Katalog kosong — admin perlu menambah buku terlebih dahulu.');
+    const dipinjamPeta = window._perpusPetaDipinjam || await muatPerpusDipinjamPeta();
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const pref = prefPerpus();
+    const tenggatHari = Number(pref.tenggatHari) || 7;
+    const dendaHari = Number(pref.dendaPerHari) || 0;
+    const tglTenggat = (() => { const d = new Date(); d.setDate(d.getDate() + tenggatHari); return ISO_HARIAN(d); })();
+    const infoBuku = (b) => {
+        if (!b) return '';
+        const dip = Number(dipinjamPeta[b.id] || 0);
+        const tersedia = Math.max(0, Number(b.eksemplar || 0) - dip);
+        return `Tersedia: <b class="${tersedia > 0 ? 'text-emerald-300' : 'text-rose-300'}">${tersedia}</b> dari ${b.eksemplar} eksemplar · ${escapeHtml(b.pengarang || '')}`;
+    };
+    const res = await Swal.fire({
+        title: 'Pinjam Buku',
+        width: 560,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-sky-300">Kelas Murid</label>
+                    <select id="pj-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-sky-300">Murid</label>
+                    <select id="pj-murid" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">— pilih kelas dulu —</option></select></div>
+                </div>
+                <div><label class="font-bold text-sky-300">Scan QR NIS / Ketik NIS (opsional)</label>
+                <input id="pj-nis" placeholder="Scan kartu atau ketik NIS lalu Enter..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                <div id="pj-murid-info" class="text-[10px] text-emerald-300"></div>
+                <div><label class="font-bold text-sky-300">Buku</label>
+                <select id="pj-buku" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${bukuAktif.map(b => `<option value="${escJs(b.id)}" ${String(b.id) === String(bukuId || '') ? 'selected' : ''}>${escapeHtml(b.kode || '-')} — ${escapeHtml(String(b.judul || '').slice(0, 46))}</option>`).join('')}</select>
+                <div id="pj-info" class="text-[10px] text-slate-400 mt-1">${infoBuku(bukuAktif.find(b => String(b.id) === String(bukuId || '')) || bukuAktif[0])}</div></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-sky-300">Tanggal Pinjam</label>
+                    <input id="pj-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-sky-300">Tenggat Kembali (${tenggatHari} hari)</label>
+                    <input id="pj-tenggat" type="date" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-bookmark"></i> Catat Peminjaman', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const isiMurid = () => {
+                const k = document.getElementById('pj-kelas').value;
+                const ops = (cacheAkunMurid || [])
+                    .filter(d => String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(k) && siswaAktifTahun(d, currentTahun))
+                    .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+                document.getElementById('pj-murid').innerHTML = ops.length
+                    ? ops.map(m => `<option value="${escJs(m.nis_nip || '')}">${escapeHtml(m.nama_lengkap || '')} — NIS ${escapeHtml(m.nis_nip || '')}</option>`).join('')
+                    : `<option value="">(tidak ada murid aktif di kelas ini)</option>`;
+            };
+            isiMurid();
+            document.getElementById('pj-kelas').addEventListener('change', isiMurid);
+            const nisEl = document.getElementById('pj-nis');
+            nisEl.addEventListener('change', () => {
+                const nis = nisEl.value.trim();
+                if (!nis) return;
+                const m = (cacheAkunMurid || []).find(x => String(x.nis_nip) === String(nis));
+                if (!m) { document.getElementById('pj-murid-info').innerHTML = `<span class="text-rose-300">NIS tidak ditemukan.</span>`; return; }
+                const kelas = kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || '';
+                const selK = document.getElementById('pj-kelas');
+                if (kelas && [...selK.options].some(o => o.value === kelas)) selK.value = kelas;
+                isiMurid();
+                const selM = document.getElementById('pj-murid');
+                if ([...selM.options].some(o => o.value === String(m.nis_nip))) selM.value = String(m.nis_nip);
+                document.getElementById('pj-murid-info').innerHTML = `<i class="fa-solid fa-circle-check"></i> ${escapeHtml(m.nama_lengkap || '')} (${escapeHtml(kelas)})`;
+            });
+            const bukuEl = document.getElementById('pj-buku');
+            const upd = () => {
+                const b = bukuPerpusCache.find(x => String(x.id) === String(bukuEl.value));
+                document.getElementById('pj-info').innerHTML = b ? infoBuku(b) : '';
+            };
+            bukuEl.addEventListener('change', upd);
+            document.getElementById('pj-tenggat').value = (() => { const d = new Date(); d.setDate(d.getDate() + tenggatHari); return ISO_HARIAN(d); })();
+        },
+        preConfirm: () => {
+            const nis = document.getElementById('pj-murid').value;
+            if (!nis) { Swal.showValidationMessage('Pilih murid (atau scan NIS) terlebih dahulu.'); return false; }
+            const b = bukuPerpusCache.find(x => String(x.id) === String(document.getElementById('pj-buku').value));
+            if (!b) { Swal.showValidationMessage('Pilih buku.'); return false; }
+            const dip = Number(dipinjamPeta[b.id] || 0);
+            if (Number(b.eksemplar || 0) - dip <= 0) { Swal.showValidationMessage('Semua eksemplar buku ini sedang dipinjam.'); return false; }
+            const m = (cacheAkunMurid || []).find(x => String(x.nis_nip) === String(nis)) || {};
+            return {
+                buku_id: b.id, kode_buku: b.kode, judul_buku: b.judul,
+                nis: String(m.nis_nip || ''), nama: m.nama_lengkap || '',
+                kelas: kelasSiswaTahun(m, currentTahun) || m.tingkat_kelas || '',
+                ta: currentTahun, semester: semesterDefaultSistem(),
+                tanggal_pinjam: document.getElementById('pj-tanggal').value,
+                tenggat: document.getElementById('pj-tenggat').value || null,
+                status: 'Dipinjam',
+                petugas: namaPetugasSekolah()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('perpus_pinjam').insert(res.value);
+        if (error) throw error;
+        showToast('success', 'Peminjaman tercatat.');
+        renderIsiPerpus();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mencatat peminjaman — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+/** Pastikan katalog terisi bila dibuka langsung dari tombol pinjam (fallback util). */
+async function renderTabPerpusKatalogSafe() {
+    try {
+        const { data, error } = await supaClient.from('perpus_buku').select('*').order('judul');
+        if (!error) bukuPerpusCache = data || [];
+    } catch (e) { console.warn(e); }
+}
+
+async function kembalikanBuku(id) {
+    let t;
+    try {
+        const { data, error } = await supaClient.from('perpus_pinjam').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Data peminjaman tidak ditemukan.');
+        if (t = data, t.status !== 'Dipinjam') return showToast('success', 'Buku ini sudah dikembalikan.');
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat data peminjaman.'); }
+    const pref = prefPerpus();
+    const tarif = Number(pref.dendaPerHari) || 0;
+    const iso = ISO_HARIAN(new Date());
+    const hitungTelat = (tgl) => {
+        if (!t.tenggat || !tgl) return 0;
+        return Math.max(0, Math.round((new Date(String(tgl)) - new Date(String(t.tenggat))) / 86400000));
+    };
+    const res = await Swal.fire({
+        title: `Kembalikan Buku — ${t.kode_buku || ''}`,
+        width: 480,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <p class="text-[10px] text-slate-400">${escapeHtml(t.judul_buku || '-')} · ${escapeHtml(t.nama || '-')} (${escapeHtml(t.kelas || '-')}) · Pinjam ${escapeHtml(t.tanggal_pinjam ? fmtTglKalender(String(t.tanggal_pinjam).slice(0, 10)) : '-')}</p>
+                <div><label class="font-bold text-sky-300">Tanggal Kembali</label>
+                <input id="kb-tanggal" type="date" value="${iso}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div id="kb-info" class="text-[10px] text-amber-300"></div>
+                <div><label class="font-bold text-sky-300">Denda (Rp) — otomatis, dapat diubah</label>
+                <input id="kb-denda" type="number" min="0" step="100" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-sky-300">Catatan</label>
+                <input id="kb-ket" placeholder="Opsional" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-rotate-left"></i> Kembalikan', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const el = document.getElementById('kb-tanggal');
+            const dendaEl = document.getElementById('kb-denda');
+            const info = document.getElementById('kb-info');
+            const upd = () => {
+                const t2 = hitungTelat(el.value || iso);
+                info.innerHTML = t2 > 0 ? `Terlambat <b>${t2} hari</b>${tarif ? ` · Denda otomatis: <b>${fmtRupiah(t2 * tarif)}</b> (${fmtRupiah(tarif)}/hari)` : ''}` : `<span class="text-emerald-300">Tepat waktu — tidak ada denda.</span>`;
+                dendaEl.value = t2 * tarif;
+            };
+            el.addEventListener('change', upd);
+            upd();
+        },
+        preConfirm: () => {
+            const tanggal = document.getElementById('kb-tanggal').value || iso;
+            const telat = hitungTelat(tanggal);
+            return { tanggal_kembali: tanggal, hari_telat: telat, denda: Math.max(0, Number(document.getElementById('kb-denda').value) || 0), ket: document.getElementById('kb-ket').value.trim(), status: 'Kembali' };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('perpus_pinjam').update(res.value).eq('id', id);
+        if (error) throw error;
+        showToast('success', Number(res.value.denda) ? `Buku dikembalikan — denda ${fmtRupiah(res.value.denda)}` : 'Buku dikembalikan tepat waktu.');
+        muatPerpusPinjamView();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mencatat pengembalian — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+/** Tab murid (baca-saja): pinjaman milik sendiri. */
+async function renderTabPinjamanSaya(wrap) {
+    const user = (currentUser || {}).user || {};
+    const nis = user["NIS"] || '';
+    if (!nis) { wrap.innerHTML = `<div class="p-6 text-center text-slate-400">NIS tidak ditemukan pada akun Anda.</div>`; return; }
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.rpc('pinjaman_murid', { p_nis: nis });
+        if (error) throw error;
+        rows = (data && data.pinjaman) || [];
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat pinjaman — pastikan upgrade_20260918_fase3.sql & upgrade_20260920_murid_rpc.sql sudah dijalankan.</div>`;
+        return;
+    }
+    const iso = ISO_HARIAN(new Date());
+    const aktif = rows.filter(r => r.status === 'Dipinjam');
+    const selesai = rows.filter(r => r.status === 'Kembali');
+    wrap.innerHTML = `
+        <div class="p-4 space-y-3">
+            <div class="bg-sky-900/10 border border-sky-500/20 rounded-lg px-3 py-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-sky-400"></i> Hubungi pustakawan untuk meminjam atau mengembalikan buku.</p>
+            </div>
+            <div>
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1"><i class="fa-solid fa-bookmark text-amber-400 mr-1"></i> Sedang Dipinjam (${aktif.length})</h3>
+                ${aktif.length === 0 ? `<p class="text-[11px] text-slate-500 italic p-2">Tidak ada buku yang sedang Anda pinjam.</p>` : `
+                <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                    <table class="w-full text-left whitespace-nowrap text-[11px]">
+                        <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr><th class="px-3 py-2">Kode</th><th class="px-3 py-2">Judul</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Tenggat</th><th class="px-3 py-2 text-center">Status</th></tr></thead>
+                        <tbody class="text-xs text-slate-200">${aktif.map((r, i) => {
+                            const telat = r.tenggat && String(r.tenggat) < iso ? Math.max(0, Math.round((new Date(iso) - new Date(String(r.tenggat))) / 86400000)) : 0;
+                            return `<tr class="border-b border-white/5">
+                                <td class="px-3 py-2 font-mono text-sky-300 text-[10px]">${escapeHtml(r.kode_buku || '-')}</td>
+                                <td class="px-3 py-2">${escapeHtml(r.judul_buku || '-')}</td>
+                                <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                                <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tenggat ? fmtTglKalender(String(r.tenggat).slice(0, 10)) : '-')}</td>
+                                <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${telat ? 'bg-rose-600/40 text-rose-200' : 'bg-green-600/40 text-green-200'}">${telat ? `TELAT ${telat} hr` : 'Dipinjam'}</span></td>
+                            </tr>`;
+                        }).join('')}</table>
+                </div>`}
+            </div>
+            <div>
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1"><i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> Riwayat (${selesai.length})</h3>
+                ${selesai.length === 0 ? `<p class="text-[11px] text-slate-500 italic p-2">Belum ada riwayat pengembalian.</p>` : `
+                <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl">
+                    <table class="w-full text-left whitespace-nowrap text-xs">
+                        <thead class="bg-slate-900 text-[10px] uppercase text-slate-400"><tr><th class="px-3 py-2">Judul</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Kembali</th><th class="px-3 py-2 text-center">Telat</th><th class="px-3 py-2 text-center">Denda</th></tr></thead>
+                        <tbody class="text-slate-200">${selesai.map(r => `<tr class="border-b border-white/5">
+                            <td class="px-3 py-2">${escapeHtml(r.judul_buku || '-')}</td>
+                            <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                            <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_kembali ? fmtTglKalender(String(r.tanggal_kembali).slice(0, 10)) : '-')}</td>
+                            <td class="px-3 py-2 text-center">${r.hari_telat || 0} hr</td>
+                            <td class="px-3 py-2 text-center text-amber-300 font-bold">${Number(r.denda) ? fmtRupiah(r.denda) : '-'}</td>
+                        </tr>`).join('')}</tbody>
+                    </table>
+                </div>`}
+            </div>
+        </div>`;
+}
+
+async function exportPerpusExcel() {
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    if (!bukuPerpusCache.length) return showToast('error', 'Katalog kosong.');
+    try {
+        const dipinjamPeta = window._perpusPetaDipinjam || await muatPerpusDipinjamPeta();
+        const aoa = [
+            ['KATALOG PERPUSTAKAAN'],
+            [],
+            ['No', 'Kode', 'Judul', 'Pengarang', 'Penerbit', 'Tahun', 'Kategori', 'Eksemplar', 'Dipinjam', 'Tersedia', 'Lokasi', 'Ket'],
+            ...bukuPerpusCache.map((b, i) => {
+                const dip = Number(dipinjamPeta[b.id] || 0);
+                return [i + 1, b.kode || '', b.judul || '', b.pengarang || '', b.penerbit || '', b.tahun || '', b.kategori || '', b.eksemplar || 0, dip, Math.max(0, Number(b.eksemplar || 0) - dip), b.lokasi || '', b.ket || ''];
+            })
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Katalog Buku');
+        XLSX.writeFile(wb, `Katalog_Perpus_${currentTahun.replace('/', '-')}.xlsx`);
+        showToast('success', 'Katalog Excel diunduh.');
+    } catch (e) { console.error(e); showToast('error', 'Gagal export Excel.'); }
+}
+
+async function cetakKatalogPerpusPDF() {
+    if (!bukuPerpusCache.length) return showToast('error', 'Katalog kosong.');
+    const idn = barisIdentitasMaster();
+    const dipinjamPeta = window._perpusPetaDipinjam || await muatPerpusDipinjamPeta();
+    const rows = bukuPerpusCache.map((b, i) => {
+        const dip = Number(dipinjamPeta[b.id] || 0);
+        const tersedia = Math.max(0, Number(b.eksemplar || 0) - dip);
+        return `<tr>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${i + 1}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.kode || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.judul || '-')}<div style="font-size:8.5px;color:#475569;">${escapeHtml(b.pengarang || '')}${b.penerbit ? ' · ' + escapeHtml(b.penerbit) : ''}${b.tahun ? ' · ' + escapeHtml(String(b.tahun)) : ''}</div></td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;text-align:center;">${escapeHtml(b.kategori || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${tersedia}/${b.eksemplar}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.lokasi || '-')}</td>
+        </tr>`;
+    }).join('');
+    const isi = `
+        <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            <div style="font-size:11px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+            <div style="font-size:12px;font-weight:bold;margin-top:6px;">KATALOG PERPUSTAKAAN</div>
+            <div style="font-size:10px;">Tahun Pelajaran ${escapeHtml(currentTahun)}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>${['No', 'Kode', 'Judul', 'Kategori', 'Tersedia', 'Lokasi'].map((h, i) => `<th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;${i === 2 ? 'width:34%;' : ''}">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    bukaCetakHTML(`Katalog Perpustakaan`, isi);
+}
+
+// ================= F3-B. INVENTARIS / SARPAS (ADMIN) =================
+let currentTabInv = 'barang';
+let invPilih = { cari: '' };
+let invBarangCache = [];
+const KATEGORI_INV = ['Elektronik', 'Perabot', 'Alat Olahraga', 'Laboratorium', 'Buku/ATK', 'Lainnya'];
+const KONDISI_INV = ['Baik', 'Rusak Ringan', 'Rusak Berat'];
+const SUMBER_INV = ['BOS', 'Komite', 'Hibah', 'Pembelian', 'Lainnya'];
+
+async function renderInventarisModule(container) {
+    if (!isAdminAktif()) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Menu Inventaris hanya untuk admin.</div>`;
+        return;
+    }
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul Inventaris...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-boxes-stacked text-teal-400 mr-2"></i> Inventaris & Sarana Prasarana</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabInv('barang')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabInv === 'barang' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}">Daftar Barang</button>
+                        <button onclick="switchTabInv('pinjam')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabInv === 'pinjam' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white'}">Peminjaman Barang</button>
+                    </div>
+                </div>
+                <div id="content-inv" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiInv();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul inventaris.</div>`;
+    }
+}
+
+function switchTabInv(tab) { currentTabInv = tab; renderInventarisModule(document.getElementById('main-content')); }
+
+async function renderIsiInv() {
+    const wrap = document.getElementById('content-inv');
+    if (!wrap) return;
+    if (currentTabInv === 'pinjam') await renderTabInvPinjam(wrap);
+    else await renderTabInvBarang(wrap);
+}
+
+async function renderTabInvBarang(wrap) {
+    try {
+        const { data, error } = await supaClient.from('inv_barang').select('*').order('nama');
+        if (error) throw error;
+        invBarangCache = data || [];
+    } catch (e) {
+        console.error(e);
+        wrap.innerHTML = `<div class="p-4 text-center text-red-400">Gagal memuat inventaris — pastikan <b>supabase/sql/upgrade_20260918_fase3.sql</b> sudah dijalankan di Supabase SQL Editor.</div>`;
+        return;
+    }
+    const jumlahBaik = invBarangCache.filter(b => b.kondisi === 'Baik').length;
+    const jumlahRR = invBarangCache.filter(b => b.kondisi === 'Rusak Ringan').length;
+    const jumlahRB = invBarangCache.filter(b => b.kondisi === 'Rusak Berat').length;
+    const totalUnit = invBarangCache.reduce((a, b) => a + Number(b.jumlah || 0), 0);
+    const mini = (icon, warna, judul, v) => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ${warna} shrink-0"><i class="fa-solid ${icon} text-xs"></i></div>
+            <div><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-[13px] font-extrabold text-white leading-tight">${v}</div></div>
+        </div>`;
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                ${mini('fa-boxes-stacked', 'bg-blue-600/20 text-blue-400', 'Jenis Barang', invBarangCache.length)}
+                ${mini('fa-cubes', 'bg-indigo-600/20 text-indigo-400', 'Total Unit', totalUnit)}
+                ${mini('fa-circle-check', 'bg-green-600/20 text-green-400', 'Baik', jumlahBaik)}
+                ${mini('fa-triangle-exclamation', 'bg-amber-600/20 text-amber-400', 'Rusak Ringan', jumlahRR)}
+                ${mini('fa-ban', 'bg-rose-600/20 text-rose-400', 'Rusak Berat', invBarangCache.filter(b => b.kondisi === 'Rusak Berat').length)}
+            </div>
+            <div class="bg-teal-900/10 border border-teal-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <input id="inv-cari" value="${escapeHtml(invPilih.cari)}" oninput="invPilih.cari = this.value; renderTabelInvBarang();" placeholder="Cari nama / kode / lokasi..." class="flex-1 min-w-[160px] h-8 bg-black/40 border border-white/20 rounded-lg px-3 text-[11px] text-white outline-none focus:border-blue-500">
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="openFormInvBarang(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Barang</button>
+                    <button onclick="exportInvExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                    <button onclick="cetakInventarisPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                </div>
+            </div>
+            <div id="inv-tabel-wrap"></div>
+        </div>`;
+    renderTabelInvBarang();
+}
+
+function renderTabelInvBarang() {
+    const box = document.getElementById('inv-tabel-wrap');
+    if (!box) return;
+    const q = (invPilih.cari || '').toLowerCase();
+    const rows = invBarangCache.filter(b => !q || `${b.kode || ''} ${b.nama || ''} ${b.lokasi || ''} ${b.kategori || ''}`.toLowerCase().includes(q));
+    const baris = rows.length === 0
+        ? `<tr><td colspan="8" class="p-6 text-center text-slate-500 italic">Tidak ada barang${q ? ' yang cocok dengan pencarian' : ''}.</td></tr>`
+        : rows.map((b, i) => {
+            const warna = b.kondisi === 'Baik' ? 'bg-green-600/40 text-green-200' : b.kondisi === 'Rusak Ringan' ? 'bg-amber-600/40 text-amber-200' : 'bg-red-600/40 text-red-200';
+            return `<tr class="hover:bg-white/5 border-b border-white/5">
+                <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                <td class="px-3 py-2 font-mono text-teal-300 text-[10px]">${escapeHtml(b.kode || '-')}</td>
+                <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(b.nama || '-')}</span><div class="text-[9px] text-slate-400">${escapeHtml(b.kategori || '-')} · ${escapeHtml(b.tahun_perolehan || '')} ${b.sumber ? '· ' + escapeHtml(b.sumber) : ''}</div></td>
+                <td class="px-3 py-2 text-[10px]">${escapeHtml(b.lokasi || '-')}</td>
+                <td class="px-3 py-2 text-center font-bold">${b.jumlah}</td>
+                <td class="px-3 py-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${warna}">${escapeHtml(b.kondisi || 'Baik')}</span></td>
+                <td class="px-3 py-2 text-[10px]">${Number(b.harga) ? fmtRupiah(b.harga) : '-'}</td>
+                <td class="px-3 py-2 text-center whitespace-nowrap">
+                    <button onclick="openFormInvBarang(false, '${escJs(b.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                    <button onclick="deleteInvBarang('${escJs(b.id)}', '${escJs(b.nama || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[55vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Barang</th><th class="px-3 py-2">Lokasi</th><th class="px-3 py-2 text-center">Jumlah</th><th class="px-3 py-2">Kondisi</th><th class="px-3 py-2 text-center">Harga</th><th class="px-3 py-2 text-center">Aksi</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${baris}</tbody>
+            </table>
+        </div>`;
+}
+
+async function openFormInvBarang(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengelola inventaris.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('inv_barang').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Barang tidak ditemukan.');
+        row = data;
+    }
+    let kodeDefault = row.kode || '';
+    if (isBaru && !kodeDefault) {
+        try {
+            const { count } = await supaClient.from('inv_barang').select('id', { count: 'exact', head: true });
+            kodeDefault = `INV-${String((count || 0) + 1).padStart(3, '0')}`;
+        } catch (e) {}
+    }
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Barang Inventaris' : 'Edit Barang Inventaris',
+        width: 540,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Kode Barang</label>
+                    <input id="ib-kode" value="${escapeHtml(row.kode || kodeDefault)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                    <div><label class="font-bold text-teal-300">Jumlah</label>
+                    <input id="ib-jumlah" type="number" min="1" value="${row.jumlah || 1}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-teal-300">Nama Barang</label>
+                <input id="ib-nama" value="${escapeHtml(row.nama || '')}" placeholder="mis. Proyektor LCD" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Kategori</label>
+                    <select id="ib-kategori" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${KATEGORI_INV.map(k => `<option value="${escJs(k)}" ${k === row.kategori ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-teal-300">Lokasi / Ruang</label>
+                    <input id="ib-lokasi" value="${escapeHtml(row.lokasi || '')}" placeholder="mis. Ruang Kelas X-1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Kondisi</label>
+                    <select id="ib-kondisi" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${KONDISI_INV.map(k => `<option value="${escJs(k)}" ${k === row.kondisi ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-teal-300">Tahun Perolehan</label>
+                    <input id="ib-tahun" value="${escapeHtml(row.tahun_perolehan || '')}" placeholder="mis. 2024" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Sumber Dana</label>
+                    <select id="ib-sumber" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${SUMBER_INV.map(k => `<option value="${escJs(k)}" ${k === row.sumber ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-teal-300">Harga Satuan (Rp)</label>
+                    <input id="ib-harga" type="number" min="0" step="1000" value="${Number(row.harga) || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-teal-300">Keterangan</label>
+                <input id="ib-ket" value="${escapeHtml(row.ket || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const kode = document.getElementById('ib-kode').value.trim();
+            const nama = document.getElementById('ib-nama').value.trim();
+            if (!kode) { Swal.showValidationMessage('Kode barang wajib diisi.'); return false; }
+            if (!nama) { Swal.showValidationMessage('Nama barang wajib diisi.'); return false; }
+            return {
+                kode, nama,
+                kategori: document.getElementById('ib-kategori').value,
+                lokasi: document.getElementById('ib-lokasi').value.trim(),
+                jumlah: Math.max(1, Number(document.getElementById('ib-jumlah').value) || 1),
+                kondisi: document.getElementById('ib-kondisi').value,
+                tahun_perolehan: document.getElementById('ib-tahun').value.trim(),
+                harga: Number(document.getElementById('ib-harga').value) || 0,
+                sumber: document.getElementById('ib-sumber').value,
+                ket: document.getElementById('ib-ket').value.trim()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('inv_barang').insert(res.value));
+        else ({ error } = await supaClient.from('inv_barang').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Barang tersimpan.');
+        renderIsiInv();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan barang (kode harus unik) — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+async function deleteInvBarang(id, nama) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus barang?', text: nama, showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('inv_barang').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Barang dihapus.');
+        renderIsiInv();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus barang.'); }
+}
+
+async function renderTabInvPinjam(wrap) {
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="bg-teal-900/10 border border-teal-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-teal-400"></i> Peminjaman barang oleh guru/murid/ekskul — stok diperiksa otomatis.</p>
+                <button onclick="openFormInvPinjam()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-box-archive"></i> Pinjam Barang</button>
+            </div>
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-hourglass-half text-amber-400 mr-1"></i> Pinjaman Aktif</h3>
+            <div id="inv-aktif"></div>
+            <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-2"><i class="fa-solid fa-clock-rotate-left text-slate-400 mr-1"></i> Riwayat Pengembalian</h3>
+            <div id="inv-riwayat"></div>
+        </div>`;
+    await muatInvPinjamView();
+}
+
+async function muatInvPinjamView() {
+    let rows = [];
+    try {
+        const { data, error } = await supaClient.from('inv_pinjam').select('*').order('created_at', { ascending: false }).limit(400);
+        if (error) throw error;
+        rows = data || [];
+    } catch (e) {
+        console.error(e);
+        const a = document.getElementById('inv-aktif');
+        if (a) a.innerHTML = `<div class="p-4 text-center text-red-400 text-[11px]">Gagal memuat peminjaman — pastikan upgrade_20260918_fase3.sql sudah dijalankan.</div>`;
+        return;
+    }
+    window._invPinjamRows = rows;
+    renderInvAktif();
+    renderInvRiwayat();
+}
+
+function renderInvAktif() {
+    const box = document.getElementById('inv-aktif');
+    if (!box) return;
+    const rows = (window._invPinjamRows || []).filter(r => r.status === 'Dipinjam').sort((a, b) => String(a.tanggal_rencana || '').localeCompare(String(b.tanggal_rencana || '')));
+    if (rows.length === 0) { box.innerHTML = `<p class="text-[11px] text-slate-500 italic p-2">Tidak ada barang yang sedang dipinjam.</p>`; return; }
+    const iso = ISO_HARIAN(new Date());
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[30vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Barang</th><th class="px-3 py-2">Peminjam</th><th class="px-3 py-2 text-center">Jumlah</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Rencana Kembali</th><th class="px-3 py-2 text-center">Aksi</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${rows.map((r, i) => {
+                    const telat = r.tanggal_rencana && String(r.tanggal_rencana) < iso;
+                    return `<tr class="border-b border-white/5">
+                        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                        <td class="px-3 py-2"><span class="font-mono text-teal-300 text-[10px]">${escapeHtml(r.kode_barang || '-')}</span> ${escapeHtml(r.nama_barang || '-')}</td>
+                        <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-600/40 text-slate-200 mr-1">${escapeHtml(r.peminjam_tipe || '-')}</span><span class="font-bold text-white">${escapeHtml(r.peminjam_nama || '-')}</span></td>
+                        <td class="px-3 py-2 text-center">${r.jumlah}</td>
+                        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                        <td class="px-3 py-2 text-[10px] ${telat ? 'text-rose-300 font-bold' : ''}">${escapeHtml(r.tanggal_rencana ? fmtTglKalender(String(r.tanggal_rencana).slice(0, 10)) : '-')}${telat ? ' (terlambat)' : ''}</td>
+                        <td class="px-3 py-2 text-center"><button onclick="kembalikanInv('${escJs(r.id)}')" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-[10px] font-bold transition"><i class="fa-solid fa-rotate-left"></i> Kembalikan</button></td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>
+        </div>`;
+}
+
+function renderInvRiwayat() {
+    const box = document.getElementById('inv-riwayat');
+    if (!box) return;
+    const rows = (window._invPinjamRows || []).filter(r => r.status === 'Dikembalikan').slice(0, 100);
+    if (rows.length === 0) { box.innerHTML = `<p class="text-[11px] text-slate-500 italic p-2">Belum ada riwayat pengembalian.</p>`; return; }
+    box.innerHTML = `
+        <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[28vh]">
+            <table class="w-full text-left whitespace-nowrap">
+                <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                    <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">Barang</th><th class="px-3 py-2">Peminjam</th><th class="px-3 py-2 text-center">Jumlah</th><th class="px-3 py-2">Pinjam</th><th class="px-3 py-2">Kembali</th><th class="px-3 py-2">Kondisi Kembali</th><th class="px-3 py-2">Petugas</th>
+                </tr></thead>
+                <tbody class="text-xs text-slate-200">${rows.map((r, i) => `<tr class="border-b border-white/5">
+                    <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+                    <td class="px-3 py-2">${escapeHtml(r.nama_barang || '-')} <span class="text-[9px] text-teal-300">(${escapeHtml(r.kode_barang || '-')})</span></td>
+                    <td class="px-3 py-2">${escapeHtml(r.peminjam_nama || '-')}</td>
+                    <td class="px-3 py-2 text-center">${r.jumlah}</td>
+                    <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_pinjam ? fmtTglKalender(String(r.tanggal_pinjam).slice(0, 10)) : '-')}</td>
+                    <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_kembali ? fmtTglKalender(String(r.tanggal_kembali).slice(0, 10)) : '-')}</td>
+                    <td class="px-3 py-2 text-[10px]">${escapeHtml(r.kondisi_kembali || '-')}</td>
+                    <td class="px-3 py-2 text-[10px] text-slate-400">${escapeHtml(r.petugas || '-')}</td>
+                </tr>`).join('')}</tbody>
+            </table>
+        </div>`;
+}
+
+async function muatDaftarGuruInv() {
+    try {
+        const { data } = await supaClient.from('akun').select('nis_nip, nama_lengkap').eq('tipe', 'guru').order('nama_lengkap');
+        return data || [];
+    } catch (e) { console.warn('daftar guru inv:', e); return []; }
+}
+
+async function openFormInvPinjam() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat memproses peminjaman barang.');
+    const [guruList, dipinjamPeta] = await Promise.all([muatDaftarGuruInv(), muatInvDipinjamPeta()]);
+    if (!invBarangCache.length) {
+        try { const { data } = await supaClient.from('inv_barang').select('*').order('nama'); invBarangCache = data || []; } catch (e) {}
+    }
+    const tersedia = (b) => Math.max(0, Number(b.jumlah || 0) - Number(dipinjamPeta[b.id] || 0));
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: 'Pinjam Barang Inventaris',
+        width: 560,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-teal-300">Peminjam (Tipe)</label>
+                    <select id="iv-tipe" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+                        <option value="guru">Guru</option>
+                        <option value="murid">Murid</option>
+                        <option value="lainnya">Ekskul / Lainnya</option>
+                    </select></div>
+                    <div><label class="font-bold text-teal-300">Barang</label>
+                    <select id="iv-barang" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${invBarangCache.map(b => `<option value="${escJs(b.id)}">${escapeHtml(b.kode || '-')} — ${escapeHtml(String(b.nama || '').slice(0, 40))} (tersedia ${tersedia(b)})</option>`).join('')}</select>
+                    <div id="iv-info" class="text-[10px] text-slate-400 mt-1"></div></div>
+                </div>
+                <div id="iv-peminjam-wrap"></div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="font-bold text-teal-300">Jumlah</label>
+                    <input id="iv-jumlah" type="number" min="1" value="1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-teal-300">Tanggal Pinjam</label>
+                    <input id="iv-pinjam" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-teal-300">Rencana Kembali</label>
+                    <input id="iv-rencana" type="date" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-teal-300">Keperluan / Keterangan</label>
+                <input id="iv-ket" placeholder="Opsional" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-box-archive"></i> Catat Peminjaman', cancelButtonText: 'Batal',
+        didOpen: () => {
+            const wrapPeminjam = document.getElementById('iv-peminjam-wrap');
+            const isiPeminjam = () => {
+                const tipe = document.getElementById('iv-tipe').value;
+                if (tipe === 'guru') {
+                    wrapPeminjam.innerHTML = `<label class="font-bold text-teal-300">Nama Guru</label>
+                        <select id="iv-guru" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${guruList.length ? guruList.map(g => `<option value="${escJs(g.nama_lengkap || '')}">${escapeHtml(g.nama_lengkap || '-')}</option>`).join('') : '<option value="">(tidak ada data guru)</option>'}</select>`;
+                } else if (tipe === 'murid') {
+                    wrapPeminjam.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2">
+                            <div><label class="font-bold text-teal-300">Kelas</label>
+                            <select id="iv-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                            <div><label class="font-bold text-teal-300">Murid</label>
+                            <select id="iv-murid" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">— pilih kelas dulu —</option></select></div>
+                        </div>`;
+                    const isiMurid = () => {
+                        const k = document.getElementById('iv-kelas').value;
+                        const ops = (cacheAkunMurid || [])
+                            .filter(d => String(kelasSiswaTahun(d, currentTahun) || d.tingkat_kelas || '') === String(k) && siswaAktifTahun(d, currentTahun))
+                            .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+                        document.getElementById('iv-murid').innerHTML = ops.length
+                            ? ops.map(m => `<option value="${escJs(m.nis_nip || '')}">${escapeHtml(m.nama_lengkap || '')} — NIS ${escapeHtml(m.nis_nip || '')}</option>`).join('')
+                            : `<option value="">(tidak ada murid aktif)</option>`;
+                    };
+                    isiMurid();
+                    document.getElementById('iv-kelas').addEventListener('change', isiMurid);
+                } else {
+                    wrapPeminjam.innerHTML = `<label class="font-bold text-teal-300">Nama Ekskul / Peminjam</label>
+                        <input id="iv-nama" placeholder="mis. Ekstrakurikuler Futsal" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">`;
+                }
+            };
+            isiPeminjam();
+            document.getElementById('iv-tipe').addEventListener('change', isiPeminjam);
+            const barangEl = document.getElementById('iv-barang');
+            const info = document.getElementById('iv-info');
+            const upd = () => {
+                const b = invBarangCache.find(x => String(x.id) === String(barangEl.value));
+                info.innerHTML = b ? `Tersedia: <b class="${tersedia(b) > 0 ? 'text-emerald-300' : 'text-rose-300'}">${tersedia(b)}</b> dari ${b.jumlah} unit · ${escapeHtml(b.lokasi || '-')}` : '';
+            };
+            upd();
+            barangEl.addEventListener('change', upd);
+            const d7 = new Date(); d7.setDate(d7.getDate() + 7);
+            document.getElementById('iv-rencana').value = ISO_HARIAN(d7);
+        },
+        preConfirm: () => {
+            const tipe = document.getElementById('iv-tipe').value;
+            let peminjamNama = '', nis = '';
+            if (tipe === 'guru') {
+                peminjamNama = (document.getElementById('iv-guru') || {}).value || '';
+                if (!peminjamNama) { Swal.showValidationMessage('Pilih guru peminjam.'); return false; }
+            } else if (tipe === 'murid') {
+                nis = document.getElementById('iv-murid').value || '';
+                const m = (cacheAkunMurid || []).find(x => String(x.nis_nip) === String(nis)) || {};
+                peminjamNama = m.nama_lengkap || '';
+                if (!nis) { Swal.showValidationMessage('Pilih murid peminjam.'); return false; }
+            } else {
+                peminjamNama = (document.getElementById('iv-nama') || {}).value || '';
+                if (!peminjamNama.trim()) { Swal.showValidationMessage('Isi nama peminjam.'); return false; }
+                peminjamNama = peminjamNama.trim();
+            }
+            const b = invBarangCache.find(x => String(x.id) === String(document.getElementById('iv-barang').value));
+            if (!b) { Swal.showValidationMessage('Pilih barang.'); return false; }
+            const jumlah = Number(document.getElementById('iv-jumlah').value) || 0;
+            if (jumlah <= 0) { Swal.showValidationMessage('Jumlah harus lebih dari 0.'); return false; }
+            if (jumlah > tersedia(b)) { Swal.showValidationMessage(`Jumlah melebihi stok tersedia (${tersedia(b)}).`); return false; }
+            return {
+                barang_id: b.id, kode_barang: b.kode, nama_barang: b.nama,
+                peminjam_tipe: tipe, peminjam_nama: peminjamNama, nis,
+                jumlah,
+                tanggal_pinjam: document.getElementById('iv-pinjam').value || null,
+                tanggal_rencana: document.getElementById('iv-rencana').value || null,
+                ta: currentTahun, semester: semesterDefaultSistem(),
+                ket: document.getElementById('iv-ket').value.trim(),
+                status: 'Dipinjam',
+                petugas: namaPetugasSekolah()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('inv_pinjam').insert(res.value);
+        if (error) throw error;
+        showToast('success', 'Peminjaman barang tercatat.');
+        renderIsiInv();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mencatat peminjaman — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+async function kembalikanInv(id) {
+    let t;
+    try {
+        const { data, error } = await supaClient.from('inv_pinjam').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Data peminjaman tidak ditemukan.');
+        t = data;
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat data.'); }
+    const res = await Swal.fire({
+        title: `Kembalikan Barang — ${t.nama_barang || ''}`,
+        width: 480,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <p class="text-[10px] text-slate-400">${escapeHtml(t.peminjam_nama || '-')} · ${t.jumlah} unit · Pinjam ${escapeHtml(t.tanggal_pinjam ? fmtTglKalender(String(t.tanggal_pinjam).slice(0, 10)) : '-')}</p>
+                <div><label class="font-bold text-teal-300">Tanggal Kembali</label>
+                <input id="ik-tanggal" type="date" value="${ISO_HARIAN(new Date())}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-teal-300">Kondisi Kembali</label>
+                <select id="ik-kondisi" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${KONDISI_INV.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                <div><label class="font-bold text-teal-300">Catatan</label>
+                <input id="ik-ket" placeholder="Opsional" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-rotate-left"></i> Kembalikan', cancelButtonText: 'Batal',
+        preConfirm: () => ({
+            tanggal_kembali: document.getElementById('ik-tanggal').value || null,
+            kondisi_kembali: document.getElementById('ik-kondisi').value,
+            ket: document.getElementById('ik-ket').value.trim(),
+            status: 'Dikembalikan'
+        })
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('inv_pinjam').update(res.value).eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Pengembalian barang tercatat.');
+        muatInvPinjamView();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal mencatat pengembalian — pastikan upgrade_20260918_fase3.sql sudah dijalankan.');
+    }
+}
+
+async function exportInvExcel() {
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    if (!invBarangCache.length) return showToast('error', 'Inventaris kosong.');
+    try {
+        const aoa = [
+            ['INVENTARIS SARANA PRASARANA — ' + (barisIdentitasMaster()["Nama Sekolah"] || 'SEKOLAH')],
+            [],
+            ['No', 'Kode', 'Nama Barang', 'Kategori', 'Lokasi', 'Jumlah', 'Kondisi', 'Tahun', 'Sumber', 'Harga Satuan', 'Ket'],
+            ...invBarangCache.map((b, i) => [i + 1, b.kode || '', b.nama || '', b.kategori || '', b.lokasi || '', b.jumlah || 0, b.kondisi || '', b.tahun_perolehan || '', Number(b.harga) || 0, b.ket || ''])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Inventaris');
+        XLSX.writeFile(wb, `Inventaris_${currentTahun.replace('/', '-')}.xlsx`);
+        showToast('success', 'Inventaris Excel diunduh.');
+    } catch (e) { console.error(e); showToast('error', 'Gagal export Excel.'); }
+}
+
+async function cetakInventarisPDF() {
+    const idn = barisIdentitasMaster();
+    const rows = invBarangCache.map((b, i) => {
+        const warna = b.kondisi === 'Baik' ? '' : (b.kondisi === 'Rusak Ringan' ? 'background:#fef9c3;' : 'background:#fecaca;');
+        return `<tr>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${i + 1}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.kode || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.nama || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.kategori || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.lokasi || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${b.jumlah}</td>
+            <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;${warna}">${escapeHtml(b.kondisi || 'Baik')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.tahun_perolehan || '-')}</td>
+            <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(b.sumber || '-')}</td>
+        </tr>`;
+    }).join('');
+    const isi = `
+        <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            <div style="font-size:11px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+            <div style="font-size:12px;font-weight:bold;margin-top:6px;">DAFTAR INVENTARIS SARANA PRASARANA</div>
+            <div style="font-size:10px;">Tahun Pelajaran ${escapeHtml(currentTahun)}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>${['No', 'Kode', 'Nama Barang', 'Kategori', 'Lokasi', 'Jml', 'Kondisi', 'Tahun', 'Sumber'].map((h, i) => `<th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;${i === 2 ? 'width:24%;' : ''}">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <table style="width:100%;border:none;margin-top:24px;font-size:11px;"><tr>
+            <td style="width:60%;border:none;"></td>
+            <td style="border:none;text-align:center;">Kepala Sekolah<br><br><br><br><br><b><u>${escapeHtml(idn["Kepala Sekolah"] || '_____________________')}</u></b></td>
+        </tr></table>`;
+    bukaCetakHTML(`Inventaris Sarpras`, isi);
+}
+
+// ================= F4. PPDB (PENERIMAAN PESERTA DIDIK BARU) — ADMIN =================
+let currentTabPpdb = 'calon';
+let ppdbPilih = { ta: '', status: 'ALL', jalur: 'ALL', cari: '' };
+let ppdbCache = [];
+const JALUR_PPDB = ['Reguler', 'Prestasi', 'Afirmasi', 'Mutasi'];
+const STATUS_PPDB = ['Baru', 'Verifikasi', 'Diterima', 'Ditolak'];
+
+/** TA tujuan PPDB (TA berjalan + 1). */
+function taBerikutnyaPpdb() {
+    const p = String(currentTahun || '').split('/');
+    return p.length === 2 && !isNaN(parseInt(p[0])) ? `${parseInt(p[0]) + 1}/${parseInt(p[1]) + 1}` : currentTahun;
+}
+
+/** Daftar TA pilihan PPDB (TA master + TA tujuan berikutnya). */
+function daftarTaPpdb() {
+    const list = [...riwayatTahunList()];
+    const next = taBerikutnyaPpdb();
+    if (!list.includes(next)) list.push(next);
+    return list;
+}
+
+function badgeStatusPpdb(s) {
+    const warna = { Baru: 'bg-slate-600/40 text-slate-200', Verifikasi: 'bg-amber-600/40 text-amber-200', Diterima: 'bg-green-600/40 text-green-200', Ditolak: 'bg-rose-600/40 text-rose-200' };
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-bold ${warna[s] || warna.Baru}">${escapeHtml(s || '-')}</span>`;
+}
+
+/** Nomor urut PPDB berikut untuk sebuah TA (dari no_daftar PDB-XXX). */
+async function urutPpdbBerikut(ta) {
+    let maxN = 0;
+    try {
+        const { data } = await supaClient.from('ppdb_calon').select('no_daftar').eq('ta', ta);
+        (data || []).forEach(r => {
+            const m = /^PDB-(\d+)/.exec(String(r.no_daftar || ''));
+            if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+        });
+    } catch (e) { console.warn('urut ppdb:', e); }
+    return maxN + 1;
+}
+
+const formatNoDaftarPpdb = (n, ta) => `PDB-${String(n).padStart(3, '0')}/${ta}`;
+
+/** Parse tanggal dari sel Excel (Date / serial / teks). */
+function parseTglExcel(v) {
+    if (!v) return null;
+    if (v instanceof Date) return ISO_HARIAN(v);
+    if (typeof v === 'number') {
+        const d = new Date(Math.round((v - 25569) * 86400000));
+        return isNaN(d.getTime()) ? null : ISO_HARIAN(d);
+    }
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+    return null;
+}
+
+async function renderPpdbModule(container) {
+    if (!isAdminAktif()) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-400"><i class="fa-solid fa-lock text-2xl mb-2"></i><br>Menu PPDB hanya untuk admin.</div>`;
+        return;
+    }
+    container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Modul PPDB...</div>`;
+    try {
+        if (masterDataCache.length === 0) {
+            try { const { data } = await supaClient.from('master_data').select('*'); if (data) masterDataCache = data; } catch (e) { console.error(e); }
+        }
+        if (!ppdbPilih.ta) ppdbPilih.ta = taBerikutnyaPpdb();
+        container.innerHTML = `
+            <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
+                <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-plus text-orange-400 mr-2"></i> PPDB — Penerimaan Peserta Didik Baru</h2>
+                    <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+                        <button onclick="switchTabPpdb('calon')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPpdb === 'calon' ? 'bg-orange-600 text-white' : 'text-slate-400 hover:text-white'}">Calon Siswa</button>
+                        <button onclick="switchTabPpdb('statistik')" class="tab-btn px-4 py-1.5 rounded text-xs font-bold transition ${currentTabPpdb === 'statistik' ? 'bg-orange-600 text-white' : 'text-slate-400 hover:text-white'}">Statistik</button>
+                    </div>
+                </div>
+                <div id="content-ppdb" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
+                    <div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat...</div>
+                </div>
+            </div>`;
+        await renderIsiPpdb();
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat modul PPDB.</div>`;
+    }
+}
+
+function switchTabPpdb(tab) { currentTabPpdb = tab; renderPpdbModule(document.getElementById('main-content')); }
+
+async function renderIsiPpdb() {
+    const wrap = document.getElementById('content-ppdb');
+    if (!wrap) return;
+    if (currentTabPpdb === 'statistik') await renderTabPpdbStatistik(wrap);
+    else await renderTabPpdbCalon(wrap);
+}
+
+async function renderTabPpdbCalon(wrap) {
+    const listTa = daftarTaPpdb();
+    wrap.innerHTML = `
+        <div class="p-4 space-y-2">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 items-center">
+                <select id="pp-ta" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="ppdbPilih.ta = this.value; muatPpdbCalon();" title="Tahun Pelajaran Tujuan">${listTa.map(t => `<option value="${escJs(t)}" ${t === ppdbPilih.ta ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>
+                <select id="pp-status" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="ppdbPilih.status = this.value; renderPpdbTabel();"><option value="ALL">Semua Status</option>${STATUS_PPDB.map(s => `<option value="${escJs(s)}" ${s === ppdbPilih.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select>
+                <select id="pp-jalur" class="h-8 bg-slate-700 border border-white/20 rounded px-1.5 text-[11px] text-white outline-none cursor-pointer" onchange="ppdbPilih.jalur = this.value; renderPpdbTabel();"><option value="ALL">Semua Jalur</option>${JALUR_PPDB.map(j => `<option value="${escJs(j)}" ${j === ppdbPilih.jalur ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('')}</select>
+                <input id="pp-cari" value="${escapeHtml(ppdbPilih.cari)}" oninput="ppdbPilih.cari = this.value; renderPpdbTabel();" placeholder="Cari nama / NISN / no. daftar..." class="h-8 bg-black/40 border border-white/20 rounded-lg px-3 text-[11px] text-white outline-none focus:border-blue-500">
+            </div>
+            <div id="ppdb-rekap" class="grid grid-cols-2 sm:grid-cols-6 gap-2"></div>
+            <div class="bg-orange-900/10 border border-orange-500/20 rounded-lg px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                <p class="text-xs text-slate-400"><i class="fa-solid fa-circle-info text-orange-400"></i> Alur: Baru → Verifikasi → Diterima/Ditolak; calon Diterima dapat dikonversi menjadi akun murid.</p>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="openFormPpdbCalon(true)" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-plus"></i> Tambah Calon</button>
+                    <button onclick="openImportPpdb()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-import"></i> Import Excel</button>
+                    <button onclick="exportPpdbExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                    <button onclick="cetakDaftarPpdbPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                </div>
+            </div>
+            <div class="overflow-auto custom-scrollbar border border-white/10 rounded-xl max-h-[52vh]">
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400 sticky top-0"><tr>
+                        <th class="px-3 py-2 text-center">No</th><th class="px-3 py-2">No. Daftar</th><th class="px-3 py-2">Nama</th><th class="px-3 py-2">Asal Sekolah</th><th class="px-3 py-2">Jalur</th><th class="px-3 py-2">Daftar</th><th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2 text-center">Akun</th><th class="px-3 py-2 text-center">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-ppdb" class="text-xs text-slate-200"><tr><td colspan="9" class="p-4 text-center text-slate-500 italic">Memuat calon...</td></tr></tbody>
+                </table>
+            </div>
+        </div>`;
+    await muatPpdbCalon();
+}
+
+async function muatPpdbCalon() {
+    try {
+        let q = supaClient.from('ppdb_calon').select('*').order('created_at', { ascending: false }).limit(500);
+        if (ppdbPilih.ta && ppdbPilih.ta !== 'ALL') q = q.eq('ta', ppdbPilih.ta);
+        const { data, error } = await q;
+        if (error) throw error;
+        ppdbCache = data || [];
+    } catch (e) {
+        console.error(e);
+        ppdbCache = [];
+        const tb = document.getElementById('tbody-ppdb');
+        if (tb) tb.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-red-400 text-[11px]">Gagal memuat calon PPDB — pastikan <b>upgrade_20260919_fase4.sql</b> sudah dijalankan di Supabase SQL Editor.</td></tr>`;
+        return;
+    }
+    renderPpdbRekap();
+    renderPpdbTabel();
+}
+
+function renderPpdbRekap() {
+    const rk = document.getElementById('ppdb-rekap');
+    if (!rk) return;
+    const siap = ppdbCache.filter(r => r.status === 'Diterima' && !r.akun_dibuat).length;
+    const mini = (icon, warna, judul, v, t2 = '') => `
+        <div class="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ${warna} shrink-0"><i class="fa-solid ${icon} text-xs"></i></div>
+            <div><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${judul}</div><div class="text-[13px] font-extrabold text-white leading-tight">${v}</div>${t2 ? `<div class="text-[8px] text-slate-400">${t2}</div>` : ''}</div>
+        </div>`;
+    rk.innerHTML = `
+        ${mini('fa-users', 'bg-blue-600/20 text-blue-400', 'Total Calon', ppdbCache.length)}
+        ${mini('fa-flag', 'bg-slate-600/40 text-slate-200', 'Baru', ppdbCache.filter(r => r.status === 'Baru').length)}
+        ${mini('fa-magnifying-glass', 'bg-amber-600/20 text-amber-400', 'Verifikasi', ppdbCache.filter(r => r.status === 'Verifikasi').length)}
+        ${mini('fa-circle-check', 'bg-green-600/20 text-green-400', 'Diterima', ppdbCache.filter(r => r.status === 'Diterima').length)}
+        ${mini('fa-circle-xmark', 'bg-rose-600/20 text-rose-400', 'Ditolak', ppdbCache.filter(r => r.status === 'Ditolak').length)}
+        ${mini('fa-wand-magic-sparkles', 'bg-orange-600/20 text-orange-400', 'Siap Konversi', siap, 'diterima, akun belum dibuat')}`;
+}
+
+function renderPpdbTabel() {
+    const tb = document.getElementById('tbody-ppdb');
+    if (!tb) return;
+    const q = (ppdbPilih.cari || '').toLowerCase();
+    const rows = ppdbCache.filter(r =>
+        (ppdbPilih.status === 'ALL' || r.status === ppdbPilih.status)
+        && (ppdbPilih.jalur === 'ALL' || String(r.jalur || '') === ppdbPilih.jalur)
+        && (!q || `${r.nama || ''} ${r.nisn || ''} ${r.no_daftar || ''}`.toLowerCase().includes(q)));
+    if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-slate-500 italic">Tidak ada calon sesuai filter — klik "Tambah Calon" atau import Excel.</td></tr>`; return; }
+    tb.innerHTML = rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5">
+        <td class="px-3 py-2 text-center text-slate-400">${i + 1}</td>
+        <td class="px-3 py-2 font-mono text-orange-300 text-[10px]">${escapeHtml(r.no_daftar || '-')}</td>
+        <td class="px-3 py-2"><span class="font-bold text-white">${escapeHtml(r.nama || '-')}</span><div class="text-[9px] text-slate-400">NISN ${escapeHtml(r.nisn || '-')} · ${escapeHtml(r.jenis_kelamin === 'L' ? 'Laki-laki' : 'Perempuan')}</div></td>
+        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.asal_sekolah || '-')}</td>
+        <td class="px-3 py-2"><span class="bg-indigo-900/50 text-indigo-300 px-2 py-0.5 rounded text-[10px]">${escapeHtml(r.jalur || '-')}</span></td>
+        <td class="px-3 py-2 text-[10px]">${escapeHtml(r.tanggal_daftar ? fmtTglKalender(String(r.tanggal_daftar).slice(0, 10)) : '-')}</td>
+        <td class="px-3 py-2 text-center">${badgeStatusPpdb(r.status)}${r.catatan ? `<div class="text-[9px] text-slate-400 truncate max-w-[160px]" title="${escapeHtml(r.catatan)}">${escapeHtml(r.catatan)}</div>` : ''}</td>
+        <td class="px-3 py-2 text-center">${r.akun_dibuat ? `<span class="text-[10px] px-2 py-0.5 rounded bg-violet-600/40 text-violet-200 font-bold">NIS ${escapeHtml(r.nis || '-')}</span>` : '<span class="text-[9px] text-slate-500 italic">-</span>'}</td>
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+            <button onclick="ubahStatusPpdb('${escJs(r.id)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Ubah Status"><i class="fa-solid fa-arrows-rotate"></i></button>
+            ${(r.status === 'Diterima' && !r.akun_dibuat) ? `<button onclick="konversiPpdbAkun('${escJs(r.id)}')" class="w-7 h-7 bg-violet-600/20 hover:bg-violet-600 text-violet-400 hover:text-white rounded transition mr-1" title="Jadikan Akun Murid"><i class="fa-solid fa-wand-magic-sparkles"></i></button>` : ''}
+            <button onclick="openFormPpdbCalon(false, '${escJs(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="hapusPpdbCalon('${escJs(r.id)}', '${escJs(r.nama || '')}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+        </td>
+    </tr>`).join('');
+}
+
+async function openFormPpdbCalon(isBaru, id = null) {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengelola calon PPDB.');
+    let row = {};
+    if (!isBaru) {
+        const { data, error } = await supaClient.from('ppdb_calon').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Calon tidak ditemukan.');
+        row = data;
+    }
+    const listTa = daftarTaPpdb();
+    const taDefault = ppdbPilih.ta !== 'ALL' ? ppdbPilih.ta : taBerikutnyaPpdb();
+    const taForm = row.ta || taDefault;
+    let noDefault = row.no_daftar || '';
+    if (isBaru && !noDefault) noDefault = nomorDaftarPpdb(await urutPpdbBerikut(taForm), taForm);
+    const agamaList = [...new Set((masterDataCache || []).map(m => m["Agama"]).filter(Boolean))];
+    const res = await Swal.fire({
+        title: isBaru ? 'Tambah Calon PPDB' : 'Edit Calon PPDB',
+        width: 640,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="font-bold text-orange-300">TA Tujuan</label>
+                    <select id="pc-ta" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listTa.map(t => `<option value="${escJs(t)}" ${t === taForm ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-orange-300">No. Daftar</label>
+                    <input id="pc-no" value="${escapeHtml(noDefault)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                    <div><label class="font-bold text-orange-300">Tgl Daftar</label>
+                    <input id="pc-tanggal" type="date" value="${escapeHtml(String(row.tanggal_daftar || ISO_HARIAN(new Date())).slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="col-span-2"><label class="font-bold text-orange-300">Nama Lengkap</label>
+                    <input id="pc-nama" value="${escapeHtml(row.nama || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">NISN</label>
+                    <input id="pc-nisn" value="${escapeHtml(row.nisn || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                </div>
+                <div class="grid grid-cols-4 gap-2">
+                    <div><label class="font-bold text-orange-300">Jenis Kelamin</label>
+                    <select id="pc-jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="L" ${row.jenis_kelamin === 'L' ? 'selected' : ''}>Laki-laki</option><option value="P" ${row.jenis_kelamin === 'P' ? 'selected' : ''}>Perempuan</option></select></div>
+                    <div><label class="font-bold text-orange-300">Tempat Lahir</label>
+                    <input id="pc-tempat" value="${escapeHtml(row.tempat_lahir || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Tgl Lahir</label>
+                    <input id="pc-lahir" type="date" value="${escapeHtml(String(row.tgl_lahir || '').slice(0, 10))}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Agama</label>
+                    <input id="pc-agama" value="${escapeHtml(row.agama || '')}" list="dl-agama" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">
+                    <datalist id="dl-agama">${agamaList.map(a => `<option value="${escJs(a)}">`).join('')}</datalist></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-orange-300">Asal Sekolah (SMP/MTs)</label>
+                    <input id="pc-asal" value="${escapeHtml(row.asal_sekolah || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Telepon/HP Ortu</label>
+                    <input id="pc-telepon" value="${escapeHtml(row.telepon || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div><label class="font-bold text-orange-300">Alamat</label>
+                <textarea id="pc-alamat" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(row.alamat || '')}</textarea></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-orange-300">Nama Ayah</label>
+                    <input id="pc-ayah" value="${escapeHtml(row.nama_ayah || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Pekerjaan Ayah</label>
+                    <input id="pc-payah" value="${escapeHtml(row.pekerjaan_ayah || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-orange-300">Nama Ibu</label>
+                    <input id="pc-ibu" value="${escapeHtml(row.nama_ibu || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Pekerjaan Ibu</label>
+                    <input id="pc-pibu" value="${escapeHtml(row.pekerjaan_ibu || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="font-bold text-orange-300">Nama Wali</label>
+                    <input id="pc-wali" value="${escapeHtml(row.nama_wali || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                    <div><label class="font-bold text-orange-300">Jalur</label>
+                    <select id="pc-jalur" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${JALUR_PPDB.map(j => `<option value="${escJs(j)}" ${j === (row.jalur || 'Reguler') ? 'selected' : ''}>${escapeHtml(j)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-orange-300">Status</label>
+                    <select id="pc-status" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${STATUS_PPDB.map(s => `<option value="${escJs(s)}" ${s === (row.status || 'Baru') ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select></div>
+                </div>
+                <div><label class="font-bold text-orange-300">Tautan Berkas (Google Drive/dll)</label>
+                <input id="pc-berkas" value="${escapeHtml(row.berkas_link || '')}" placeholder="https://..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+                <div><label class="font-bold text-orange-300">Catatan</label>
+                <textarea id="pc-catatan" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(row.catatan || '')}</textarea></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const nama = document.getElementById('pc-nama').value.trim();
+            const noDaftar = document.getElementById('pc-no').value.trim();
+            if (!nama) { Swal.showValidationMessage('Nama wajib diisi.'); return false; }
+            if (!noDaftar) { Swal.showValidationMessage('No. daftar wajib diisi.'); return false; }
+            return {
+                ta: document.getElementById('pc-ta').value,
+                no_daftar: document.getElementById('pc-no').value.trim(),
+                nama,
+                nisn: document.getElementById('pc-nisn').value.trim(),
+                jenis_kelamin: document.getElementById('pc-jk').value,
+                tempat_lahir: document.getElementById('pc-tempat').value.trim(),
+                tgl_lahir: document.getElementById('pc-lahir').value || null,
+                agama: document.getElementById('pc-agama').value.trim(),
+                asal_sekolah: document.getElementById('pc-asal').value.trim(),
+                alamat: document.getElementById('pc-alamat').value.trim(),
+                telepon: document.getElementById('pc-telepon').value.trim(),
+                nama_ayah: document.getElementById('pc-ayah').value.trim(),
+                pekerjaan_ayah: document.getElementById('pc-payah').value.trim(),
+                nama_ibu: document.getElementById('pc-ibu').value.trim(),
+                pekerjaan_ibu: document.getElementById('pc-pibu').value.trim(),
+                nama_wali: document.getElementById('pc-wali').value.trim(),
+                jalur: document.getElementById('pc-jalur').value,
+                status: document.getElementById('pc-status').value,
+                catatan: document.getElementById('pc-catatan').value.trim(),
+                berkas_link: document.getElementById('pc-berkas').value.trim(),
+                tanggal_daftar: document.getElementById('pc-tanggal').value || null,
+                dibuat_oleh: namaPetugasSekolah()
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    try {
+        let error;
+        if (isBaru) ({ error } = await supaClient.from('ppdb_calon').insert(res.value));
+        else ({ error } = await supaClient.from('ppdb_calon').update(res.value).eq('id', id));
+        if (error) throw error;
+        showToast('success', 'Calon PPDB tersimpan.');
+        muatPpdbCalon();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Gagal menyimpan calon (no. daftar harus unik) — pastikan upgrade_20260919_fase4.sql sudah dijalankan.');
+    }
+}
+
+async function ubahStatusPpdb(id) {
+    let c;
+    try {
+        const { data, error } = await supaClient.from('ppdb_calon').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Calon tidak ditemukan.');
+        c = data;
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat calon.'); }
+    const res = await Swal.fire({
+        title: 'Ubah Status — ' + (c.nama || ''),
+        width: 460,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <div><label class="font-bold text-orange-300">Status</label>
+                <select id="us-status" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${STATUS_PPDB.map(s => `<option value="${escJs(s)}" ${s === c.status ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select></div>
+                <div><label class="font-bold text-orange-300">Catatan Verifikasi/Keputusan</label>
+                <textarea id="us-catatan" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(c.catatan || '')}</textarea></div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => ({ status: document.getElementById('us-status').value, catatan: document.getElementById('us-catatan').value.trim() })
+    });
+    if (!res.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('ppdb_calon').update(res.value).eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Status diperbarui.');
+        muatPpdbCalon();
+    } catch (e) { console.error(e); showToast('error', 'Gagal memperbarui status.'); }
+}
+
+/** Konversi calon Diterima → akun murid (RPC buat_akun_murid, admin-only). */
+async function konversiPpdbAkun(id) {
+    let c;
+    try {
+        const { data, error } = await supaClient.from('ppdb_calon').select('*').eq('id', id).maybeSingle();
+        if (error || !data) return showToast('error', 'Calon tidak ditemukan.');
+        if (c = data, c.status !== 'Diterima') return showToast('error', 'Hanya calon berstatus Diterima yang dapat dikonversi.');
+        if (c.akun_dibuat) return showToast('success', 'Calon ini sudah dikonversi menjadi akun murid.');
+    } catch (e) { console.error(e); return showToast('error', 'Gagal memuat calon.'); }
+    const listTa = daftarTaPpdb();
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const res = await Swal.fire({
+        title: 'Jadikan Akun Murid — ' + (c.nama || ''),
+        width: 500,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <p class="text-[10px] text-slate-400">Profil calon (ortu, alamat, lahir, agama) ikut terbawa ke akun murid.</p>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-violet-300">NIS (wajib, unik)</label>
+                    <input id="kv-nis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                    <div><label class="font-bold text-violet-300">Kelas</label>
+                    <select id="kv-kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="font-bold text-violet-300">Tahun Pelajaran</label>
+                    <select id="kv-ta" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listTa.map(t => `<option value="${escJs(t)}" ${t === (c.ta || taBerikutnyaPpdb()) ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+                    <div><label class="font-bold text-violet-300">Password Awal</label>
+                    <input id="kv-pass" value="123456" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none font-mono"></div>
+                </div>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-wand-magic-sparkles"></i> Buat Akun', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const nis = document.getElementById('kv-nis').value.trim();
+            if (!nis) { Swal.showValidationMessage('NIS wajib diisi.'); return false; }
+            const pass = document.getElementById('kv-pass').value;
+            if (pass && pass.length < 6) { Swal.showValidationMessage('Password minimal 6 karakter (atau kosongkan = 123456).'); return false; }
+            return {
+                nis,
+                password: pass || '123456',
+                kelas: document.getElementById('kv-kelas').value,
+                ta: document.getElementById('kv-ta').value
+            };
+        }
+    });
+    if (!res.isConfirmed) return;
+    const v = res.value;
+    const p_data = {
+        nis: v.nis,
+        password: v.password,
+        nama_lengkap: c.nama || '',
+        nisn: c.nisn || '',
+        tingkat_kelas: v.kelas,
+        tahun_pelajaran: v.ta,
+        semester: semesterDefaultSistem(),
+        jenis_kelamin: c.jenis_kelamin || '',
+        tgl_lahir: c.tgl_lahir || '',
+        agama: c.agama || '',
+        nama_ayah: c.nama_ayah || '',
+        pekerjaan_ayah: c.pekerjaan_ayah || '',
+        nama_ibu: c.nama_ibu || '',
+        pekerjaan_ibu: c.pekerjaan_ibu || '',
+        nama_wali: c.nama_wali || '',
+        alamat: c.alamat || '',
+        no_telepon: c.telepon || ''
+    };
+    Swal.fire({ title: 'Membuat akun murid...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    try {
+        const { data: resp, error } = await supaClient.rpc('buat_akun_murid', { p_data });
+        if (error) throw error;
+        if (!resp || resp.status !== 'success') throw new Error((resp && resp.message) || 'RPC menolak.');
+        const { error: eUpd } = await supaClient.from('ppdb_calon').update({ nis: v.nis, akun_dibuat: true }).eq('id', id);
+        if (eUpd) throw eUpd;
+        invalidasiCacheAkun();
+        await Swal.fire({ icon: 'success', title: 'Akun Murid Dibuat!', text: `${c.nama} → NIS ${v.nis} (${v.kelas}, ${v.ta}). Cek menu Data Akun Murid.`, background: '#1e293b', color: '#fff' });
+        muatPpdbCalon();
+    } catch (e) {
+        console.error(e);
+        await Swal.fire({ icon: 'error', title: 'Konversi Gagal', text: (e && e.message) || 'Gagal membuat akun murid.', background: '#1e293b', color: '#fff' });
+    }
+}
+
+async function hapusPpdbCalon(id, nama) {
+    const konf = await Swal.fire({ icon: 'warning', title: 'Hapus calon PPDB?', text: nama, showCancelButton: true, confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+    if (!konf.isConfirmed) return;
+    try {
+        const { error } = await supaClient.from('ppdb_calon').delete().eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Calon dihapus.');
+        muatPpdbCalon();
+    } catch (e) { console.error(e); showToast('error', 'Gagal menghapus calon.'); }
+}
+
+async function renderTabPpdbStatistik(wrap) {
+    if (ppdbCache.length === 0) await muatPpdbCalon();
+    const rows = ppdbPilih.ta !== 'ALL' ? ppdbCache.filter(r => String(r.ta) === String(ppdbPilih.ta)) : ppdbCache;
+    const total = rows.length;
+    const bar = (label, n, warna) => {
+        const pct = total ? Math.round(n / total * 100) : 0;
+        return `<div class="flex items-center gap-2">
+            <span class="text-[10px] w-16 shrink-0 text-slate-400">${escapeHtml(label)}</span>
+            <div class="flex-1 h-3 bg-white/5 rounded-full overflow-hidden"><div class="h-full rounded-full ${warna}" style="width:${total ? Math.round(n / total * 100) : 0}%"></div></div>
+            <span class="text-[10px] font-bold w-8 text-right text-slate-300">${n}</span>
+        </div>`;
+    };
+    const perJalur = JALUR_PPDB.map(j => bar(j, rows.filter(r => (r.jalur || 'Reguler') === j).length, 'bg-gradient-to-r from-orange-600 to-orange-400')).join('');
+    const perAsal = {};
+    rows.forEach(r => { const k = (r.asal_sekolah || 'Tidak dicantumkan').trim() || 'Tidak dicantumkan'; perAsal[k] = (perAsal[k] || 0) + 1; });
+    const topAsal = Object.entries(perAsal).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const siapKonversi = rows.filter(r => r.status === 'Diterima' && !r.akun_dibuat);
+    wrap.innerHTML = `
+        <div class="p-4 space-y-3">
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                ${['Total|fa-users|bg-blue-600/20 text-blue-400', 'Baru|fa-inbox|bg-slate-600/20 text-slate-200', 'Verifikasi|fa-magnifying-glass|bg-amber-600/20 text-amber-400', 'Diterima|fa-circle-check|bg-green-600/20 text-green-400', 'Ditolak|fa-circle-xmark|bg-rose-600/20 text-rose-400', 'Siap Konversi|fa-wand-magic-sparkles|bg-orange-600/20 text-orange-400'].map(s => {
+                    const [judul, icon, warna] = s.split('|');
+                    const n = judul === 'Total' ? rows.length : judul === 'Siap Konversi' ? siapKonversi.length : rows.filter(r => r.status === judul).length;
+                    return `<div class="bg-white/5 border border-white/10 rounded-xl p-2.5"><div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold">${escapeHtml(judul)}</div><div class="text-[15px] font-extrabold text-white">${n}</div></div>`;
+                }).join('')}
+            </div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-route text-orange-400 mr-1"></i> Jalur Pendaftaran${ppdbPilih.ta !== 'ALL' ? ' — TA ' + escapeHtml(ppdbPilih.ta) : ''}</h3>
+                <div class="space-y-1.5">${perJalur}</div>
+            </div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-school text-blue-400 mr-1"></i> Asal Sekolah Terbanyak</h3>
+                ${topAsal.length === 0 ? `<p class="text-[11px] text-slate-500 italic">Belum ada data.</p>` : topAsal.map(([k, n]) => bar(String(k).slice(0, 24), n, 'bg-gradient-to-r from-blue-600 to-blue-400')).join('')}
+            </div>
+            <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-wand-magic-sparkles text-violet-400 mr-1"></i> Diterima — Siap Dikonversi (${siapKonversi.length})</h3>
+                ${siapKonversi.length === 0 ? `<p class="text-[11px] text-slate-500 italic">Tidak ada calon Diterima yang menunggu konversi akun.</p>` : `
+                <div class="space-y-1.5">${siapKonversi.map(r => `
+                    <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5">
+                        <span class="text-[10px] font-bold text-white truncate flex-1">${escapeHtml(r.nama || '-')}</span>
+                        <span class="text-[8px] text-slate-400">${escapeHtml(r.asal_sekolah || '-')}</span>
+                        <button onclick="konversiPpdbAkun('${escJs(r.id)}')" class="px-2 py-1 rounded bg-violet-600 hover:bg-violet-700 text-[10px] font-bold transition"><i class="fa-solid fa-wand-magic-sparkles"></i> Konversi</button>
+                    </div>`).join('')}</div>`}
+            </div>
+        </div>`;
+}
+
+async function exportPpdbExcel() {
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    if (ppdbCache.length === 0) return showToast('error', 'Tidak ada data calon untuk diexport.');
+    try {
+        const aoa = [
+            ['DAFTAR CALON PPDB — TA ' + (ppdbPilih.ta !== 'ALL' ? ppdbPilih.ta : 'SEMUA')],
+            [],
+            ['No. Daftar', 'Nama', 'NISN', 'JK', 'Tempat Lahir', 'Tgl Lahir', 'Agama', 'Asal Sekolah', 'Alamat', 'Telepon', 'Nama Ayah', 'Pekerjaan Ayah', 'Nama Ibu', 'Pekerjaan Ibu', 'Nama Wali', 'Jalur', 'Status', 'Catatan', 'NIS', 'Akun Dibuat'],
+            ...ppdbCache.map(r => [
+                r.no_daftar || '', r.nama || '', r.nisn || '', r.jenis_kelamin || '', r.tempat_lahir || '', r.tgl_lahir ? String(r.tgl_lahir).slice(0, 10) : '', r.agama || '', r.asal_sekolah || '', r.alamat || '', r.telepon || '',
+                r.nama_ayah || '', r.pekerjaan_ayah || '', r.nama_ibu || '', r.pekerjaan_ibu || '', r.nama_wali || '',
+                r.jalur || '', r.status || '', r.catatan || '', r.nis || '', r.akun_dibuat ? 'Ya' : 'Belum'
+            ])
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Calon PPDB');
+        XLSX.writeFile(wb, `PPDB_${ppdbPilih.ta !== 'ALL' ? ppdbPilih.ta : 'Semua'}.xlsx`);
+        showToast('success', 'Daftar calon Excel diunduh.');
+    } catch (e) { console.error(e); showToast('error', 'Gagal export Excel.'); }
+}
+
+async function cetakDaftarPpdbPDF() {
+    if (ppdbCache.length === 0) return showToast('error', 'Tidak ada data calon untuk dicetak.');
+    const idn = barisIdentitasMaster();
+    const rows = ppdbCache.map((r, i) => `<tr>
+        <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${i + 1}</td>
+        <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(r.no_daftar || '-')}</td>
+        <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(r.nama || '-')}<div style="font-size:8.5px;color:#475569;">NISN ${escapeHtml(r.nisn || '-')}</div></td>
+        <td style="border:1px solid #333;padding:3px 5px;font-size:10px;">${escapeHtml(r.asal_sekolah || '-')}</td>
+        <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${escapeHtml(r.jalur || '-')}</td>
+        <td style="border:1px solid #333;padding:3px 5px;text-align:center;font-size:10px;">${escapeHtml(r.status || '-')}</td>
+    </tr>`).join('');
+    const isi = `
+        <div style="text-align:center;margin-bottom:10px;">
+            <div style="font-size:14px;font-weight:bold;">${escapeHtml(idn["Nama Sekolah"] || 'SEKOLAH')}</div>
+            <div style="font-size:11px;">${escapeHtml(idn["Alamat Sekolah"] || '')}</div>
+            <div style="font-size:12px;font-weight:bold;margin-top:6px;">DAFTAR CALON PESERTA DIDIK BARU (PPDB)</div>
+            <div style="font-size:10px;">Tahun Pelajaran ${escapeHtml(ppdbPilih.ta !== 'ALL' ? ppdbPilih.ta : taBerikutnyaPpdb())}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead><tr>${['No', 'No. Daftar', 'Nama (NISN)', 'Asal Sekolah', 'Jalur', 'Status'].map((h, i) => `<th style="border:1px solid #333;background:#e2e8f0;padding:3px 5px;font-size:10px;${i === 2 ? 'width:30%;' : ''}">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <table style="width:100%;border:none;margin-top:24px;font-size:11px;"><tr>
+            <td style="width:60%;border:none;"></td>
+            <td style="border:none;text-align:center;">Ketua Panitia PPDB<br><br><br><br><br><b><u>${escapeHtml(idn["Kepala Sekolah"] || '_____________________')}</u></b></td>
+        </tr></table>`;
+    bukaCetakHTML(`Daftar Calon PPDB`, isi);
+}
+
+async function unduhTemplatePpdb() {
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    const aoa = [
+        ['Nama', 'NISN', 'Jenis Kelamin', 'Tempat Lahir', 'Tanggal Lahir', 'Agama', 'Asal Sekolah', 'Alamat', 'Telepon', 'Nama Ayah', 'Pekerjaan Ayah', 'Nama Ibu', 'Pekerjaan Ibu', 'Nama Wali', 'Jalur'],
+        ['Contoh Siswa', '0012345678', 'L', 'Kota Contoh', '2011-05-12', 'Islam', 'SMP Negeri 1 Contoh', 'Jl. Contoh No. 1', '081234567890', 'Bapak Contoh', 'Petani', 'Ibu Contoh', 'Ibu Rumah Tangga', '', 'Reguler']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'Template_PPDB.xlsx');
+    showToast('success', 'Template diunduh.');
+}
+
+async function openImportPpdb() {
+    if (!isAdminAktif()) return showToast('error', 'Hanya admin yang dapat mengimpor calon.');
+    const taImport = ppdbPilih.ta !== 'ALL' ? ppdbPilih.ta : taBerikutnyaPpdb();
+    if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+    const res = await Swal.fire({
+        title: 'Import Calon PPDB (Excel)',
+        width: 520,
+        html: `
+            <div class="text-left text-[11px] text-slate-300 mt-2 space-y-2">
+                <p>Target TA: <b class="text-white">${escapeHtml(taImport)}</b> — semua baris dibuat status <b>Baru</b>, nomor daftar otomatis.</p>
+                <button onclick="unduhTemplatePpdb()" class="w-full bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded text-[10px] font-bold transition"><i class="fa-solid fa-download"></i> Unduh Template Excel</button>
+                <input id="pp-file" type="file" accept=".xlsx,.xls" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white text-[10px]">
+                <p class="text-[9px] text-slate-500">Kolom (urut): Nama · NISN · Jenis Kelamin · Tempat Lahir · Tanggal Lahir · Agama · Asal Sekolah · Alamat · Telepon · Nama Ayah · Pekerjaan Ayah · Nama Ibu · Pekerjaan Ibu · Nama Wali · Jalur</p>
+            </div>`,
+        background: '#1e293b', color: '#fff', showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-file-import"></i> Import', cancelButtonText: 'Batal',
+        preConfirm: () => {
+            const f = document.getElementById('pp-file').files[0];
+            if (!f) { Swal.showValidationMessage('Pilih file Excel terlebih dahulu.'); return false; }
+            return f;
+        }
+    });
+    if (!res.isConfirmed) return;
+    Swal.fire({ title: 'Mengimpor calon...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+    try {
+        const buf = await res.value.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true });
+        const baris = (aoa || []).slice(1).filter(r => String(r[0] || '').trim());
+        if (baris.length === 0) throw new Error('Tidak ada baris data (data mulai baris 2).');
+        let urut = await urutPpdbBerikut(taImport);
+        const now = new Date();
+        const payloads = baris.map((r, i) => ({
+            ta: taImport,
+            no_daftar: formatNoDaftarPpdb(urut + i, taImport),
+            nama: String(r[0] || '').trim() || 'Tanpa Nama',
+            nisn: String(r[1] || '').trim(),
+            jenis_kelamin: String(r[2] || '').trim().toUpperCase().startsWith('L') ? 'L' : 'P',
+            tempat_lahir: String(r[3] || '').trim(),
+            tgl_lahir: parseTglExcel(r[4]),
+            agama: String(r[5] || '').trim(),
+            asal_sekolah: String(r[6] || '').trim(),
+            alamat: String(r[7] || '').trim(),
+            telepon: String(r[8] || '').trim(),
+            nama_ayah: String(r[9] || '').trim(),
+            pekerjaan_ayah: String(r[10] || '').trim(),
+            nama_ibu: String(r[11] || '').trim(),
+            pekerjaan_ibu: String(r[12] || '').trim(),
+            nama_wali: String(r[13] || '').trim(),
+            jalur: JALUR_PPDB.includes(String(r[14] || '').trim()) ? String(r[14]).trim() : 'Reguler',
+            status: 'Baru',
+            tanggal_daftar: ISO_HARIAN(now),
+            dibuat_oleh: namaPetugasSekolah()
+        }));
+        const { error } = await supaClient.from('ppdb_calon').insert(payloads);
+        if (error) throw error;
+        showToast('success', `${payloads.length} calon diimport.`);
+        muatPpdbCalon();
+    } catch (e) {
+        console.error(e);
+        await Swal.fire({ icon: 'error', title: 'Import Gagal', text: (e && e.message) || 'Pastikan file mengikuti template.', background: '#1e293b', color: '#fff' });
+    }
 }
