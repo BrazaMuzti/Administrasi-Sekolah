@@ -6,9 +6,7 @@
   "scripts": {
     "build:css": "tailwindcss -i web/css/input.css -o web/css/style.css --minify",
     "dev:css": "tailwindcss -i web/css/input.css -o web/css/style.css --watch",
-    "login:gas": "clasp login",
-    "push:gas": "cd apps-script && clasp push",
-    "deploy": "npm run build:css && cd apps-script && clasp push",
+    "deploy": "npm run build:css",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:e2e": "node scripts/e2e-api.mjs"
   },
@@ -23,7 +21,6 @@
   },
   "homepage": "https://github.com/BrazaMuzti/Administrasi-Sekolah#readme",
   "devDependencies": {
-    "@google/clasp": "^3.4.0",
     "@supabase/supabase-js": "^2.116.0",
     "@tailwindcss/cli": "^4.3.3",
     "tailwindcss": "^4.3.3"

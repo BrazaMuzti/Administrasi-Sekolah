@@ -7,15 +7,9 @@
     "checkJs": false
   },
   "include": [
-    "**/*.js",
-    "**/*.gs"
+    "**/*.js"
   ],
   "exclude": [
     "node_modules"
-  ],
-  "typeAcquisition": {
-    "include": [
-      "google-apps-script"
-    ]
-  }
+  ]
 }
