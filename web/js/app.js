@@ -772,22 +772,39 @@ function toggleFabMenu() {
 
   if(isFabOpen) {
       fabIcon.style.transform = 'rotate(90deg)';
-      menuList.style.display = 'flex';
 
       const isTopHalf = rect.top < (window.innerHeight / 2);
-      if(isTopHalf) {
-          menuList.style.top = '70px'; menuList.style.bottom = 'auto'; menuList.style.flexDirection = 'column'; 
-      } else {
-          menuList.style.top = 'auto'; menuList.style.bottom = '70px'; menuList.style.flexDirection = 'column-reverse'; 
-      }
-
       const isLeftHalf = rect.left < (window.innerWidth / 2);
+
+      // Reset gaya posisi & alur (mencegah sisa mode sebelumnya)
+      menuList.style.flexWrap = 'nowrap';
+      menuList.style.maxWidth = '';
+      menuList.style.alignContent = 'flex-start';
+      menuList.style.display = 'flex';
+
+      if(isTopHalf) {
+          menuList.style.top = '70px'; menuList.style.bottom = 'auto'; menuList.style.flexDirection = 'column';
+      } else {
+          menuList.style.top = 'auto'; menuList.style.bottom = '70px'; menuList.style.flexDirection = 'column-reverse';
+      }
       if(isLeftHalf) {
           menuList.style.left = '0px'; menuList.style.right = 'auto'; menuList.style.alignItems = 'flex-start';
-          renderFabMenuItems('left'); 
+          renderFabMenuItems('left');
       } else {
           menuList.style.left = 'auto'; menuList.style.right = '0px'; menuList.style.alignItems = 'flex-end';
-          renderFabMenuItems('right'); 
+          renderFabMenuItems('right');
+      }
+
+      // Menu melebihi batas layar → alihkan ke MODE SAMPING: alur horizontal di sisi FAB yang lapang
+      if (menuList.scrollHeight > window.innerHeight - 140 + 8) {
+          menuList.style.flexDirection = isLeftHalf ? 'row' : 'row-reverse';
+          menuList.style.flexWrap = 'wrap';
+          menuList.style.alignContent = 'flex-start';
+          menuList.style.alignItems = 'flex-start';
+          menuList.style.top = '0px'; menuList.style.bottom = 'auto';
+          menuList.style.left = isLeftHalf ? '70px' : 'auto';
+          menuList.style.right = isLeftHalf ? 'auto' : '70px';
+          menuList.style.maxWidth = Math.max(320, window.innerWidth - 90) + 'px';
       }
 
       setTimeout(() => {
@@ -807,7 +824,7 @@ function renderFabMenuItems(align = 'left') {
   menuList.innerHTML = '';
 
   // Modul administrasi dikelompokkan di submenu "Administrasi" agar daftar FAB tidak keluar layar
-  const idsGrup = ['surat-pengumuman', 'spp-kas', 'inventaris', 'ppdb', 'rapor', 'poin-siswa', 'perpustakaan'];
+  const idsGrup = ['surat-pengumuman', 'spp-kas', 'inventaris', 'ppdb', 'rapor', 'poin-siswa', 'perpustakaan', 'administrasi-guru'];
   const buatItem = (m, sub = false) => {
       const btn = document.createElement('div');
       btn.className = `fab-child-menu flex items-center gap-3 cursor-pointer hover:scale-110 transition-transform ${align === 'right' ? 'flex-row-reverse' : 'flex-row'} ${sub ? 'ml-2' : ''}`;
