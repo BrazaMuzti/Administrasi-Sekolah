@@ -1,6 +1,6 @@
 # Administrasi-Sekolah
 
-**SIAKAD / SISIP** — Sistem Informasi Hadir Tatap Muka dan Nilai Murid — SMKN 2 Banjar.
+**SISIP** — Sistem Informasi Sekolah Indonesia pintar
 
 Aplikasi web statis (HTML + JS + Tailwind CSS v4) yang terhubung **langsung ke Supabase**
 (PostgreSQL + RLS + RPC). Tidak ada backend terpisah — seluruh API memakai Supabase
@@ -109,7 +109,7 @@ Aplikasi butuh dua kredensial dari project Supabase:
 Nilai default sudah tertanam di `web/js/utils.js`:
 
 ```js
-const SUPABASE_URL_DEFAULT = 'https://lkhuyoihrrnzvrmhquln.supabase.co';
+const SUPABASE_URL_DEFAULT = 'https://xxxxxxxx.supabase.co';
 const SUPABASE_ANON_KEY_DEFAULT = 'sb_publishable_...';
 ```
 
