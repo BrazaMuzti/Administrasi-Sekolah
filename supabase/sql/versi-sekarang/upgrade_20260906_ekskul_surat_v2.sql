@@ -16,17 +16,39 @@ alter table sub_ekstrakurikuler
 -- ========== 2. MIGRASI DATA KEANGGOTAAN LAMA ==========
 -- Masukkan NIS dari anggota_sub_ekskul ke array anggota baris sub yang cocok
 -- (hanya bila kolom anggota masih kosong — idempoten).
-update sub_ekstrakurikuler s
-set anggota = sub.anggota
-from (
-  select ekskul, nama_sub, jsonb_agg(distinct nis order by nis) as anggota
-  from anggota_sub_ekskul
-  where coalesce(sub, '') <> ''
-  group by ekskul, nama_sub
-) sub
-where s.ekskul = sub.ekskul
-  and s.nama_sub = sub.nama_sub
-  and coalesce(s.anggota, '[]'::jsonb) = '[]'::jsonb;
+do $$
+declare
+  v_kol text;
+begin
+  if to_regclass('public.anggota_sub_ekskul') is not null then
+    -- [PERBAIKAN 42703] kolom penyimpan nama sub dideteksi otomatis:
+    -- skema v1 memakai kolom "sub" (bukan "nama_sub") — deteksi via information_schema, dipakai via %I.
+    select case
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'nama_sub') then 'nama_sub'
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'sub') then 'sub'
+      else null
+    end into v_kol;
+    if v_kol is not null then
+      execute format($f$
+        update sub_ekstrakurikuler s
+        set anggota = q.anggota
+        from (
+          select ekskul, %I as nama_sub, jsonb_agg(distinct nis order by nis) as anggota
+          from anggota_sub_ekskul
+          where coalesce(%I, '') <> ''
+          group by ekskul, %I
+        ) q
+        where s.ekskul = q.ekskul
+          and s.nama_sub = q.nama_sub
+          and coalesce(s.anggota, '[]'::jsonb) = '[]'::jsonb
+      $f$, v_kol, v_kol, v_kol);
+    end if;
+  end if;
+end $$;
 
 -- ========== 3. DROP TABEL LAMA ==========
 drop table if exists anggota_sub_ekskul;

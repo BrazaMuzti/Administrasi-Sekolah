@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SIAKAD / SISIP — SKEMA DATABASE LENGKAP (VERSI SEKARANG)
--- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-09-22
+-- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-09-28
 --
 -- CARA PAKAI (project Supabase BARU):
 --   1) Buka Supabase Dashboard → SQL Editor → New query
@@ -19,7 +19,7 @@
 -- ============================================================================
 
 -- ============================================================
--- [1/30] upgrade_20260903.sql
+-- [1/33] upgrade_20260903.sql
 -- ============================================================
 
 -- ============================================================
@@ -84,7 +84,7 @@ create policy "master_data_hapus_authenticated" on master_data
 
 
 -- ============================================================
--- [2/30] fix_20260903_kredensial.sql
+-- [2/33] fix_20260903_kredensial.sql
 -- ============================================================
 
 -- ============================================================
@@ -338,7 +338,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [3/30] fix_master_data_insert.sql
+-- [3/33] fix_master_data_insert.sql
 -- ============================================================
 
 -- ============================================================
@@ -427,7 +427,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [4/30] upgrade_20260904_akun.sql
+-- [4/33] upgrade_20260904_akun.sql
 -- ============================================================
 
 -- ============================================================
@@ -679,7 +679,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [5/30] upgrade_20260904_master_data_tambahan.sql
+-- [5/33] upgrade_20260904_master_data_tambahan.sql
 -- ============================================================
 
 -- ============================================================
@@ -725,7 +725,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [6/30] upgrade_20260904_absensi.sql
+-- [6/33] upgrade_20260904_absensi.sql
 -- ============================================================
 
 -- ============================================================
@@ -796,7 +796,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [7/30] upgrade_20260904_absensi_d.sql
+-- [7/33] upgrade_20260904_absensi_d.sql
 -- ============================================================
 
 -- ============================================================
@@ -816,7 +816,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [8/30] upgrade_20260904_jurnal.sql
+-- [8/33] upgrade_20260904_jurnal.sql
 -- ============================================================
 
 -- ============================================================
@@ -873,7 +873,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [9/30] upgrade_20260904_nilai.sql
+-- [9/33] upgrade_20260904_nilai.sql
 -- ============================================================
 
 -- ============================================================
@@ -958,7 +958,7 @@ grant select, insert, update, delete on nilai_konfigurasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [10/30] upgrade_20260904_ekskul.sql
+-- [10/33] upgrade_20260904_ekskul.sql
 -- ============================================================
 
 -- ============================================================
@@ -1072,7 +1072,7 @@ grant select, insert, delete on dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [11/30] upgrade_20260905_ekskul_pengurus.sql
+-- [11/33] upgrade_20260905_ekskul_pengurus.sql
 -- ============================================================
 
 -- ============================================================
@@ -1133,7 +1133,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [12/30] upgrade_20260906_sikap_teman.sql
+-- [12/33] upgrade_20260906_sikap_teman.sql
 -- ============================================================
 
 -- ============================================================
@@ -1409,7 +1409,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [13/30] upgrade_20260906_ekskul_surat.sql
+-- [13/33] upgrade_20260906_ekskul_surat.sql
 -- ============================================================
 
 -- ============================================================
@@ -1549,7 +1549,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [14/30] upgrade_20260906_ekskul_surat_v2.sql
+-- [14/33] upgrade_20260906_ekskul_surat_v2.sql
 -- ============================================================
 
 -- ============================================================
@@ -1570,17 +1570,39 @@ alter table sub_ekstrakurikuler
 -- ========== 2. MIGRASI DATA KEANGGOTAAN LAMA ==========
 -- Masukkan NIS dari anggota_sub_ekskul ke array anggota baris sub yang cocok
 -- (hanya bila kolom anggota masih kosong — idempoten).
-update sub_ekstrakurikuler s
-set anggota = sub.anggota
-from (
-  select ekskul, nama_sub, jsonb_agg(distinct nis order by nis) as anggota
-  from anggota_sub_ekskul
-  where coalesce(sub, '') <> ''
-  group by ekskul, nama_sub
-) sub
-where s.ekskul = sub.ekskul
-  and s.nama_sub = sub.nama_sub
-  and coalesce(s.anggota, '[]'::jsonb) = '[]'::jsonb;
+do $$
+declare
+  v_kol text;
+begin
+  if to_regclass('public.anggota_sub_ekskul') is not null then
+    -- [PERBAIKAN 42703] kolom penyimpan nama sub dideteksi otomatis:
+    -- skema v1 memakai kolom "sub" (bukan "nama_sub") — deteksi via information_schema, dipakai via %I.
+    select case
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'nama_sub') then 'nama_sub'
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'sub') then 'sub'
+      else null
+    end into v_kol;
+    if v_kol is not null then
+      execute format($f$
+        update sub_ekstrakurikuler s
+        set anggota = q.anggota
+        from (
+          select ekskul, %I as nama_sub, jsonb_agg(distinct nis order by nis) as anggota
+          from anggota_sub_ekskul
+          where coalesce(%I, '') <> ''
+          group by ekskul, %I
+        ) q
+        where s.ekskul = q.ekskul
+          and s.nama_sub = q.nama_sub
+          and coalesce(s.anggota, '[]'::jsonb) = '[]'::jsonb
+      $f$, v_kol, v_kol, v_kol);
+    end if;
+  end if;
+end $$;
 
 -- ========== 3. DROP TABEL LAMA ==========
 drop table if exists anggota_sub_ekskul;
@@ -1590,7 +1612,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [15/30] upgrade_20260908_kalender.sql
+-- [15/33] upgrade_20260908_kalender.sql
 -- ============================================================
 
 -- ============================================================
@@ -1642,7 +1664,7 @@ create policy "kalender_hapus_auth" on kalender_pendidikan
 
 
 -- ============================================================
--- [16/30] upgrade_20260909_administrasi_guru.sql
+-- [16/33] upgrade_20260909_administrasi_guru.sql
 -- ============================================================
 
 -- ============================================================
@@ -1855,7 +1877,7 @@ grant select, insert, update, delete on dokumen_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [17/30] upgrade_20260910_penugasan_guru.sql
+-- [17/33] upgrade_20260910_penugasan_guru.sql
 -- ============================================================
 
 -- ============================================================
@@ -1887,7 +1909,7 @@ comment on column akun.penugasan is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [18/30] upgrade_20260911_riwayat_siswa.sql
+-- [18/33] upgrade_20260911_riwayat_siswa.sql
 -- ============================================================
 
 -- ============================================================
@@ -1924,7 +1946,7 @@ comment on column akun.riwayat_kelas is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [19/30] upgrade_20260912_nisn_sync.sql
+-- [19/33] upgrade_20260912_nisn_sync.sql
 -- ============================================================
 
 -- ============================================================
@@ -2058,7 +2080,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [20/30] upgrade_20260913_jabatan_ekskul.sql
+-- [20/33] upgrade_20260913_jabatan_ekskul.sql
 -- ============================================================
 
 -- ============================================================
@@ -2190,7 +2212,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [21/30] upgrade_20260914_akses_murid.sql
+-- [21/33] upgrade_20260914_akses_murid.sql
 -- ============================================================
 
 -- ============================================================
@@ -2318,7 +2340,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [22/30] upgrade_20260914_absensi_delete.sql
+-- [22/33] upgrade_20260914_absensi_delete.sql
 -- ============================================================
 
 -- ============================================================
@@ -2343,7 +2365,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [23/30] upgrade_20260915_proses_kenaikan_rpc.sql
+-- [23/33] upgrade_20260915_proses_kenaikan_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2404,7 +2426,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [24/30] upgrade_20260916_fase1.sql
+-- [24/33] upgrade_20260916_fase1.sql
 -- ============================================================
 
 -- ============================================================
@@ -2483,7 +2505,7 @@ grant select, insert, update, delete on jadwal_ujian, pengumuman, rapor_catatan,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [25/30] upgrade_20260917_fase2.sql
+-- [25/33] upgrade_20260917_fase2.sql
 -- ============================================================
 
 -- ============================================================
@@ -2589,7 +2611,7 @@ grant select, insert, update, delete on poin_kategori, poin_siswa, spp_tagihan, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [26/30] upgrade_20260918_fase3.sql
+-- [26/33] upgrade_20260918_fase3.sql
 -- ============================================================
 
 -- ============================================================
@@ -2689,7 +2711,7 @@ grant select, insert, update, delete on perpus_buku, perpus_pinjam, inv_barang, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [27/30] upgrade_20260919_fase4.sql
+-- [27/33] upgrade_20260919_fase4.sql
 -- ============================================================
 
 -- ============================================================
@@ -2740,7 +2762,7 @@ grant select, insert, update, delete on ppdb_calon to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [28/30] upgrade_20260920_murid_rpc.sql
+-- [28/33] upgrade_20260920_murid_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2856,7 +2878,7 @@ grant execute on function catatan_wali_murid(text, text, text) to anon, authenti
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [29/30] upgrade_20260921_rls_policies.sql
+-- [29/33] upgrade_20260921_rls_policies.sql
 -- ============================================================
 
 -- ============================================================
@@ -2924,7 +2946,7 @@ grant select, insert, update, delete on
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [30/30] upgrade_20260922_nilai_murid_rpc.sql
+-- [30/33] upgrade_20260922_nilai_murid_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2971,3 +2993,357 @@ grant execute on function ambil_rapor_nilai_murid(text, text, text) to anon, aut
 
 -- ========== RELOAD CACHE SKEMA POSTGREST ==========
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- [31/33] upgrade_20260926_ekskul_akses_guru.sql
+-- ============================================================
+
+-- ============================================================
+-- UPGRADE: AKSES EKSTRAKURIKULER PENGURUS MURID + JABATAN EKSKUL MAP — 2026-09-26
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- Isi:
+--   1) Kolom baru akun.jabatan_ekskul_map (jsonb) — peta jabatan siswa
+--      per ekskul: { "Paskibra": "Ketua", "Pramuka": "Sekretaris" }
+--   2) Grant + policy anon (sesi murid password lokal = anon key):
+--      - nilai                  : select/insert/update/delete (pengurus input nilai ekskul)
+--      - sub_ekstrakurikuler    : insert/update/delete (kelola sub-ekskul)
+--      - ekstrakurikuler        : insert/update (edit profil ekskul)
+--      - agenda_ekskul          : delete (hapus agenda)
+--      - dispensasi             : delete (hapus riwayat surat)
+--      - akun                   : grant kolom jabatan_ekskul_map
+--   3) RPC cek_login_murid dibuat ulang — kembalikan juga ekstrakurikuler
+--      & jabatan_ekskul_map agar sesi murid lokal punya data keanggotaan.
+--
+-- Idempotent — aman dijalankan berulang. Data lama tidak tersentuh.
+-- ============================================================
+
+-- ========== 1. KOLOM PETA JABATAN EKSKUL ==========
+alter table akun
+  add column if not exists jabatan_ekskul_map jsonb default '{}'::jsonb;
+
+-- ========== 2. GRANT & POLICY ANON (PENGURUS EKSKUL MURID) ==========
+-- Catatan: keempat tabel ini RLS ENABLE — grant tanpa policy tetap ditolak,
+-- jadi setiap grant disertai policy anon perintah yang sama.
+
+-- 2a. nilai: pengurus ekskul mengisi nilai ekskul (murid lokal = anon key)
+drop policy if exists "nilai_baca_anon" on nilai;
+create policy "nilai_baca_anon" on nilai for select to anon using (true);
+drop policy if exists "nilai_tulis_anon" on nilai;
+create policy "nilai_tulis_anon" on nilai for insert to anon with check (true);
+drop policy if exists "nilai_ubah_anon" on nilai;
+create policy "nilai_ubah_anon" on nilai for update to anon using (true) with check (true);
+drop policy if exists "nilai_hapus_anon" on nilai;
+create policy "nilai_hapus_anon" on nilai for delete to anon using (true);
+grant select, insert, update, delete on nilai to anon;
+
+-- 2b. sub_ekstrakurikuler: kelola daftar sub & penempatan anggota
+drop policy if exists "subekskul_tulis_anon" on sub_ekstrakurikuler;
+create policy "subekskul_tulis_anon" on sub_ekstrakurikuler for insert to anon with check (true);
+drop policy if exists "subekskul_ubah_anon" on sub_ekstrakurikuler;
+create policy "subekskul_ubah_anon" on sub_ekstrakurikuler for update to anon using (true) with check (true);
+drop policy if exists "subekskul_hapus_anon" on sub_ekstrakurikuler;
+create policy "subekskul_hapus_anon" on sub_ekstrakurikuler for delete to anon using (true);
+grant insert, update, delete on sub_ekstrakurikuler to anon;
+
+-- 2c. ekstrakurikuler: edit profil ekskul (deskripsi, jadwal, pembina, logo)
+drop policy if exists "ekskul_tulis_anon" on ekstrakurikuler;
+create policy "ekskul_tulis_anon" on ekstrakurikuler for insert to anon with check (true);
+drop policy if exists "ekskul_ubah_anon" on ekstrakurikuler;
+create policy "ekskul_ubah_anon" on ekstrakurikuler for update to anon using (true) with check (true);
+grant insert, update on ekstrakurikuler to anon;
+
+-- 2d. agenda_ekskul: hapus agenda (select/insert/update sudah dari 20260905)
+drop policy if exists "agenda_hapus_anon" on agenda_ekskul;
+create policy "agenda_hapus_anon" on agenda_ekskul for delete to anon using (true);
+grant delete on agenda_ekskul to anon;
+
+-- 2d2. dispensasi: hapus riwayat surat oleh pengurus (select/insert sudah dari 20260905)
+drop policy if exists "dispensasi_hapus_anon" on dispensasi;
+create policy "dispensasi_hapus_anon" on dispensasi for delete to anon using (true);
+grant delete on dispensasi to anon;
+
+-- 2e. akun: kolom peta jabatan (disamping grant update(ekstrakurikuler) 20260905)
+grant update (jabatan_ekskul_map) on akun to anon;
+
+-- ========== 3. RPC LOGIN MURID: TAMBAH EKSKUL & JABATAN EKSKUL MAP ==========
+create or replace function cek_login_murid(p_nis text, p_password text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  r akun%rowtype;
+  v_hash text;
+begin
+  select * into r from akun where nis_nip = p_nis and tipe = 'murid' limit 1;
+  if r.id is null then
+    return json_build_object('status', 'error', 'message', 'NIS tidak terdaftar.');
+  end if;
+  select password_hash into v_hash from akun_kredensial where nis_nip = p_nis;
+  if v_hash is null or v_hash = '' then
+    return json_build_object('status', 'error', 'message', 'Akun ini belum memiliki password lokal.');
+  end if;
+  if crypt(p_password, v_hash) = v_hash then
+    return json_build_object('status', 'success', 'akun', json_build_object(
+      'id', r.id,
+      'user_id', r.user_id,
+      'nama_lengkap', r.nama_lengkap,
+      'nis_nip', r.nis_nip,
+      'tipe', r.tipe,
+      'email', r.email,
+      'tingkat_kelas', r.tingkat_kelas,
+      'jabatan', r.jabatan,
+      'ekstrakurikuler', coalesce(r.ekstrakurikuler, ''),
+      'jabatan_ekskul', coalesce(r.jabatan_ekskul, ''),
+      'jabatan_ekskul_map', coalesce(r.jabatan_ekskul_map, '{}'::jsonb)
+    ));
+  end if;
+  return json_build_object('status', 'error', 'message', 'Password salah.');
+end $$;
+
+grant execute on function cek_login_murid(text, text) to anon, authenticated;
+
+-- ========== 4. RELOAD CACHE SKEMA POSTGREST ==========
+notify pgrst, 'reload schema';
+
+-- ============================================================
+-- [32/33] upgrade_20260927_sub_ekskul_anggota.sql
+-- ============================================================
+-- ============================================================
+-- UPGRADE: SUB-EKSTRAKURIKULER KOLOM ANGGOTA (PERBAIKAN SIMPAN) — 2026-09-27
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG:
+--   Simpan Sub-Ekstrakurikuler gagal dengan error
+--   "Could not find the 'anggota' column of 'sub_ekstrakurikuler'
+--    in the schema cache" (PGRST204).
+--   Penyebab: kolom "anggota" dibuat oleh upgrade_20260906_ekskul_surat_v2.sql
+--   yang (a) belum terjalankan, atau (b) gagal di tengah run karena jebakan
+--   re-run: langkah migrasi datanya membaca tabel anggota_sub_ekskul yang
+--   sudah di-drop pada run sebelumnya → SQL Editor membatalkan seluruh run.
+--
+-- Isi (semua idempotent — aman dijalankan berulang):
+--   1) sub_ekstrakurikuler: kolom "anggota" (jsonb, default '[]')
+--   2) Migrasi data dari anggota_sub_ekskul → sub_ekstrakurikuler.anggota
+--      DIJAGA to_regclass (aman walau tabel lama sudah terhapus)
+--   3) Drop tabel anggota_sub_ekskul (tidak lagi dipakai)
+--   4) Self-healing kolom fitur ekskul & surat (cegah PGRST204 serupa):
+--      ekstrakurikuler (pembina_nip, jadwal, logo_url),
+--      dispensasi (sub_ekskul, keterangan, detail, surat_id),
+--      agenda_ekskul (hari + tanggal boleh NULL)
+--   5) Reload cache skema PostgREST
+--
+-- Catatan: akses anon untuk pengurus ekskul murid ada di
+--   upgrade_20260926_ekskul_akses_guru.sql — bila fitur pengurus murid
+--   menyimpan sub/nilai/error "permission denied", jalankan file itu juga.
+-- ============================================================
+
+-- ========== 1. KOLOM ANGGOTA PADA SUB-EKSKUL ==========
+alter table sub_ekstrakurikuler
+  add column if not exists anggota jsonb not null default '[]'::jsonb;
+
+-- ========== 2. MIGRASI DATA KEANGGOTAAN LAMA (ANTI-JEBAKAN RE-RUN) ==========
+-- Hanya berjalan bila tabel anggota_sub_ekskul masih ada (to_regclass),
+-- dan hanya mengisi baris sub yang kolom anggotanya masih kosong (idempoten).
+do $$
+declare
+  v_kol text;
+begin
+  if to_regclass('public.anggota_sub_ekskul') is not null then
+    -- [PERBAIKAN 42703] kolom penyimpan nama sub dideteksi otomatis:
+    -- skema v1 memakai kolom "sub" (bukan "nama_sub") — deteksi via information_schema, dipakai via %I.
+    select case
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'nama_sub') then 'nama_sub'
+      when exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'anggota_sub_ekskul'
+                     and column_name = 'sub') then 'sub'
+      else null
+    end into v_kol;
+    if v_kol is not null then
+      execute format($f$
+        update sub_ekstrakurikuler s
+        set anggota = q.anggota
+        from (
+          select ekskul, %I as nama_sub, jsonb_agg(distinct nis order by nis) as anggota
+          from anggota_sub_ekskul
+          where coalesce(%I, '') <> ''
+          group by ekskul, %I
+        ) q
+        where s.ekskul = q.ekskul
+          and s.nama_sub = q.nama_sub
+          and coalesce(s.anggota, '[]'::jsonb) = '[]'::jsonb
+      $f$, v_kol, v_kol, v_kol);
+    end if;
+  end if;
+end $$;
+
+-- ========== 3. DROP TABEL LAMA ==========
+drop table if exists anggota_sub_ekskul;
+
+-- ========== 4. SELF-HEALING KOLOM FITUR EKSKUL & SURAT ==========
+-- Semua "add column if not exists" — tidak mengubah kolom yang sudah ada.
+alter table ekstrakurikuler
+  add column if not exists pembina_nip text default '',
+  add column if not exists jadwal text default '',
+  add column if not exists logo_url text default '';
+
+alter table dispensasi
+  add column if not exists sub_ekskul text default '',
+  add column if not exists keterangan text default '',
+  add column if not exists detail jsonb default '{}'::jsonb,
+  add column if not exists surat_id text default '';
+
+alter table agenda_ekskul
+  add column if not exists hari text default '';
+alter table agenda_ekskul alter column tanggal drop not null;
+
+-- ========== 5. RELOAD CACHE SKEMA POSTGREST ==========
+notify pgrst, 'reload schema';
+
+
+-- ============================================================
+-- [33/33] upgrade_20260928_rpc_akun_murid.sql
+-- ============================================================
+-- ============================================================
+-- UPGRADE: RPC AKUN MURID (PERBAIKAN SIMPAN PROFIL MURID) — 2026-09-28
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG:
+--   Menu murid "Data Akun Murid" → "Simpan Perubahan" gagal dengan error
+--   "Could not find the function public.ubah_profil_murid(p_data, p_nis)
+--    in the schema cache" (PGRST428).
+--   Penyebab: RPC dari upgrade_20260914_akses_murid.sql belum terbentuk
+--   di database. Menu yang sama juga memakai ubah_password_sendiri
+--   (Ganti Password) dan menu "Laporan Nilai" memakai
+--   ambil_laporan_nilai_murid — ketiganya dibuat ulang di sini.
+--
+-- Isi (semua idempotent — aman dijalankan berulang):
+--   1) Self-healing kolom: absensi.gps (absen mandiri),
+--      master_data."Jabatan Ekstrakurikuler" (Master Data + menu Ekskul),
+--      akun.jabatan_ekskul (form murid & export)
+--   2) RPC ubah_profil_murid        : murid edit data dirinya (whitelist)
+--   3) RPC ubah_password_sendiri    : murid reset password sendiri
+--                                     (verifikasi password lama)
+--   4) RPC ambil_laporan_nilai_murid: murid (anon) membaca nilai miliknya
+--   5) Grant execute + reload cache skema PostgREST
+--
+-- Murid lokal login dengan anon key (tanpa sesi Supabase Auth) — pola
+-- sama dengan absensi & teman sejawat: verifikasi dilakukan di RPC
+-- security-definer berdasarkan NIS pemanggil.
+-- ============================================================
+
+-- ========== 1. SELF-HEALING KOLOM ==========
+alter table absensi add column if not exists gps text default '';
+
+alter table master_data
+  add column if not exists "Jabatan Ekstrakurikuler" text;
+
+alter table akun
+  add column if not exists jabatan_ekskul text;
+
+-- ========== 2. RPC: EDIT PROFIL SENDIRI (WHITELIST) ==========
+-- Murid hanya boleh mengubah kolom kontak & data pribadi.
+-- NIS, NISN, nama, kelas, ekstrakurikuler, jabatan TIDAK bisa diubah.
+create or replace function ubah_profil_murid(p_nis text, p_data jsonb)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_lahir date;
+begin
+  -- Verifikasi pemanggil benar-benar pemilik NIS (murid lokal/anon
+  -- tidak punya auth.uid(), jadi kecocokan NIS + tipe murid adalah kuncinya).
+  if not exists (select 1 from akun where nis_nip = p_nis and tipe = 'murid') then
+    return json_build_object('status', 'error', 'message', 'Akun murid tidak ditemukan.');
+  end if;
+
+  v_lahir := nullif(trim(coalesce(p_data->>'tgl_lahir', '')), '')::date;
+
+  update akun set
+    email            = coalesce(p_data->>'email', email),
+    no_telepon       = coalesce(p_data->>'no_telepon', no_telepon),
+    alamat           = coalesce(p_data->>'alamat', alamat),
+    nama_ayah        = coalesce(p_data->>'nama_ayah', nama_ayah),
+    pekerjaan_ayah   = coalesce(p_data->>'pekerjaan_ayah', pekerjaan_ayah),
+    nama_ibu         = coalesce(p_data->>'nama_ibu', nama_ibu),
+    pekerjaan_ibu    = coalesce(p_data->>'pekerjaan_ibu', pekerjaan_ibu),
+    nama_wali        = coalesce(p_data->>'nama_wali', nama_wali),
+    tgl_lahir        = coalesce(v_lahir, tgl_lahir),
+    jenis_kelamin    = coalesce(p_data->>'jenis_kelamin', jenis_kelamin),
+    agama            = coalesce(p_data->>'agama', agama),
+    golongan_darah   = coalesce(p_data->>'golongan_darah', golongan_darah)
+  where nis_nip = p_nis and tipe = 'murid';
+
+  return json_build_object('status', 'success', 'message', 'Profil berhasil diperbarui.');
+end $$;
+
+-- ========== 3. RPC: GANTI PASSWORD SENDIRI ==========
+create or replace function ubah_password_sendiri(p_nis text, p_lama text, p_baru text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_hash text;
+begin
+  if length(trim(coalesce(p_baru, ''))) < 6 then
+    return json_build_object('status', 'error', 'message', 'Password baru minimal 6 karakter.');
+  end if;
+
+  select password_hash into v_hash from akun_kredensial where nis_nip = p_nis;
+  if v_hash is null then
+    return json_build_object('status', 'error', 'message', 'Kredensial tidak ditemukan. Hubungi admin.');
+  end if;
+
+  if crypt(coalesce(p_lama, ''), v_hash) <> v_hash then
+    return json_build_object('status', 'error', 'message', 'Password lama salah.');
+  end if;
+
+  update akun_kredensial
+    set password_hash = crypt(p_baru, gen_salt('bf', 10)), updated_at = now()
+  where nis_nip = p_nis;
+
+  return json_build_object('status', 'success', 'message', 'Password berhasil diganti.');
+end $$;
+
+-- ========== 4. RPC: LAPORAN NILAI MURID (READ-ONLY) ==========
+create or replace function ambil_laporan_nilai_murid(p_nis text, p_tahun text, p_semester text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_rows json;
+begin
+  if not exists (select 1 from akun where nis_nip = p_nis and tipe = 'murid') then
+    return json_build_object('status', 'error', 'message', 'Akun murid tidak ditemukan.');
+  end if;
+
+  select coalesce(json_agg(row_to_json(t) order by t.kategori, t.mapel), '[]'::json)
+    into v_rows
+  from (
+    select nis, nama, kategori, mapel, ekskul, kelas, tahun, semester, data
+    from nilai
+    where nis = p_nis
+      and (p_tahun = '' or tahun = p_tahun)
+      and (p_semester = '' or semester = p_semester)
+  ) t;
+
+  return json_build_object('status', 'success', 'nilai', v_rows);
+end $$;
+
+-- ========== 5. IZIN EKSEKUSI + RELOAD CACHE ==========
+grant execute on function ubah_profil_murid(text, jsonb) to anon, authenticated;
+grant execute on function ubah_password_sendiri(text, text, text) to anon, authenticated;
+grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';
+

@@ -96,6 +96,8 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Wali Kelas": (prof && prof.wali_kelas) || "",
     "Custom Teks Mata Pelajaran": tipe === 'guru' ? ((prof && prof.mapel) || "") : "",
     "Ekstrakurikuler": (prof && prof.ekstrakurikuler) || "",
+    "Jabatan Ekstrakurikuler": (prof && prof.jabatan_ekskul) || "",
+    "Jabatan Ekstrakurikuler Map": (prof && prof.jabatan_ekskul_map && typeof prof.jabatan_ekskul_map === 'object') ? prof.jabatan_ekskul_map : {},
     "Penugasan": (prof && prof.penugasan) || {},
     "ID Tahun Pelajaran": ""
   };
@@ -386,12 +388,23 @@ async function supabaseFetch(action, payload = {}) {
          // 1) Murid: ambil SEMUA murid (kolom ringkas + riwayat_kelas) → filter kelas efektif & status per TA payload di bawah.
          //    Kelas efektif TA = riwayat_kelas[tahun].kelas (fallback tingkat_kelas statis); siswa non-Aktif disembunyikan.
          //    Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan semua halaman.
-         const muridSemua = await supaAmbilSemua(
-           supaClient
-            .from('akun')
-            .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
-            .eq('tipe', 'murid')
-         );
+         let muridSemua;
+         try {
+           muridSemua = await supaAmbilSemua(
+             supaClient
+              .from('akun')
+              .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, tahun_pelajaran, semester, no_telepon')
+              .eq('tipe', 'murid')
+           );
+         } catch (eKolom) {
+           // Kolom jabatan_ekskul_map belum ada (migrasi 20260926 belum dijalankan) → ulangi tanpa kolom itu
+           muridSemua = await supaAmbilSemua(
+             supaClient
+              .from('akun')
+              .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
+              .eq('tipe', 'murid')
+           );
+         }
          const tahunDbRw = String(payload.tahun || '');
          const murid = muridSemua.filter(m => {
             const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
@@ -438,6 +451,7 @@ async function supabaseFetch(action, payload = {}) {
                     "Catatan Khusus": m.catatan_khusus || "",
                     "Ekstrakurikuler": m.ekstrakurikuler || "",
                     "Jabatan Kelas": m.jabatan || "",
+                    "Jabatan Ekstrakurikuler Map": (m.jabatan_ekskul_map && typeof m.jabatan_ekskul_map === 'object') ? m.jabatan_ekskul_map : {},
                     "No HP/WA": m.no_telepon || "",
                     "ID Tahun Pelajaran": m.tahun_pelajaran || "",
                     "Semester": m.semester || ""

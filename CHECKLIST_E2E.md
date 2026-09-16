@@ -12,6 +12,9 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20260917_fase2.sql`
    - `upgrade_20260918_fase3.sql`
    - `upgrade_20260919_fase4.sql`
+   - `upgrade_20260926_ekskul_akses_guru.sql` (akses pengurus ekskul + jabatan_ekskul_map + multi-pembina)
+   - `upgrade_20260927_sub_ekskul_anggota.sql` (kolom anggota sub-ekskul + self-healing kolom ekskul/surat — perbaikan "Simpan" Edit Profil)
+   - `upgrade_20260928_rpc_akun_murid.sql` (RPC profil/password/laporan-nilai murid + kolom Master Data "Jabatan Ekstrakurikuler" — perbaikan "Simpan Perubahan" murid)
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.
@@ -136,7 +139,7 @@ Akun uji:
 
 # OTOMASI TINGKAT 1 — API (tanpa browser)
 
-Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±35 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel — lalu membersihkan data ujinya sendiri.
+Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±50 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel, **akses pengurus ekskul (anon): sub-ekskul, nilai ekskul, agenda/dispensasi, jabatan_ekskul_map & multi-pembina (migrasi 20260926)** — lalu membersihkan data ujinya sendiri.
 
 ## Persiapan sekali saja
 1. **Akun uji email** — script otomasi memakai **EMAIL + password Supabase Auth** (bukan NIS/NIP/password lokal):

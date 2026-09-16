@@ -283,18 +283,93 @@ async function main() {
         cek('RPC ambil_rapor_nilai_murid (rapor murid, anon) — nilai terbaca', !error && data?.status === 'success' && Array.isArray(data?.nilai), error?.message);
     }
     {
+        // [MIGRASI 20260926] anon (pengurus ekskul) kini diberi akses penuh tabel nilai
         const { error: eNilai } = await anon.from('nilai').select().limit(1);
-        cek('Proteksi: anon TIDAK bisa baca tabel nilai langsung', !!eNilai);
+        cek('Anon BISA baca tabel nilai (pengurus ekskul — grant 20260926)', !eNilai, eNilai?.message);
         const { error: ePoin } = await anon.from('poin_siswa').select().limit(1);
         cek('Proteksi: anon TIDAK bisa baca poin_siswa langsung', !!ePoin);
         const { error: ePpdb } = await anon.from('ppdb_calon').select().limit(1);
         cek('Proteksi: anon TIDAK bisa baca ppdb_calon', !!ePpdb);
     }
 
-    // ============ I. CLEANUP ============
+    // ============ I. EKSKUL: AKSES PENGURUS MURID + JABATAN EKSKUL MAP ============
+    sec('I. EKSKUL PENGURUS MURID (anon) + jabatan_ekskul_map + pembina multi — migrasi 20260926');
+    const EKSKUL_UJI = 'UJI-EKSKUL-E2E';
+    {
+        // RPC login murid kini membawa data keanggotaan & peta jabatan ekskul
+        const { data, error } = await anon.rpc('cek_login_murid', { p_nis: NIS_MURID, p_password: 'uji1234' });
+        const ak = data?.akun || {};
+        cek('cek_login_murid membawa ekstrakurikuler', !error && 'ekstrakurikuler' in ak, error?.message || 'kolom hilang');
+        cek('cek_login_murid membawa jabatan_ekskul_map', !error && 'jabatan_ekskul_map' in ak);
+    }
+    {
+        // Kolom baru + admin menetapkan jabatan ekskul (peta per ekskul)
+        const { error } = await admin.from('akun').update({ jabatan_ekskul_map: { [EKSKUL_UJI]: 'Ketua' } }).eq('nis_nip', NIS_MURID);
+        cek('Admin set jabatan_ekskul_map (Ketua UJI-EKSKUL-E2E)', !error, error?.message);
+        const { data } = await admin.from('akun').select('jabatan_ekskul_map').eq('nis_nip', NIS_MURID).maybeSingle();
+        cek('Peta jabatan tersimpan & terbaca', data?.jabatan_ekskul_map?.[EKSKUL_UJI] === 'Ketua', JSON.stringify(data).slice(0, 100));
+    }
+    {
+        // Pengurus murid (anon) memperbarui peta jabatan sendiri (grant kolom-level)
+        const { error } = await anon.from('akun').update({ jabatan_ekskul_map: { [EKSKUL_UJI]: 'Sekretaris' } }).eq('nis_nip', NIS_MURID);
+        cek('Anon (pengurus) ubah jabatan_ekskul_map', !error, error?.message);
+    }
+    {
+        // Sub-ekstrakurikuler: anon kelola sub & anggota — RENAME TIDAK BOLEH menghilangkan anggota
+        const { data: subIns, error: eSub } = await anon.from('sub_ekstrakurikuler')
+            .insert({ ekskul: EKSKUL_UJI, nama_sub: 'UJI Sub 1', urutan: 1, anggota: [NIS_MURID] }).select().maybeSingle();
+        cek('Anon insert sub_ekstrakurikuler', !eSub && !!subIns, eSub?.message);
+        // [SUB] simpan sub versi baru = UPDATE nama pada baris yang sama (bukan hapus+insert)
+        const { error: eRename } = await anon.from('sub_ekstrakurikuler').update({ nama_sub: 'UJI Sub Baru', urutan: 2 }).eq('id', subIns?.id);
+        cek('Anon rename sub (update nama+urutan)', !eRename, eRename?.message);
+        const { data: subRenamed } = await admin.from('sub_ekstrakurikuler').select('nama_sub, urutan, anggota').eq('id', subIns?.id).maybeSingle();
+        cek('Rename sub mempertahankan anggota (pendataan utuh)',
+            subRenamed?.nama_sub === 'UJI Sub Baru' && Number(subRenamed?.urutan) === 2 && (subRenamed?.anggota || []).map(String).includes(NIS_MURID),
+            JSON.stringify(subRenamed).slice(0, 120));
+        const { error: eUpdSub } = await anon.from('sub_ekstrakurikuler').update({ anggota: [] }).eq('id', subIns?.id);
+        cek('Anon update anggota sub', !eUpdSub, eUpdSub?.message);
+        const { error: eDelSub } = await anon.from('sub_ekstrakurikuler').delete().eq('id', subIns?.id);
+        cek('Anon hapus sub', !eDelSub, eDelSub?.message);
+    }
+    {
+        // Profil ekskul: anon (pengurus) edit + tabel pembina_nip multi (dipisah koma)
+        await admin.from('ekstrakurikuler').delete().eq('nama_ekskul', EKSKUL_UJI);
+        const { error: eEk } = await admin.from('ekstrakurikuler').insert({ nama_ekskul: EKSKUL_UJI, deskripsi: 'uji', jadwal: 'Senin', pembina_nip: 'UJI-NIP-1' });
+        const { error: eUpdEk } = await anon.from('ekstrakurikuler').update({ pembina_nip: 'UJI-NIP-1, UJI-NIP-2' }).eq('nama_ekskul', EKSKUL_UJI);
+        cek('Anon edit profil ekskul (multi pembina koma)', !eEk && !eUpdEk, (eEk?.message || eUpdEk?.message));
+        const { data: ek } = await admin.from('ekstrakurikuler').select('pembina_nip').eq('nama_ekskul', EKSKUL_UJI).maybeSingle();
+        cek('pembina_nip memuat 2 NIP', (ek?.pembina_nip || '').split(',').map(s => s.trim()).filter(Boolean).length === 2, ek?.pembina_nip);
+    }
+    {
+        // Nilai ekskul: anon (pengurus) isi nilai
+        const kunci = { nis: NIS_MURID, kategori: 'Data Nilai Eskul', mapel: '', ekskul: EKSKUL_UJI, tahun: TA, semester: 'Ganjil', kelas: 'X UJI' };
+        const { error: eIns } = await anon.from('nilai').upsert({ ...kunci, nama: 'UJI Murid E2E', data: { predikat: 'A' } }, { onConflict: 'nis,kategori,mapel,ekskul,tahun,semester' });
+        cek('Anon (pengurus) input nilai ekskul', !eIns, eIns?.message);
+        const { data: nl } = await anon.from('nilai').select('data').eq('nis', NIS_MURID).eq('ekskul', EKSKUL_UJI).maybeSingle();
+        cek('Nilai ekskul terbaca kembali', nl?.data?.predikat === 'A', JSON.stringify(nl).slice(0, 80));
+    }
+    {
+        // Agenda & dispensasi: anon boleh hapus (select/insert sudah dari 20260905)
+        await admin.from('agenda_ekskul').delete().eq('ekskul', EKSKUL_UJI);
+        const { data: ag, error: eAg } = await admin.from('agenda_ekskul').insert({ ekskul: EKSKUL_UJI, tanggal: isoNow(), kegiatan: 'UJI Latihan', hari: '' }).select().maybeSingle();
+        cek('Admin siapkan agenda uji', !eAg && !!ag, eAg?.message);
+        const { error: eDelAg } = await anon.from('agenda_ekskul').delete().eq('id', ag?.id);
+        cek('Anon hapus agenda_ekskul', !eDelAg, eDelAg?.message);
+        const { data: dp, error: eDp } = await admin.from('dispensasi').insert({ ekskul: EKSKUL_UJI, nis: NIS_MURID, nama: 'UJI', kelas: 'X UJI', tanggal_izin: isoNow(), surat_id: 'uji-surat-e2e' }).select().maybeSingle();
+        cek('Admin siapkan riwayat dispensasi uji', !eDp && !!dp, eDp?.message);
+        const { error: eDelDp } = await anon.from('dispensasi').delete().eq('id', dp?.id);
+        cek('Anon hapus riwayat dispensasi', !eDelDp, eDelDp?.message);
+    }
+
+    // ============ J. CLEANUP ============
     sec('I. CLEANUP DATA UJI');
     {
         const target = [
+            ['nilai (uji ekskul)', () => admin.from('nilai').delete().eq('nis', NIS_MURID).eq('ekskul', EKSKUL_UJI)],
+            ['agenda_ekskul (UJI)', () => admin.from('agenda_ekskul').delete().eq('ekskul', EKSKUL_UJI)],
+            ['dispensasi (UJI)', () => admin.from('dispensasi').delete().eq('ekskul', EKSKUL_UJI)],
+            ['sub_ekstrakurikuler (UJI)', () => admin.from('sub_ekstrakurikuler').delete().eq('ekskul', EKSKUL_UJI)],
+            ['ekstrakurikuler (UJI)', () => admin.from('ekstrakurikuler').delete().eq('nama_ekskul', EKSKUL_UJI)],
             ['perpus_pinjam', () => admin.from('perpus_pinjam').delete().eq('nis', NIS_MURID)],
             ['perpus_buku', () => admin.from('perpus_buku').delete().eq('kode', 'UJI-001')],
             ['spp_tagihan', () => admin.from('spp_tagihan').delete().eq('nis', NIS_MURID)],
