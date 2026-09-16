@@ -31,12 +31,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # Build Tailwind CSS otomatis di CI — tidak perlu `npm run deploy` manual lagi
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Build Tailwind CSS
+        run: npm ci && npm run build:css
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
+          # Upload folder web (termasuk hasil build web/css/style.css)
           path: 'web'
       - name: Deploy to GitHub Pages
         id: deployment
