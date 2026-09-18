@@ -3,16 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SISIP</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%222563eb%22/><text x=%2250%22 y=%2268%22 font-size=%2252%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22 font-weight=%22bold%22>S</text></svg>">
+  <title>SISIP - Sistem Informasi Sekolah Indonesia Pintar</title>
+  <meta name="description" content="SISIP adalah aplikasi administrasi sekolah internal untuk absensi, penilaian, jadwal, dan laporan akademik. Bukan aplikasi publik/komersial.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com data:; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'">
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/utils.js?v=20260928a"></script>
-  <script src="js/app.js?v=20260928a" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="js/utils.js?v=20260930c"></script>
+  <script src="js/app.js?v=20260930c" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" integrity="sha384-nLoOnA/BDh8A/jxqtckg4DumuCGOBYUnNJLZdQz/zfYNp3wcjGSoWTAzgko06G/2" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-900 via-slate-800 to-slate-900 text-slate-100 min-h-screen flex font-sans overflow-hidden">
 
@@ -22,15 +26,17 @@
     <div class="absolute top-10 right-10 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
 
     <div class="glass-card p-8 w-full max-w-md rounded-2xl relative z-10 shadow-2xl">
-      <button type="button" onclick="bukaPengaturanServer()" title="Konfigurasi Server" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition"><i class="fa-solid fa-gear text-xs"></i></button>
+      <button type="button" onclick="bukaPengaturanServer()" title="Konfigurasi Server (khusus admin/teknisi — jangan diubah tanpa arahan)" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition"><i class="fa-solid fa-gear text-xs"></i></button>
       <div class="text-center mb-8">
-        <img id="login-logo" src="https://cdn-icons-png.flaticon.com/512/3135/3135807.png" alt="Logo" class="w-16 h-16 rounded-2xl mx-auto shadow-lg mb-3 object-contain bg-white/10" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='flex';">
+        <img id="login-logo" src="assets/logo.svg" alt="Logo SISIP" class="w-16 h-16 rounded-2xl mx-auto shadow-lg mb-3 object-contain bg-white/10" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='flex';">
         <div id="login-logo-fallback" style="display:none" class="w-16 h-16 bg-blue-600 rounded-2xl mx-auto items-center justify-center text-white text-2xl font-bold shadow-lg mb-3">
           <i class="fa-solid fa-graduation-cap"></i>
         </div>
         <h1 class="text-2xl font-bold text-white mb-1">SISIP</h1>
-        <p class="text-slate-300 text-xs">Sistem Informasi Sekolah Indonesia Pintar <br> (Administrasi Sekolah)</p>
+        <p class="text-slate-300 text-xs">Sistem Informasi Sekolah Indonesia Pintar <br> (Aplikasi Administrasi Sekolah Internal)</p>
+        <p class="text-slate-500 text-[9px] mt-1">Hanya untuk pengguna internal (guru, staf, siswa) sekolah terdaftar.</p>
       </div>
+
       
       <form id="form-login" class="space-y-4">
         <div>

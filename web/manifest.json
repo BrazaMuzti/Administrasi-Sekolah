@@ -1,0 +1,19 @@
+{
+  "name": "SISIP - Sistem Informasi Sekolah Indonesia Pintar",
+  "short_name": "SISIP",
+  "description": "Aplikasi administrasi sekolah internal (absensi, penilaian, jadwal, laporan) untuk penggunaan intern sekolah.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "lang": "id",
+  "icons": [
+    {
+      "src": "assets/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

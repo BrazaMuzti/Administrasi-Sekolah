@@ -1046,8 +1046,24 @@ async function cekRecoveryPassword() {
   }
 }
 
-/** Modal konfigurasi server (SUPABASE_URL & ANON_KEY) dari kartu login. */
+/** Modal konfigurasi server (SUPABASE_URL & ANON_KEY) dari kartu login.
+ *  Fitur ini hanya untuk admin/teknisi saat penyiapan awal aplikasi di perangkat/server baru —
+ *  bukan fitur untuk pengguna umum. Diberi peringatan eksplisit agar tidak disalahartikan
+ *  sebagai halaman phishing/pengumpul kredensial oleh pemindai keamanan otomatis. */
 async function bukaPengaturanServer() {
+  const peringatan = await Swal.fire({
+    icon: 'warning',
+    title: 'Konfigurasi Server (Khusus Admin/Teknisi)',
+    html: `<div class="text-left text-[11px] text-slate-300">
+      <p class="mb-2">Menu ini hanya digunakan untuk menghubungkan aplikasi ke database Supabase sekolah saat pemasangan awal.</p>
+      <p class="mb-2">Jangan mengubah pengaturan ini kecuali Anda adalah admin/teknisi yang memahami konsekuensinya.</p>
+    </div>`,
+    showCancelButton: true,
+    confirmButtonText: 'Saya Admin/Teknisi, Lanjutkan',
+    cancelButtonText: 'Batal',
+    background: '#1e293b', color: '#fff'
+  });
+  if (!peringatan.isConfirmed) return;
   const cfg = (typeof ambilKonfigurasiServer === 'function') ? ambilKonfigurasiServer() : { url: '', key: '', gcalClientId: '' };
   const res = await Swal.fire({
     title: 'Konfigurasi Server',
