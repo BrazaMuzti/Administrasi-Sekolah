@@ -39,6 +39,19 @@ jobs:
           cache: npm
       - name: Build Tailwind CSS
         run: npm ci && npm run build:css
+      - name: Generate web/js/utils.js dari template + secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Secrets SUPABASE_URL / SUPABASE_ANON_KEY belum diatur di repo settings."
+            exit 1
+          fi
+          sed \
+            -e "s#ISI SUPABASE URL INI! https://xxxxx.supabase.co#${SUPABASE_URL}#" \
+            -e "s#ISI SUPABASE ANON KEY INI! sb_publishable_... / anon key#${SUPABASE_ANON_KEY}#" \
+            web/js/utils.example.js > web/js/utils.js
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

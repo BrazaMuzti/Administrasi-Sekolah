@@ -11,6 +11,11 @@ deno.lock
 # Konfigurasi tool lokal per mesin
 opencode.json
 
+# File konfigurasi Supabase asli (berisi kredensial) — jangan pernah di-commit.
+# Gunakan web/js/utils.example.js sebagai template; nilai asli diisi via
+# GitHub Actions secrets (SUPABASE_URL, SUPABASE_ANON_KEY) saat deploy.
+web/js/utils.js
+
 # Log & OS
 npm-debug.log*
 .DS_Store
