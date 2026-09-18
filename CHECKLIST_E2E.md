@@ -15,6 +15,7 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20260926_ekskul_akses_guru.sql` (akses pengurus ekskul + jabatan_ekskul_map + multi-pembina)
    - `upgrade_20260927_sub_ekskul_anggota.sql` (kolom anggota sub-ekskul + self-healing kolom ekskul/surat — perbaikan "Simpan" Edit Profil)
    - `upgrade_20260928_rpc_akun_murid.sql` (RPC profil/password/laporan-nilai murid + kolom Master Data "Jabatan Ekstrakurikuler" — perbaikan "Simpan Perubahan" murid)
+   - `upgrade_20260929_jadwal_pelajaran.sql` (tabel jadwal_pelajaran lengkap + RLS/grant — perbaikan "Simpan Jadwal")
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.

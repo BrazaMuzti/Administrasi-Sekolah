@@ -1996,6 +1996,37 @@ function hariJadwalMapelAbsen() {
   return set;
 }
 
+// ---------- [FIX] HARI EFEKTIF KHUSUS MAPEL/EKSKUL TERPILIH (jadwal KBM aktif) ----------
+/** Hari efektif dinamis KHUSUS mapel/ekskul terpilih pada select-mapel/select-kelas:
+ *  sama seperti hitungHariEfektif() (bukan hari libur/Minggu/Sabtu dikonfigurasi, bukan
+ *  tanggal Jadwal Hari Libur/Kalender Pendidikan) TAPI juga disaring hanya hari-hari yang
+ *  punya jadwal KBM aktif untuk mapel/ekskul tsb (hariJadwalMapelAbsen()). Jika mapel/ekskul
+ *  belum terhubung ke jadwal_pelajaran/agenda_ekskul manapun (Set kosong), fallback ke
+ *  hitungHariEfektif() biasa agar laporan lama tetap punya pembagi wajar. */
+function hitungHariEfektifMapel(bulanStr = currentBulan, tahunStr = currentTahun) {
+  if (!bulanStr || !tahunStr || arrBulan.indexOf(bulanStr) < 0) return 0;
+  const hariJadwalSet = hariJadwalMapelAbsen();
+  if (!hariJadwalSet || hariJadwalSet.size === 0) return hitungHariEfektif(bulanStr, tahunStr);
+
+  const idxBulan = arrBulan.indexOf(bulanStr);
+  const partsTahun = String(tahunStr || "").split("/");
+  let yearCalc = new Date().getFullYear();
+  if (partsTahun.length === 2) yearCalc = idxBulan >= 6 ? parseInt(partsTahun[0]) : parseInt(partsTahun[1]);
+  const hariDalamBulan = new Date(yearCalc, idxBulan + 1, 0).getDate();
+  const now = new Date();
+  const batasTgl = (idxBulan === now.getMonth() && yearCalc === now.getFullYear())
+    ? Math.min(now.getDate(), hariDalamBulan)
+    : hariDalamBulan;
+
+  let efektif = 0;
+  for (let d = 1; d <= batasTgl; d++) {
+    if (isHoliday(d, bulanStr, tahunStr)) continue;
+    const hariMingguKe = new Date(yearCalc, idxBulan, d).getDay();
+    if (hariJadwalSet.has(hariMingguKe)) efektif++;
+  }
+  return efektif;
+}
+
 /** Tanggal (1-31) "Minggu Ini": Senin s.d. Minggu pekan berjalan yang jatuh pada
  *  bulan+tahun absensi terpilih, disaring hari jadwal pelajaran mapel/ekskul terpilih. */
 function tanggalMingguIniAbsen() {
@@ -2052,8 +2083,11 @@ function refreshTableAbsenUI() {
   let yearCalc = new Date().getFullYear();
   if(partsTahun.length === 2) yearCalc = idxBulan >= 6 ? parseInt(partsTahun[0]) : parseInt(partsTahun[1]);
 
-  // FIX HARD-CODED /21: pembagi % kini hari efektif dinamis (Sabtu/Minggu/libur server)
-  const hariEfektifBulan = hitungHariEfektif(currentBulan, currentTahun);
+  // FIX HARD-CODED /21: pembagi % kini hari efektif dinamis (Sabtu/Minggu/libur server).
+  // [REQ 3b] Jika mapel/ekskul terpilih punya jadwal KBM aktif (hari tertentu saja), pembagi
+  // memakai hari efektif KHUSUS jadwal tsb (bukan seluruh hari efektif sekolah) — lihat
+  // hitungHariEfektifMapel().
+  const hariEfektifBulan = hitungHariEfektifMapel(currentBulan, currentTahun);
   const pembagiPersen = hariEfektifBulan > 0 ? hariEfektifBulan : 1;
 
   const hariArr = ["Mg", "Sn", "Sl", "Rb", "Km", "Jm", "Sb"];
@@ -2600,8 +2634,9 @@ window.popupEditKeterangan = function(nis, namaSiswa) {
 
 function generateHTMLReport() {
   const mapelRaw = document.getElementById('select-mapel').value || "", namaMapel = mapelRaw.includes('|') ? mapelRaw.split('|')[1] : (mapelRaw || "-"), kelas = document.getElementById('select-kelas').value || "Semua Kelas", smt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
-  // FIX HARD-CODED /21: pembagi % laporan cetak kini hari efektif dinamis
-  const hariEfektifReport = hitungHariEfektif();
+  // FIX HARD-CODED /21: pembagi % laporan cetak kini hari efektif dinamis, disaring
+  // hari jadwal KBM aktif mapel/ekskul terpilih (sama dengan tampilan tabel absen).
+  const hariEfektifReport = hitungHariEfektifMapel();
   const pembagiPersen = hariEfektifReport > 0 ? hariEfektifReport : 1;
   let theadStr = `<tr><th rowspan="2" style="border:1px solid #000; padding:4px;">No</th><th rowspan="2" style="border:1px solid #000; padding:4px;">NISN</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Nama Siswa</th><th rowspan="2" style="border:1px solid #000; padding:4px;">L/P</th><th colspan="31" style="border:1px solid #000; padding:4px;">Tanggal</th><th colspan="4" style="border:1px solid #000; padding:4px;">Jumlah</th><th rowspan="2" style="border:1px solid #000; padding:4px;">Total</th><th rowspan="2" style="border:1px solid #000; padding:4px;">%</th></tr><tr>`;
   for(let i=1; i<=31; i++) { theadStr += `<th style="border:1px solid #000; padding:2px; font-size:9px; width:15px; text-align:center;">${i}</th>`; }
@@ -10479,22 +10514,6 @@ let cacheEventKalender = { tahun: '', map: {} }; // memo gabungan event utk isHo
  * Muat modul jadwal & hari libur dari server SEKALIGUS, lalu sinkronkan ke
  * liburConfigCache sehingga isHoliday()/kalendar absensi memakai data nyata.
  */
-async function simpanJadwalPelajaran(dataJadwal) {
-  // dataJadwal = { hari: 'Senin', mapel: 'Matematika', id_guru: 'G01', jam_mulai: '07:00' }
-  // Tidak perlu menyertakan 'id' jika di Supabase ID di-generate otomatis.
-
-  const { data, error } = await supaClient
-    .from('jadwal_pelajaran')
-    .insert([dataJadwal]) // Gunakan .insert() alih-alih .upsert()
-    .select(); // Tambahkan .select() jika ingin mengembalikan data (beserta ID baru) yang baru saja dibuat
-
-  if (error) {
-    console.error("Gagal menambah jadwal:", error);
-  } else {
-    console.log("Jadwal berhasil ditambahkan dengan ID:", data[0].id);
-    // Tutup modal form dan refresh UI
-  }
-}
 async function muatDataJadwalLibur() {
   // 1. Mengambil data jadwal_libur
   const { data: dataLibur, error: errLibur } = await supaClient
@@ -12554,6 +12573,8 @@ async function renderTabInfoEkskul() {
 }
 
 // ---------- TAB 1: PROFIL & ANGGOTA ----------
+let filterSubAnggotaProfil = ''; // Filter Sub-Ekskul aktif pada tab Profil & Anggota
+
 async function renderTabProfilEkskul() {
   const box = document.getElementById('content-ekskul');
   const daftar = window.__daftarEkskul || [];
@@ -12571,10 +12592,21 @@ async function renderTabProfilEkskul() {
        <button onclick="cetakAnggotaPerSub()" class="text-[9px] px-2 py-0.5 rounded bg-blue-600/30 hover:bg-blue-600 text-blue-200 hover:text-white transition" title="Cetak daftar anggota per Sub"><i class="fa-solid fa-print"></i> Cetak per Sub</button></div>`
     : '';
 
+  // Validasi filterSubAnggotaProfil
+  if (filterSubAnggotaProfil && filterSubAnggotaProfil !== '__tanpa__' && !subs.some(s => s.nama_sub === filterSubAnggotaProfil)) {
+    filterSubAnggotaProfil = '';
+  }
+
+  const optFilterSub = [
+    `<option value="" ${!filterSubAnggotaProfil ? 'selected' : ''}>-- Semua Sub-Ekskul --</option>`,
+    `<option value="__tanpa__" ${filterSubAnggotaProfil === '__tanpa__' ? 'selected' : ''}>— Tanpa Sub —</option>`
+  ].concat(subs.map(s => `<option value="${escJs(s.nama_sub)}" ${filterSubAnggotaProfil === s.nama_sub ? 'selected' : ''}>Sub: ${escapeHtml(s.nama_sub)} (${(s.anggota || []).length})</option>`)).join('');
+
   box.innerHTML = `
     <div class="p-4 space-y-3">
       <div class="flex gap-2 items-center flex-wrap">
         <select id="ekskul-pilih" onchange="pilihEkskulModul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none">${daftar.map(e => `<option value="${escJs(e)}" ${e === aktif ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}</select>
+        ${subs.length > 0 ? `<select id="filter-sub-profil" onchange="gantiFilterSubAnggotaProfil(this.value)" class="bg-indigo-900/40 border border-indigo-500/40 text-indigo-200 font-bold rounded-lg px-3 py-2 text-xs outline-none">${optFilterSub}</select>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formEkstrakurikuler('${escJs(aktif)}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-pen"></i> Edit Profil</button>` : ''}
         ${isAdminGuru ? `<button onclick="formEkstrakurikuler('')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-plus"></i> Tambah Ekskul</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formTambahAnggotaEkskul()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-user-plus"></i> Tambah Anggota</button>` : ''}
@@ -12620,30 +12652,47 @@ async function renderTabProfilEkskul() {
     const pct = total > 0 ? Math.round((r.H / total) * 100) : 0;
     return `<span class="text-[9px]"><span class="text-green-400 font-bold">H:${r.H}</span> <span class="text-yellow-400">S:${r.S}</span> <span class="text-blue-300">I:${r.I}</span> <span class="text-red-400">A:${r.A}</span> <span class="text-slate-400">(${pct}%)</span></span>`;
   };
+  // Filter anggota sesuai filter sub-ekskul aktif
+  const anggotaTampil = anggota.filter(a => {
+    const subSaya = subMap[String(a.nis_nip)] || '';
+    if (filterSubAnggotaProfil === '__tanpa__') return !subSaya;
+    if (filterSubAnggotaProfil) return subSaya === filterSubAnggotaProfil;
+    return true;
+  });
+
+  const filterDesc = filterSubAnggotaProfil
+    ? (filterSubAnggotaProfil === '__tanpa__' ? ' (Tanpa Sub)' : ` (Sub: ${escapeHtml(filterSubAnggotaProfil)})`)
+    : '';
+
   const html = anggota.length === 0
     ? `<p class="italic p-2">Belum ada anggota aktif. Gunakan tombol "Tambah Anggota" untuk mendaftarkan siswa.</p>`
     : `<div class="bg-white/5 border border-white/10 rounded-xl p-3">
-        <h3 class="text-[11px] font-bold text-yellow-300 uppercase mb-2"><i class="fa-solid fa-users"></i> Anggota Aktif (${anggota.length}) — Rekap Hadir Bulan Ini</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-        ${anggota.map((a, i) => {
-          const jabEkskul = petaJab[String(a.nis_nip)] || '';
-          const isPengurus = jabEkskul || /Ekstra/i.test(a.jabatan || '');
-          const subSaya = subMap[String(a.nis_nip)] || '';
-          const optSub = ['<option value="">— sub —</option>']
-            .concat(subs.map(s => `<option value="${escJs(s.nama_sub)}" ${s.nama_sub === subSaya ? 'selected' : ''}>${escapeHtml(s.nama_sub)}</option>`))
-            .join('');
-          const ddSub = bolehKelolaAnggota && subs.length
-            ? `<select onchange="setSubAnggota('${escJs(a.nis_nip)}', window.__ekskulAktif, this.value)" class="bg-slate-700 border border-white/20 rounded px-1 py-0.5 text-[9px] text-white outline-none max-w-[110px]" title="Sub-Ekstrakurikuler anggota">${optSub}</select>`
-            : (subSaya ? `<span class="text-[9px] bg-indigo-900/50 text-indigo-300 px-1.5 py-0.5 rounded">${escapeHtml(subSaya)}</span>` : '');
-          return `<div class="flex items-center justify-between bg-slate-800/70 border border-white/10 rounded px-2 py-1.5 gap-2">
-            <div class="min-w-0">
-              <div class="text-[11px] text-slate-200 truncate">${i + 1}. ${escapeHtml(a.nama_lengkap || '-')} <span class="text-[9px] text-indigo-300">(${escapeHtml(a.tingkat_kelas || '-')})</span> ${isPengurus ? `<span class="text-[9px] bg-yellow-900/50 text-yellow-300 px-1.5 py-0.5 rounded">${escapeHtml(jabEkskul || a.jabatan || '')}</span>` : ''}</div>
-              ${htmlRekap(a.nis_nip)}
-            </div>
-            <div class="flex items-center gap-1.5 shrink-0">${ddSub} ${linkWA(a.no_telepon || '', `Assalamualaikum, kami menghubungi ${a.nama_lengkap || ''} terkait kegiatan ${aktif}.`)}</div>
-          </div>`;
-        }).join('')}
-        </div></div>`;
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+          <h3 class="text-[11px] font-bold text-yellow-300 uppercase"><i class="fa-solid fa-users"></i> Anggota Aktif (${anggotaTampil.length}/${anggota.length})${filterDesc} — Rekap Hadir Bulan Ini</h3>
+          ${filterSubAnggotaProfil ? `<button onclick="gantiFilterSubAnggotaProfil('')" class="text-[9px] px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition"><i class="fa-solid fa-xmark mr-1"></i>Reset Filter</button>` : ''}
+        </div>
+        ${anggotaTampil.length === 0
+          ? `<p class="text-[10px] text-slate-400 italic p-2">Tidak ada anggota pada pilihan sub-ekskul ini.</p>`
+          : `<div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+          ${anggotaTampil.map((a, i) => {
+            const jabEkskul = petaJab[String(a.nis_nip)] || '';
+            const isPengurus = jabEkskul || /Ekstra/i.test(a.jabatan || '');
+            const subSaya = subMap[String(a.nis_nip)] || '';
+            const optSub = ['<option value="">— sub —</option>']
+              .concat(subs.map(s => `<option value="${escJs(s.nama_sub)}" ${s.nama_sub === subSaya ? 'selected' : ''}>${escapeHtml(s.nama_sub)}</option>`))
+              .join('');
+            const ddSub = bolehKelolaAnggota && subs.length
+              ? `<select onchange="setSubAnggota('${escJs(a.nis_nip)}', window.__ekskulAktif, this.value)" class="bg-slate-700 border border-white/20 rounded px-1 py-0.5 text-[9px] text-white outline-none max-w-[110px]" title="Sub-Ekstrakurikuler anggota">${optSub}</select>`
+              : (subSaya ? `<span class="text-[9px] bg-indigo-900/50 text-indigo-300 px-1.5 py-0.5 rounded">${escapeHtml(subSaya)}</span>` : '');
+            return `<div class="flex items-center justify-between bg-slate-800/70 border border-white/10 rounded px-2 py-1.5 gap-2">
+              <div class="min-w-0">
+                <div class="text-[11px] text-slate-200 truncate">${i + 1}. ${escapeHtml(a.nama_lengkap || '-')} <span class="text-[9px] text-indigo-300">(${escapeHtml(a.tingkat_kelas || '-')})</span> ${isPengurus ? `<span class="text-[9px] bg-yellow-900/50 text-yellow-300 px-1.5 py-0.5 rounded">${escapeHtml(jabEkskul || a.jabatan || '')}</span>` : ''}</div>
+                ${htmlRekap(a.nis_nip)}
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">${ddSub} ${linkWA(a.no_telepon || '', `Assalamualaikum, kami menghubungi ${a.nama_lengkap || ''} terkait kegiatan ${aktif}.`)}</div>
+            </div>`;
+          }).join('')}
+          </div>`}</div>`;
   const boxA = document.getElementById('anggota-ekskul');
   if (boxA) boxA.outerHTML = html;
 
@@ -12672,6 +12721,11 @@ async function renderTabProfilEkskul() {
   </div>`;
   const boxJ = document.getElementById('jabatan-ekskul');
   if (boxJ) boxJ.outerHTML = htmlJab;
+}
+
+function gantiFilterSubAnggotaProfil(sub) {
+  filterSubAnggotaProfil = sub || '';
+  renderTabProfilEkskul();
 }
 
 // ---------- [REQ 1a] KELOLA JABATAN ANGGOTA EKSKUL (akun.jabatan_ekskul_map) ----------
@@ -12822,19 +12876,24 @@ function toggleTambahAnggota(nis, checked) {
   hitungTerpilihTambahAnggota();
 }
 
-/** Render ulang tabel kandidat sesuai filter ID Tahun / Kelas / pencarian. */
+/** Render ulang tabel kandidat sesuai filter ID Tahun / Kelas / Sub-Ekskul / pencarian. */
 function renderDaftarTambahAnggota() {
   const wrap = document.getElementById('daftar-tambah-anggota');
   if (!wrap) return;
   const thn = document.getElementById('ta_tahun')?.value || '';
   const kls = document.getElementById('ta_kelas')?.value || '';
+  const subF = document.getElementById('ta_sub')?.value || '';
   const cari = (document.getElementById('ta_cari')?.value || '').toLowerCase();
   const ekskul = window.__ekskulAktif || '';
   const semua = window.__cacheMuridTambah || [];
   const terpilih = window.__taTerpilih || new Set();
+  const petaSub = window.__taSub || {};
   const filtered = semua.filter(m => {
     if (thn && (m.tahun_pelajaran || '') !== thn) return false;
     if (kls && (m.tingkat_kelas || '') !== kls) return false;
+    // [REQ 1a] Filter Sub-Ekskul kandidat (berdasar penandaan sub di modal ini)
+    if (subF === '__tanpa__') { if (petaSub[m.nis_nip]) return false; }
+    else if (subF && (petaSub[m.nis_nip] || '') !== subF) return false;
     if (cari && !String(m.nama_lengkap || '').toLowerCase().includes(cari) && !String(m.nis_nip || '').includes(cari)) return false;
     return true;
   });
@@ -12898,11 +12957,13 @@ async function formTambahAnggotaEkskul() {
     title: `<i class="fa-solid fa-user-plus text-teal-400"></i> Tambah Anggota ${escapeHtml(aktif)}`,
     html: `
       <div class="text-left text-[11px] text-slate-300 mt-2">
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
           <div><label class="font-bold text-yellow-300">ID Tahun</label>
             <select id="ta_tahun" onchange="renderDaftarTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Tahun --</option>${listTahun.map(t => `<option value="${escJs(t)}">${escapeHtml(t)}</option>`).join('')}</select></div>
           <div><label class="font-bold text-yellow-300">Kelas</label>
             <select id="ta_kelas" onchange="renderDaftarTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Kelas --</option>${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-yellow-300">Sub-Ekskul</label>
+            <select id="ta_sub" onchange="renderDaftarTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Sub --</option><option value="__tanpa__">— Tanpa Sub —</option>${(window.__taSubList || []).map(n => `<option value="${escJs(n)}">${escapeHtml(n)}</option>`).join('')}</select></div>
           <div><label class="font-bold text-yellow-300">Cari Nama / NIS</label>
             <input id="ta_cari" oninput="renderDaftarTambahAnggota()" placeholder="Ketik nama..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
         </div>
@@ -13658,6 +13719,16 @@ async function renderTabDispensasiEkskul() {
 
   box.innerHTML = `
     <div class="p-4 space-y-3">
+      <div class="bg-white/5 border border-white/10 rounded-lg p-2.5">
+        <label class="text-slate-300 font-bold text-[11px] block mb-1"><i class="fa-solid fa-bookmark text-yellow-400 mr-1"></i>Preset Surat <span class="text-slate-400 font-normal">(menyimpan seluruh isian surat, tanggal izin KBM, kegiatan & pilihan siswa/sub)</span></label>
+        <div class="flex gap-1 flex-wrap items-center">
+          <select id="sp_preset" onchange="terapkanPresetDispensasi(this.value)" class="flex-1 min-w-[160px] bg-slate-700 border border-white/20 rounded px-2 py-1.5 text-xs text-white outline-none"><option value="">-- Pilih Preset --</option></select>
+          <button onclick="simpanPresetDispensasi()" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded text-xs font-bold transition" title="Simpan isian saat ini sebagai preset"><i class="fa-solid fa-save mr-1"></i>Simpan</button>
+          <button onclick="duplikatPresetDispensasi()" class="bg-teal-600 hover:bg-teal-700 text-white px-2 py-1.5 rounded text-xs font-bold transition" title="Duplikat preset terpilih"><i class="fa-solid fa-copy"></i></button>
+          <button onclick="renamePresetDispensasi()" class="bg-indigo-600/40 hover:bg-indigo-600 text-indigo-200 hover:text-white px-2 py-1.5 rounded text-xs font-bold transition" title="Rename preset terpilih"><i class="fa-solid fa-i-cursor"></i></button>
+          <button onclick="hapusPresetDispensasi()" class="bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white px-2 py-1.5 rounded text-xs font-bold transition" title="Hapus preset terpilih"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
       <div class="bg-white/5 border border-white/10 rounded-xl p-3">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
           <h3 class="text-[11px] font-bold text-yellow-300 uppercase"><i class="fa-solid fa-file-signature"></i> Buat Surat Dispensasi</h3>
@@ -13674,15 +13745,6 @@ async function renderTabDispensasiEkskul() {
           ${inp('dp_tgl_dari', 'Tanggal Izin (KBM) — Dari', '', 'date')}
           ${inp('dp_tgl_sampai', 'Sampai (opsional)', '', 'date')}
           ${inp('dp_tgl_tambahan', 'Dan tanggal lain (opsional)', 'Cth: 20 September 2026; 25 September 2026')}
-          <div class="sm:col-span-2"><label class="text-slate-400 font-bold">Preset Surat <span class="text-slate-500 font-normal">(menyimpan isian, isi surat & pilihan siswa)</span></label>
-            <div class="flex gap-1 flex-wrap">
-              <select id="sp_preset" onchange="terapkanPresetDispensasi(this.value)" class="flex-1 min-w-[160px] bg-slate-700 border border-white/20 rounded px-2 py-1.5 text-white outline-none"><option value="">-- Pilih Preset --</option></select>
-              <button onclick="simpanPresetDispensasi()" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1.5 rounded text-[10px] font-bold transition" title="Simpan isian saat ini sebagai preset"><i class="fa-solid fa-save"></i></button>
-              <button onclick="duplikatPresetDispensasi()" class="bg-teal-600 hover:bg-teal-700 text-white px-2 py-1.5 rounded text-[10px] font-bold transition" title="Duplikat preset terpilih"><i class="fa-solid fa-copy"></i></button>
-              <button onclick="renamePresetDispensasi()" class="bg-indigo-600/40 hover:bg-indigo-600 text-indigo-200 hover:text-white px-2 py-1.5 rounded text-[10px] font-bold transition" title="Rename preset terpilih"><i class="fa-solid fa-i-cursor"></i></button>
-              <button onclick="hapusPresetDispensasi()" class="bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white px-2 py-1.5 rounded text-[10px] font-bold transition" title="Hapus preset terpilih"><i class="fa-solid fa-trash"></i></button>
-            </div>
-          </div>
           <div>
             <label class="text-slate-400 font-bold">Nomor Surat</label>
             <div class="flex gap-1">

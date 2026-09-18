@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SIAKAD / SISIP — SKEMA DATABASE LENGKAP (VERSI SEKARANG)
--- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-09-28
+-- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-09-29
 --
 -- CARA PAKAI (project Supabase BARU):
 --   1) Buka Supabase Dashboard → SQL Editor → New query
@@ -19,7 +19,7 @@
 -- ============================================================================
 
 -- ============================================================
--- [1/33] upgrade_20260903.sql
+-- [1/34] upgrade_20260903.sql
 -- ============================================================
 
 -- ============================================================
@@ -84,7 +84,7 @@ create policy "master_data_hapus_authenticated" on master_data
 
 
 -- ============================================================
--- [2/33] fix_20260903_kredensial.sql
+-- [2/34] fix_20260903_kredensial.sql
 -- ============================================================
 
 -- ============================================================
@@ -338,7 +338,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [3/33] fix_master_data_insert.sql
+-- [3/34] fix_master_data_insert.sql
 -- ============================================================
 
 -- ============================================================
@@ -427,7 +427,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [4/33] upgrade_20260904_akun.sql
+-- [4/34] upgrade_20260904_akun.sql
 -- ============================================================
 
 -- ============================================================
@@ -679,7 +679,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [5/33] upgrade_20260904_master_data_tambahan.sql
+-- [5/34] upgrade_20260904_master_data_tambahan.sql
 -- ============================================================
 
 -- ============================================================
@@ -725,7 +725,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [6/33] upgrade_20260904_absensi.sql
+-- [6/34] upgrade_20260904_absensi.sql
 -- ============================================================
 
 -- ============================================================
@@ -796,7 +796,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [7/33] upgrade_20260904_absensi_d.sql
+-- [7/34] upgrade_20260904_absensi_d.sql
 -- ============================================================
 
 -- ============================================================
@@ -816,7 +816,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [8/33] upgrade_20260904_jurnal.sql
+-- [8/34] upgrade_20260904_jurnal.sql
 -- ============================================================
 
 -- ============================================================
@@ -873,7 +873,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [9/33] upgrade_20260904_nilai.sql
+-- [9/34] upgrade_20260904_nilai.sql
 -- ============================================================
 
 -- ============================================================
@@ -958,7 +958,7 @@ grant select, insert, update, delete on nilai_konfigurasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [10/33] upgrade_20260904_ekskul.sql
+-- [10/34] upgrade_20260904_ekskul.sql
 -- ============================================================
 
 -- ============================================================
@@ -1072,7 +1072,7 @@ grant select, insert, delete on dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [11/33] upgrade_20260905_ekskul_pengurus.sql
+-- [11/34] upgrade_20260905_ekskul_pengurus.sql
 -- ============================================================
 
 -- ============================================================
@@ -1133,7 +1133,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [12/33] upgrade_20260906_sikap_teman.sql
+-- [12/34] upgrade_20260906_sikap_teman.sql
 -- ============================================================
 
 -- ============================================================
@@ -1409,7 +1409,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [13/33] upgrade_20260906_ekskul_surat.sql
+-- [13/34] upgrade_20260906_ekskul_surat.sql
 -- ============================================================
 
 -- ============================================================
@@ -1549,7 +1549,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [14/33] upgrade_20260906_ekskul_surat_v2.sql
+-- [14/34] upgrade_20260906_ekskul_surat_v2.sql
 -- ============================================================
 
 -- ============================================================
@@ -1612,7 +1612,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [15/33] upgrade_20260908_kalender.sql
+-- [15/34] upgrade_20260908_kalender.sql
 -- ============================================================
 
 -- ============================================================
@@ -1664,7 +1664,7 @@ create policy "kalender_hapus_auth" on kalender_pendidikan
 
 
 -- ============================================================
--- [16/33] upgrade_20260909_administrasi_guru.sql
+-- [16/34] upgrade_20260909_administrasi_guru.sql
 -- ============================================================
 
 -- ============================================================
@@ -1877,7 +1877,7 @@ grant select, insert, update, delete on dokumen_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [17/33] upgrade_20260910_penugasan_guru.sql
+-- [17/34] upgrade_20260910_penugasan_guru.sql
 -- ============================================================
 
 -- ============================================================
@@ -1909,7 +1909,7 @@ comment on column akun.penugasan is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [18/33] upgrade_20260911_riwayat_siswa.sql
+-- [18/34] upgrade_20260911_riwayat_siswa.sql
 -- ============================================================
 
 -- ============================================================
@@ -1946,7 +1946,7 @@ comment on column akun.riwayat_kelas is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [19/33] upgrade_20260912_nisn_sync.sql
+-- [19/34] upgrade_20260912_nisn_sync.sql
 -- ============================================================
 
 -- ============================================================
@@ -2080,7 +2080,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [20/33] upgrade_20260913_jabatan_ekskul.sql
+-- [20/34] upgrade_20260913_jabatan_ekskul.sql
 -- ============================================================
 
 -- ============================================================
@@ -2212,7 +2212,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [21/33] upgrade_20260914_akses_murid.sql
+-- [21/34] upgrade_20260914_akses_murid.sql
 -- ============================================================
 
 -- ============================================================
@@ -2340,7 +2340,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [22/33] upgrade_20260914_absensi_delete.sql
+-- [22/34] upgrade_20260914_absensi_delete.sql
 -- ============================================================
 
 -- ============================================================
@@ -2365,7 +2365,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [23/33] upgrade_20260915_proses_kenaikan_rpc.sql
+-- [23/34] upgrade_20260915_proses_kenaikan_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2426,7 +2426,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [24/33] upgrade_20260916_fase1.sql
+-- [24/34] upgrade_20260916_fase1.sql
 -- ============================================================
 
 -- ============================================================
@@ -2505,7 +2505,7 @@ grant select, insert, update, delete on jadwal_ujian, pengumuman, rapor_catatan,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [25/33] upgrade_20260917_fase2.sql
+-- [25/34] upgrade_20260917_fase2.sql
 -- ============================================================
 
 -- ============================================================
@@ -2611,7 +2611,7 @@ grant select, insert, update, delete on poin_kategori, poin_siswa, spp_tagihan, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [26/33] upgrade_20260918_fase3.sql
+-- [26/34] upgrade_20260918_fase3.sql
 -- ============================================================
 
 -- ============================================================
@@ -2711,7 +2711,7 @@ grant select, insert, update, delete on perpus_buku, perpus_pinjam, inv_barang, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [27/33] upgrade_20260919_fase4.sql
+-- [27/34] upgrade_20260919_fase4.sql
 -- ============================================================
 
 -- ============================================================
@@ -2762,7 +2762,7 @@ grant select, insert, update, delete on ppdb_calon to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [28/33] upgrade_20260920_murid_rpc.sql
+-- [28/34] upgrade_20260920_murid_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2878,7 +2878,7 @@ grant execute on function catatan_wali_murid(text, text, text) to anon, authenti
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [29/33] upgrade_20260921_rls_policies.sql
+-- [29/34] upgrade_20260921_rls_policies.sql
 -- ============================================================
 
 -- ============================================================
@@ -2946,7 +2946,7 @@ grant select, insert, update, delete on
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [30/33] upgrade_20260922_nilai_murid_rpc.sql
+-- [30/34] upgrade_20260922_nilai_murid_rpc.sql
 -- ============================================================
 
 -- ============================================================
@@ -2995,7 +2995,7 @@ grant execute on function ambil_rapor_nilai_murid(text, text, text) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [31/33] upgrade_20260926_ekskul_akses_guru.sql
+-- [31/34] upgrade_20260926_ekskul_akses_guru.sql
 -- ============================================================
 
 -- ============================================================
@@ -3109,7 +3109,7 @@ grant execute on function cek_login_murid(text, text) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [32/33] upgrade_20260927_sub_ekskul_anggota.sql
+-- [32/34] upgrade_20260927_sub_ekskul_anggota.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SUB-EKSTRAKURIKULER KOLOM ANGGOTA (PERBAIKAN SIMPAN) — 2026-09-27
@@ -3206,7 +3206,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [33/33] upgrade_20260928_rpc_akun_murid.sql
+-- [33/34] upgrade_20260928_rpc_akun_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RPC AKUN MURID (PERBAIKAN SIMPAN PROFIL MURID) — 2026-09-28
@@ -3345,5 +3345,85 @@ grant execute on function ubah_profil_murid(text, jsonb) to anon, authenticated;
 grant execute on function ubah_password_sendiri(text, text, text) to anon, authenticated;
 grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, authenticated;
 
+notify pgrst, 'reload schema';
+
+
+-- ============================================================
+-- [34/34] upgrade_20260929_jadwal_pelajaran.sql
+-- ============================================================
+-- ============================================================
+-- UPGRADE: TABEL JADWAL PELAJARAN (PERBAIKAN SIMPAN JADWAL) — 2026-09-29
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG:
+--   Simpan "Jadwal Pelajaran" (menu Jadwal & Libur) gagal dengan error
+--   semacam "Could not find the ... column of 'jadwal_pelajaran' in the
+--   schema cache" (PGRST204).
+--   Penyebab: tabel jadwal_pelajaran TIDAK PERNAH dibuat oleh migrasi repo
+--   (ada sebagai sisa setup lama) — kolom yang ditulis aplikasi
+--   ("ID Jadwal Murid", "Semester", dst.) belum tentu lengkap.
+--
+-- Isi (semua idempotent — aman dijalankan berulang):
+--   1) create table if not exists jadwal_pelajaran (kolom persis yang
+--      ditulis aplikasi) + add column if not exists per kolom
+--      (memperbaiki tabel lama yang kolomnya kurang)
+--   2) Index filter (Tahun, Tingkat/Kelas) & (ID Akun Guru, Tahun)
+--   3) RLS + privilege: authenticated penuh (kelola jadwal),
+--      anon select (absen mandiri murid & filter tanggal mingguan)
+--   4) Reload cache skema PostgREST
+-- ============================================================
+
+-- ========== 1. TABEL + SELF-HEALING KOLOM ==========
+create table if not exists jadwal_pelajaran (
+  id uuid primary key default gen_random_uuid(),
+  "ID Akun Guru" text default '',
+  "ID Jadwal Murid" text default '',
+  Tahun text default '',
+  Semester text default '',
+  Waktu text default '',
+  Mapel text default '',
+  "Tingkat/Kelas" text default '',
+  created_at timestamptz not null default now()
+);
+
+alter table jadwal_pelajaran
+  add column if not exists "ID Akun Guru" text default '',
+  add column if not exists "ID Jadwal Murid" text default '',
+  add column if not exists Tahun text default '',
+  add column if not exists Semester text default '',
+  add column if not exists Waktu text default '',
+  add column if not exists Mapel text default '',
+  add column if not exists "Tingkat/Kelas" text default '',
+  add column if not exists created_at timestamptz default now();
+
+create index if not exists idx_jadwal_filter on jadwal_pelajaran (Tahun, "Tingkat/Kelas");
+create index if not exists idx_jadwal_guru on jadwal_pelajaran ("ID Akun Guru", Tahun);
+
+-- ========== 2. RLS & PRIVILEGE ==========
+alter table jadwal_pelajaran enable row level security;
+
+drop policy if exists "jadwal_baca_auth" on jadwal_pelajaran;
+create policy "jadwal_baca_auth" on jadwal_pelajaran
+  for select to authenticated using (true);
+drop policy if exists "jadwal_tulis_auth" on jadwal_pelajaran;
+create policy "jadwal_tulis_auth" on jadwal_pelajaran
+  for insert to authenticated with check (true);
+drop policy if exists "jadwal_ubah_auth" on jadwal_pelajaran;
+create policy "jadwal_ubah_auth" on jadwal_pelajaran
+  for update to authenticated using (true) with check (true);
+drop policy if exists "jadwal_hapus_auth" on jadwal_pelajaran;
+create policy "jadwal_hapus_auth" on jadwal_pelajaran
+  for delete to authenticated using (true);
+
+-- Anon (murid password lokal) membaca jadwal utk absen mandiri & filter "Minggu Ini"
+drop policy if exists "jadwal_baca_anon" on jadwal_pelajaran;
+create policy "jadwal_baca_anon" on jadwal_pelajaran
+  for select to anon using (true);
+
+revoke all on table jadwal_pelajaran from anon, authenticated;
+grant select, insert, update, delete on jadwal_pelajaran to authenticated;
+grant select on jadwal_pelajaran to anon;
+
+-- ========== 3. RELOAD CACHE SKEMA POSTGREST ==========
 notify pgrst, 'reload schema';
 

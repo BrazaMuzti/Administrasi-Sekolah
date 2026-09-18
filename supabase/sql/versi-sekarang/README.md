@@ -49,6 +49,14 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 28. `upgrade_20260920_murid_rpc.sql` — RPC akses murid (anon)
 29. `upgrade_20260921_rls_policies.sql` — RLS policies tabel fase 1-4
 30. `upgrade_20260922_nilai_murid_rpc.sql` — RPC ambil_rapor_nilai_murid
+31. `upgrade_20260926_ekskul_akses_guru.sql` — akses ekskul pengurus murid + jabatan_ekskul_map
+32. `upgrade_20260927_sub_ekskul_anggota.sql` — kolom anggota (jsonb) sub_ekstrakurikuler
+33. `upgrade_20260928_rpc_akun_murid.sql` — RPC ubah_profil_murid, ubah_password_sendiri, ambil_laporan_nilai_murid
+34. `upgrade_20260929_jadwal_pelajaran.sql` — tabel jadwal_pelajaran + RLS
+35. `upgrade_20260930_pengurus_tambah_anggota.sql` — RPC daftar_anggota_ekskul_baru (siswa baru langsung jadi anggota)
+36. `upgrade_20260930b_fix_akun_grant_anon.sql` — perbaikan "permission denied for table akun" saat pengurus ekskul murid (anon) menambahkan anggota existing (grant select/update kolom akun ke anon)
+
+> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-36 secara terpisah, urut tanggal.
 
 ## Cara menjalankan di Supabase
 
