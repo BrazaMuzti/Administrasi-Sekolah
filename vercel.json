@@ -1,0 +1,4 @@
+{
+  "buildCommand": "npm run build:css && node scripts/generate-utils.mjs",
+  "outputDirectory": "web"
+}

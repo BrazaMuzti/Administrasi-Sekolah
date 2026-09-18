@@ -10,7 +10,7 @@ PostgREST & fungsi RPC.
 |---|---|---|
 | Frontend | `web/` | HTML + JS murni + Tailwind v4, `@supabase/supabase-js` via CDN |
 | Database | `supabase/sql/` | Skema SQL + upgrade berkala; versi lengkap di `supabase/sql/versi-sekarang/` |
-| Deploy | GitHub Pages | Otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`) |
+| Deploy | GitHub Pages (default) / Vercel (alternatif) | GitHub Pages: otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`). Vercel: lihat [bagian 5](#5-deploy--vercel-alternatif) |
 
 ## Menjalankan Lokal
 
@@ -154,6 +154,53 @@ Deploy frontend tidak butuh perintah apa pun:
 3. Workflow mem-publish folder **`web/`** apa adanya — jadi pastikan `web/css/style.css`
    hasil `npm run build:css` sudah ter-commit setiap kali kelas utilitas Tailwind berubah.
 4. Deploy ulang manual: repo → **Actions** → pilih workflow → **Run workflow**.
+
+## 5. Deploy — Vercel (Alternatif)
+
+Selain GitHub Pages, aplikasi ini juga bisa di-deploy ke **Vercel**. Repo sudah
+menyertakan `vercel.json` dan `scripts/generate-utils.mjs` yang meng-generate
+`web/js/utils.js` (di-gitignore) dari template `web/js/utils.example.js` +
+Environment Variables saat build — jadi kredensial Supabase tidak perlu
+di-commit ke repo.
+
+### a. Import project
+
+1. Login ke <https://vercel.com> → **Add New… → Project**.
+2. Pilih **Import Git Repository** → hubungkan akun GitHub bila belum →
+   pilih repo `BrazaMuzti/Administrasi-Sekolah`.
+3. Pada layar konfigurasi:
+   - **Framework Preset**: `Other` (situs statis biasa).
+   - **Build Command**: `npm run build:css && node scripts/generate-utils.mjs`
+     (sudah otomatis terbaca dari `vercel.json`, tidak perlu diisi manual).
+   - **Output Directory**: `web` (juga sudah otomatis dari `vercel.json`).
+
+### b. Set Environment Variables
+
+Di layar yang sama (atau di **Project Settings → Environment Variables**
+setelah project dibuat), tambahkan:
+
+| Key | Value | Environment |
+|---|---|---|
+| `SUPABASE_URL` | `https://xxxxxxxx.supabase.co` (Project URL Supabase) | Production, Preview, Development |
+| `SUPABASE_ANON_KEY` | `sb_publishable_...` / `eyJ...` (Publishable/anon key) | Production, Preview, Development |
+
+> Tanpa kedua variabel ini, build **akan gagal** — `scripts/generate-utils.mjs`
+> sengaja keluar dengan error jelas bila salah satu kosong, supaya deploy tidak
+> pernah menghasilkan `utils.js` yang rusak/kosong.
+
+### c. Deploy
+
+1. Klik **Deploy** → tunggu build selesai.
+2. Aplikasi terbit di URL bawaan Vercel, mis. `https://administrasi-sekolah.vercel.app`
+   (bisa diganti custom domain di **Project Settings → Domains**).
+3. Deploy ulang otomatis setiap `git push` ke branch yang di-tracking Vercel
+   (default `main`); Preview Deployment otomatis dibuat untuk branch/PR lain.
+4. Deploy manual via CLI (opsional):
+   ```bash
+   npm i -g vercel        # sekali saja
+   vercel login
+   vercel --prod          # deploy ke production
+   ```
 
 ## Perintah Cepat
 
