@@ -3,8 +3,8 @@
  */
 
 // 1. Inisialisasi Supabase
-const SUPABASE_URL_DEFAULT = 'https://lkhuyoihrrnzvrmhquln.supabase.co';
-const SUPABASE_ANON_KEY_DEFAULT = 'sb_publishable_o_pUNncXPyOmV2yhhOevcw_58aUM3pB';
+const SUPABASE_URL_DEFAULT = 'ISI SUPABASE URL INI! https://xxxxx.supabase.co';
+const SUPABASE_ANON_KEY_DEFAULT = 'ISI SUPABASE ANON KEY INI! sb_publishable_... / anon key';
 const SERVER_CONFIG_KEY = 'sisip_server_config';
 
 function ambilKonfigurasiServer() {
