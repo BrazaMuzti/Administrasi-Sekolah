@@ -11051,6 +11051,14 @@ function getHTMLJadwalPelajaran() {
     `;
 }
 
+/** Sinkronkan isian "Waktu (Hari, Jam)" dari checklist "Isi dari Master Jadwal" —
+ *  gabungkan semua slot yang dicentang (urut Senin→Sabtu sesuai render) dipisah " | ". */
+function sinkronWaktuDariChecklist() {
+    const terpilih = [...document.querySelectorAll('.j-sumber-chk:checked')].map(c => c.value);
+    const inputWaktu = document.getElementById('j_waktu');
+    if (inputWaktu) inputWaktu.value = terpilih.join(' | ');
+}
+
 function openFormJadwal(isNew, data = {}) {
     const listKelas = urutAz([...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
     const listMapel = urutAz([...new Set(masterDataCache.map(m => m["Mata Pelajaran"]).filter(Boolean))]);
@@ -11072,7 +11080,7 @@ function openFormJadwal(isNew, data = {}) {
             const val = `${h}, ${e.jam}`;
             const id = `j_sumber_${h}_${idx}`.replace(/[^a-zA-Z0-9_]/g, '');
             return `<label for="${id}" class="flex items-center gap-1.5 py-0.5 cursor-pointer hover:text-white">
-                <input type="checkbox" id="${id}" class="j-sumber-chk" value="${escJs(val)}">
+                <input type="checkbox" id="${id}" class="j-sumber-chk" value="${escJs(val)}" onchange="sinkronWaktuDariChecklist()">
                 <span>${e.jamKe ? escapeHtml(e.jamKe) + '. ' : ''}${escapeHtml(e.jam)}</span>
             </label>`;
         }).join('') + '</div>';
