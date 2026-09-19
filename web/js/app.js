@@ -506,7 +506,7 @@ async function bukaProfilAkun() {
   // admin tanpa NIP pada sesi → coba lookup lewat email
   let prof = null;
   try {
-    const kolom = 'nis_nip, nama_lengkap, gelar_depan, gelar_belakang, email, tingkat_kelas, jabatan, wali_kelas, mapel, ekstrakurikuler, no_telepon, jenis_kelamin, agama, nisn, tipe';
+    const kolom = 'nis_nip, nama_lengkap, gelar_depan, gelar_belakang, email, tingkat_kelas, jabatan, wali_kelas, mapel, ekstrakurikuler, penugasan, no_telepon, jenis_kelamin, agama, nisn, tipe';
     const emailSesi = sesi["Email"] || '';
     if (idUser && !/\s/.test(idUser)) {
       const { data, error } = await supaClient.from('akun').select(kolom).eq('nis_nip', idUser).maybeSingle();
@@ -532,6 +532,12 @@ async function bukaProfilAkun() {
   const tahunSesi = document.getElementById('header-tahun')?.value || getPreferensiSesi().tahun || currentTahun;
   const smtSesi = document.getElementById('header-semester')?.value || getPreferensiSesi().semester || '';
 
+  // [SINKRON] Utamakan penugasan fresh dari DB (prof.penugasan) agar konsisten dengan
+  // Edit Akun Guru & Hadir Tatap Muka/Input Nilai; fallback ke sesi bila fetch gagal.
+  const penugasanTampil = (prof && prof.penugasan && Object.keys(prof.penugasan).length)
+    ? penugasanGuruAktif({ penugasan: prof.penugasan }, tahunSesi)
+    : penugasanGuruAktif(barisGuruSesi(), tahunSesi);
+
   const baris = (label, nilai, icon, warna = 'text-slate-300') => `
     <div class="flex items-start justify-between gap-3 border-b border-white/5 py-1.5">
       <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0 w-32"><i class="fa-solid ${icon} ${warna} mr-1"></i> ${label}</span>
@@ -550,9 +556,9 @@ async function bukaProfilAkun() {
     ` : `
       ${baris('NIP / ID Akun', ambil('nis_nip', 'ID Akun Guru'), 'fa-id-card', 'text-blue-400')}
       ${baris('Email', ambil('email', 'Email'), 'fa-envelope', 'text-blue-300')}
-      ${baris('Wali Kelas', waliKelasAktif(), 'fa-school', 'text-indigo-400')}
-      ${baris('Mapel Diampu', mapelDiampuAktif().join(', '), 'fa-book', 'text-yellow-400')}
-      ${baris('Pembina Ekskul', ekskulDiampuAktif().join(', '), 'fa-medal', 'text-yellow-400')}
+      ${baris('Wali Kelas', penugasanTampil.wali, 'fa-school', 'text-indigo-400')}
+      ${baris('Mapel Diampu', penugasanTampil.mapel.join(', '), 'fa-book', 'text-yellow-400')}
+      ${baris('Pembina Ekskul', penugasanTampil.ekskul.join(', '), 'fa-medal', 'text-yellow-400')}
       ${baris('No HP/WA', ambil('no_telepon', 'No HP'), 'fa-phone', 'text-green-400')}
     `;
 
