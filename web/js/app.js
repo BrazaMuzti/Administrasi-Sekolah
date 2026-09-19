@@ -11052,30 +11052,38 @@ function getHTMLJadwalPelajaran() {
 }
 
 function openFormJadwal(isNew, data = {}) {
-    const listKelas = [...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))];
-    const listMapel = [...new Set(masterDataCache.map(m => m["Mata Pelajaran"]).filter(Boolean))];
-    const listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
+    const listKelas = urutAz([...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
+    const listMapel = urutAz([...new Set(masterDataCache.map(m => m["Mata Pelajaran"]).filter(Boolean))]);
+    const listTahun = urutAz([...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))]);
     const prefJadwal = getPreferensiSesi();
     const isGuru = currentUser && currentUser.role === 'guru';
     const idGuruTerkunci = isGuru ? (currentUser.user["ID Akun Guru"] || "") : "";
 
     // (c) Opsi "Sumber Master Jadwal": kolom "Jam Pelajaran <Hari>" (Senin-Sabtu) dari Master Data
     //     Mendukung format triplet baru "Hari, jamke, jam" & format lama "jamke - jam".
+    //     Ditampilkan sebagai checklist (boleh pilih lebih dari satu) khusus saat Tambah Jadwal;
+    //     tiap slot yang dicentang akan disimpan sebagai baris jadwal terpisah.
     const hariMaster = HARI_MASTER_LIST;
-    let opsiJam = '';
+    let opsiJamChecklist = '';
     hariMaster.forEach(h => {
         const items = daftarJamPelajaranHari(h);
         if (!items.length) return;
-        opsiJam += `<optgroup label="${h}" class="bg-slate-700 text-blue-300 font-bold">` + items.map(e =>
-            `<option value="${escJs(h + ', ' + e.jam)}" class="bg-slate-800 text-white">${e.jamKe ? escapeHtml(e.jamKe) + '. ' : ''}${escapeHtml(e.jam)} — ${h}</option>`
-        ).join('') + '</optgroup>';
+        opsiJamChecklist += `<div class="mb-1"><div class="text-blue-300 font-bold">${h}</div>` + items.map((e, idx) => {
+            const val = `${h}, ${e.jam}`;
+            const id = `j_sumber_${h}_${idx}`.replace(/[^a-zA-Z0-9_]/g, '');
+            return `<label for="${id}" class="flex items-center gap-1.5 py-0.5 cursor-pointer hover:text-white">
+                <input type="checkbox" id="${id}" class="j-sumber-chk" value="${escJs(val)}">
+                <span>${e.jamKe ? escapeHtml(e.jamKe) + '. ' : ''}${escapeHtml(e.jam)}</span>
+            </label>`;
+        }).join('') + '</div>';
     });
 
     // (a) ID Akun Guru: pilihan dari tabel akun (tipe guru); guru login terkunci ke ID sendiri
-    const opsiGuru = (cacheGuruJadwal || []).map(g => {
-        const nama = namaDenganGelar(g.nama_lengkap, g.gelar_depan, g.gelar_belakang);
-        return `<option value="${escJs(g.nis_nip)}" class="bg-slate-800 text-white" ${String(data["ID Akun Guru"] || '') === String(g.nis_nip) ? 'selected' : ''}>${escapeHtml(nama)} — ${escapeHtml(g.nis_nip)}</option>`;
-    }).join('');
+    const opsiGuru = urutAz((cacheGuruJadwal || []).map(g => namaDenganGelar(g.nama_lengkap, g.gelar_depan, g.gelar_belakang) + '|' + g.nis_nip))
+        .map(gabung => {
+            const [nama, nip] = gabung.split('|');
+            return `<option value="${escJs(nip)}" class="bg-slate-800 text-white" ${String(data["ID Akun Guru"] || '') === String(nip) ? 'selected' : ''}>${escapeHtml(nama)} — ${escapeHtml(nip)}</option>`;
+        }).join('');
     const fieldGuru = isGuru
       ? `<input type="text" id="j_guru" value="${escapeHtml(guruNamaJadwal(idGuruTerkunci))} (${escapeHtml(idGuruTerkunci)})" readonly class="w-full bg-slate-800 border border-white/10 rounded px-2 py-1.5 mt-1 outline-none text-slate-400 cursor-not-allowed">`
       : `<select id="j_guru" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Pilih Guru --</option>${opsiGuru}</select>`;
@@ -11087,7 +11095,10 @@ function openFormJadwal(isNew, data = {}) {
                 <div class="col-span-2">
                     <label class="font-bold text-blue-300">Waktu (Hari, Jam) *</label>
                     <input type="text" id="j_waktu" placeholder="Senin, 07:00 - 08:30" value="${data.Waktu || ''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 outline-none text-white focus:border-blue-500">
-                    ${opsiJam ? `<select id="j_sumber" onchange="if(this.value) document.getElementById('j_waktu').value = this.value;" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1.5 text-[10px] text-white outline-none"><option value="">— Isi dari Master Jadwal (Jam Pelajaran Senin-Sabtu) —</option>${opsiJam}</select>` : ''}
+                    ${isNew && opsiJamChecklist ? `
+                    <div class="text-slate-400 mt-1">Isi dari Master Jadwal (Jam Pelajaran Senin-Sabtu) — boleh centang lebih dari satu, tiap centang jadi 1 baris jadwal:</div>
+                    <div id="j_sumber_wrap" class="max-h-40 overflow-y-auto bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-[10px] text-slate-200">${opsiJamChecklist}</div>
+                    ` : ''}
                 </div>
                 <div class="col-span-2"><label class="font-bold text-blue-300">ID Akun Guru * ${isGuru ? '<span class="text-slate-500 normal-case">(akun guru: otomatis jadwal yang Anda ampu)</span>' : ''}</label>${fieldGuru}</div>
                 <div><label class="font-bold text-blue-300">Tahun Ajaran</label><select id="j_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${listTahun.map(t=>`<option value="${t}" ${(data.Tahun===t || (!data.Tahun && prefJadwal.tahun===t))?'selected':''}>${t}</option>`).join('')}</select></div>
@@ -11098,27 +11109,41 @@ function openFormJadwal(isNew, data = {}) {
         background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: 'Simpan',
         preConfirm: () => {
             let guru = isGuru ? idGuruTerkunci : document.getElementById('j_guru').value.trim();
+            const tahun = document.getElementById('j_tahun').value;
+            const mapel = document.getElementById('j_mapel').value;
+            const kelas = document.getElementById('j_kelas').value;
+            const base = { "ID Akun Guru": guru, "ID Jadwal Murid": data["ID Jadwal Murid"] || "", "Tahun": tahun, "Semester": (prefJadwal.semester || "Ganjil"), "Mapel": mapel, "Tingkat/Kelas": kelas };
+
+            const checklistTerpilih = isNew ? [...document.querySelectorAll('.j-sumber-chk:checked')].map(c => c.value) : [];
+            if (checklistTerpilih.length) {
+                if (!guru) { Swal.showValidationMessage('Guru wajib diisi!'); return false; }
+                return checklistTerpilih.map(w => ({ ...base, "Waktu": w }));
+            }
+
             let waktu = document.getElementById('j_waktu').value.trim();
             if(!guru || !waktu) { Swal.showValidationMessage('Guru & Waktu wajib diisi!'); return false; }
-            return { "ID Akun Guru": guru, "ID Jadwal Murid": data["ID Jadwal Murid"] || "", "Tahun": document.getElementById('j_tahun').value, "Semester": (prefJadwal.semester || "Ganjil"), "Waktu": waktu, "Mapel": document.getElementById('j_mapel').value, "Tingkat/Kelas": document.getElementById('j_kelas').value };
+            return [{ ...base, "Waktu": waktu }];
         }
     }).then(async (res) => {
         if(res.isConfirmed) {
-            // (F3) Validasi bentrok: guru sama ATAU kelas sama pada Waktu yang sama
-            const bentrok = cariBentrokJadwal(res.value, isNew ? null : data.id);
-            const lanjutSimpan = () => simpanJadwalDb(res.value, isNew, isNew ? null : data.id);
-            if (bentrok.length) {
-                const detail = bentrok.map(j => `• ${escapeHtml(guruNamaJadwal(j["ID Akun Guru"]))} — ${escapeHtml(j["Tingkat/Kelas"] || '-')} ${escapeHtml(j.Mapel || '')} (${escapeHtml(j.Waktu)})`).join('<br>');
-                const konf = await Swal.fire({
-                    title: 'Jadwal Berpotensi Bentrok!',
-                    html: `<div class="text-left text-[11px]">${detail}</div>`,
-                    icon: 'warning', showCancelButton: true,
-                    confirmButtonText: '<i class="fa-solid fa-triangle-exclamation"></i> Tetap Simpan',
-                    cancelButtonText: 'Batal', confirmButtonColor: '#f59e0b',
-                    background: '#1e293b', color: '#fff'
-                });
-                if (konf.isConfirmed) lanjutSimpan();
-            } else lanjutSimpan();
+            const daftarPayload = res.value; // array (1 baris manual, atau N baris dari checklist)
+            for (const payload of daftarPayload) {
+                // (F3) Validasi bentrok: guru sama ATAU kelas sama pada Waktu yang sama
+                const bentrok = cariBentrokJadwal(payload, isNew ? null : data.id);
+                const lanjutSimpan = () => simpanJadwalDb(payload, isNew, isNew ? null : data.id);
+                if (bentrok.length) {
+                    const detail = bentrok.map(j => `• ${escapeHtml(guruNamaJadwal(j["ID Akun Guru"]))} — ${escapeHtml(j["Tingkat/Kelas"] || '-')} ${escapeHtml(j.Mapel || '')} (${escapeHtml(j.Waktu)})`).join('<br>');
+                    const konf = await Swal.fire({
+                        title: `Jadwal Berpotensi Bentrok! (${escapeHtml(payload.Waktu)})`,
+                        html: `<div class="text-left text-[11px]">${detail}</div>`,
+                        icon: 'warning', showCancelButton: true,
+                        confirmButtonText: '<i class="fa-solid fa-triangle-exclamation"></i> Tetap Simpan',
+                        cancelButtonText: 'Lewati Baris Ini', confirmButtonColor: '#f59e0b',
+                        background: '#1e293b', color: '#fff'
+                    });
+                    if (konf.isConfirmed) await lanjutSimpan();
+                } else await lanjutSimpan();
+            }
         }
     });
 }
