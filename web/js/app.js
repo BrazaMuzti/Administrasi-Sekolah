@@ -532,11 +532,13 @@ async function bukaProfilAkun() {
   const tahunSesi = document.getElementById('header-tahun')?.value || getPreferensiSesi().tahun || currentTahun;
   const smtSesi = document.getElementById('header-semester')?.value || getPreferensiSesi().semester || '';
 
-  // [SINKRON] Utamakan penugasan fresh dari DB (prof.penugasan) agar konsisten dengan
-  // Edit Akun Guru & Hadir Tatap Muka/Input Nilai; fallback ke sesi bila fetch gagal.
-  const penugasanTampil = (prof && prof.penugasan && Object.keys(prof.penugasan).length)
-    ? penugasanGuruAktif({ penugasan: prof.penugasan }, tahunSesi)
-    : penugasanGuruAktif(barisGuruSesi(), tahunSesi);
+  // [SINKRON] Sumber Mapel Diampu/Pembina Ekskul/Wali Kelas = kolom flat akun.mapel/
+  // akun.ekstrakurikuler/akun.wali_kelas (fresh dari DB), sama seperti sumber akses
+  // Hadir Tatap Muka & Input Nilai. Fallback ke sesi bila fetch fresh gagal.
+  const splitKoma = (v) => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+  const penugasanTampil = prof
+    ? { mapel: splitKoma(prof.mapel), wali: String(prof.wali_kelas || '').trim(), ekskul: splitKoma(prof.ekstrakurikuler) }
+    : { mapel: mapelDiampuAktif(), wali: waliKelasAktif(), ekskul: ekskulDiampuAktif() };
 
   const baris = (label, nilai, icon, warna = 'text-slate-300') => `
     <div class="flex items-start justify-between gap-3 border-b border-white/5 py-1.5">
@@ -9884,10 +9886,23 @@ function guruPunyaEkskulTahun(guruRow, ekskul, tahun = currentTahun) {
     return penugasanGuruAktif(guruRow, tahun).ekskul.some(e => e.toLowerCase() === target);
 }
 
-/** Akses cepat guru yang sedang login (tahun aktif). */
-function mapelDiampuAktif() { return penugasanGuruAktif(barisGuruSesi()).mapel; }
-function waliKelasAktif() { return penugasanGuruAktif(barisGuruSesi()).wali; }
-function ekskulDiampuAktif() { return penugasanGuruAktif(barisGuruSesi()).ekskul; }
+/** Akses cepat guru yang sedang login (tahun aktif).
+ *  [SINKRON] Sumber akses (Hadir Tatap Muka/Input Nilai) & Profil Akun kini kolom flat
+ *  (mapel/ekstrakurikuler/wali_kelas) — otomatis ter-mirror dari TA aktif saat Edit Akun Guru disimpan.
+ *  Sistem "Penugasan per TA" (penugasan json) tetap dipakai untuk riwayat/lookup admin per-TA. */
+function mapelDiampuAktif() {
+    const u = barisGuruSesi();
+    return String(u.mapel || u["Custom Teks Mata Pelajaran"] || u["Mapel"] || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+function waliKelasAktif() {
+    const u = barisGuruSesi();
+    return String(u.wali_kelas || u["Wali Kelas"] || '').trim();
+}
+function ekskulDiampuAktif() {
+    const u = barisGuruSesi();
+    return String(u.ekstrakurikuler || u["Ekstrakurikuler"] || u["Ekskul"] || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
 
 /** Ringkasan penugasan utk badge tabel: "TA: Mapel1, Mapel2 · Wali X" per tahun. */
 function ringkasanPenugasan(row) {
