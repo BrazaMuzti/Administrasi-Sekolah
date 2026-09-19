@@ -3427,3 +3427,34 @@ grant select on jadwal_pelajaran to anon;
 -- ========== 3. RELOAD CACHE SKEMA POSTGREST ==========
 notify pgrst, 'reload schema';
 
+
+-- ============================================================
+-- [35/35] upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql
+-- ============================================================
+-- Lepas NOT NULL pada kolom legacy tabel jadwal_pelajaran (sisa setup
+-- lama di luar migrasi repo, mis. mata_pelajaran/guru/kelas/hari/jam)
+-- yang tidak dipakai aplikasi — mencegah error "null value ... violates
+-- not-null constraint" saat insert dari form Tambah Jadwal.
+do $$
+declare
+  kolom record;
+  kolom_dipakai_aplikasi text[] := array[
+    'id', 'created_at',
+    'ID Akun Guru', 'ID Jadwal Murid', 'Tahun', 'Semester', 'Waktu', 'Mapel', 'Tingkat/Kelas'
+  ];
+begin
+  for kolom in
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'jadwal_pelajaran'
+      and is_nullable = 'NO'
+      and column_default is null
+      and column_name <> all (kolom_dipakai_aplikasi)
+  loop
+    execute format('alter table jadwal_pelajaran alter column %I drop not null', kolom.column_name);
+  end loop;
+end $$;
+
+notify pgrst, 'reload schema';
+
