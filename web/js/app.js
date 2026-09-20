@@ -1825,11 +1825,12 @@ async function renderAbsensiModule(container) {
              </select>
           </div>
           <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Kelas">
-             <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500 group-hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></div>
-             <select id="select-kelas" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataMuridDanAbsen()">
+             <select id="select-kelas" class="hidden" onchange="loadDataMuridDanAbsen()">
                <option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>
                ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
+             <button type="button" id="btn-dropdown-kelas" onclick="toggleDropdownKelasAbsen(event)" class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 hover:bg-pink-500 hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></button>
+             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 max-h-80 overflow-y-auto custom-scrollbar bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5"></div>
           </div>
         </div>
         
@@ -1954,6 +1955,72 @@ function opsiKelasAbsenHTML(listKelas, jenis, nama) {
   return html || opt(listKelas || []);
 }
 
+/** Panel dropdown kustom "Pilih Kelas": kelas diampu tampil paling atas (langsung terlihat),
+ *  "Kelas Lainnya (Baca Saja)" dikolapse (tersembunyi) dan muncul saat header-nya diklik. */
+function renderPanelKelasAbsenHTML(listKelas, jenis, nama, nilaiTerpilih) {
+  const isGuru = currentUser && currentUser.role === 'guru';
+  const btnKelas = (k, aktif) => `<button type="button" onclick="pilihKelasAbsen('${escJs(k)}')" class="w-full text-left px-2 py-1 rounded hover:bg-pink-600/40 transition ${aktif ? 'bg-pink-600/60 font-bold' : ''}">${escapeHtml(k)}</button>`;
+  let html = `<div class="px-1 pb-1 mb-1 border-b border-white/10 text-slate-400 font-bold uppercase text-[9px]">Pilih Kelas</div>`;
+  html += btnKelas('Semua Kelas', nilaiTerpilih === 'Semua Kelas');
+  if (!isGuru) {
+    html += (listKelas || []).map(k => btnKelas(k, nilaiTerpilih === k)).join('');
+    return html;
+  }
+  const diampuSet = hitungKelasDiampuAbsen(jenis, nama);
+  const diampu = (listKelas || []).filter(k => diampuSet.has(k));
+  const lain = (listKelas || []).filter(k => !diampuSet.has(k));
+  if (diampu.length > 0) {
+    html += `<div class="px-1 pt-1 pb-0.5 text-green-300 font-bold text-[9px] uppercase">Kelas Diampu (Bisa Edit)</div>`;
+    html += diampu.map(k => btnKelas(k, nilaiTerpilih === k)).join('');
+  }
+  if (lain.length > 0) {
+    const terbuka = lain.includes(nilaiTerpilih); // otomatis terbuka bila kelas terpilih ada di "lainnya"
+    html += `<button type="button" onclick="toggleKelasLainnyaAbsen(this)" class="w-full flex items-center justify-between px-1 pt-1.5 pb-0.5 text-slate-400 font-bold text-[9px] uppercase hover:text-white transition">
+               <span>Kelas Lainnya (Baca Saja) (${lain.length})</span>
+               <i class="fa-solid fa-chevron-${terbuka ? 'up' : 'down'} text-[8px]"></i>
+             </button>`;
+    html += `<div class="${terbuka ? '' : 'hidden'}">${lain.map(k => btnKelas(k, nilaiTerpilih === k)).join('')}</div>`;
+  }
+  return html || opsiKelasAbsenHTML(listKelas, jenis, nama);
+}
+
+/** Buka/tutup panel dropdown "Pilih Kelas"; auto-close saat klik di luar panel. */
+function toggleDropdownKelasAbsen(ev) {
+  if (ev) ev.stopPropagation();
+  const panel = document.getElementById('panel-kelas-absen');
+  if (!panel) return;
+  const sedangTerbuka = !panel.classList.contains('hidden');
+  document.querySelectorAll('#panel-kelas-absen').forEach(p => p.classList.add('hidden'));
+  if (sedangTerbuka) return;
+  panel.classList.remove('hidden');
+  const tutupDiLuar = (e) => {
+    if (!panel.contains(e.target) && e.target.id !== 'btn-dropdown-kelas' && !e.target.closest('#btn-dropdown-kelas')) {
+      panel.classList.add('hidden');
+      document.removeEventListener('click', tutupDiLuar);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', tutupDiLuar), 0);
+}
+
+/** Kolapse/expand daftar "Kelas Lainnya (Baca Saja)" di dalam panel (tanpa menutup panel). */
+function toggleKelasLainnyaAbsen(btn) {
+  const wrap = btn.nextElementSibling;
+  const icon = btn.querySelector('i');
+  if (!wrap) return;
+  wrap.classList.toggle('hidden');
+  if (icon) { icon.classList.toggle('fa-chevron-down'); icon.classList.toggle('fa-chevron-up'); }
+}
+
+/** Pilih kelas dari panel kustom: set value select asli (agar semua logika lama tetap jalan via event change). */
+function pilihKelasAbsen(kelas) {
+  const sel = document.getElementById('select-kelas');
+  if (!sel) return;
+  sel.value = kelas;
+  sel.dispatchEvent(new Event('change'));
+  const panel = document.getElementById('panel-kelas-absen');
+  if (panel) panel.classList.add('hidden');
+}
+
 /** Segarkan opsi "Pilih Kelas" (label diampu/lainnya) mengikuti mapel/ekskul terpilih saat ini. */
 function perbaruiOpsiKelasAbsen(listKelasAll) {
   const selKelas = document.getElementById('select-kelas');
@@ -1964,6 +2031,8 @@ function perbaruiOpsiKelasAbsen(listKelasAll) {
   const nilaiLama = selKelas.value;
   selKelas.innerHTML = `<option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>${opsiKelasAbsenHTML(daftar, jenis, nama)}`;
   if ([...selKelas.options].some(o => o.value === nilaiLama)) selKelas.value = nilaiLama;
+  const panel = document.getElementById('panel-kelas-absen');
+  if (panel) panel.innerHTML = renderPanelKelasAbsenHTML(daftar, jenis, nama, selKelas.value);
 }
 
 /** Mode akses mapel terpilih: 'keduanya' (admin) | 'menulis' | 'baca'. */
