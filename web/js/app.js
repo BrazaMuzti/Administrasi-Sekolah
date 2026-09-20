@@ -1794,7 +1794,7 @@ async function renderAbsensiModule(container) {
   // [PERBAIKAN REQ 3]: Penambahan class bg-slate-800 text-white di semua <option>
   container.innerHTML = `
     <!-- FILTER BAR ABSENSI -->
-    <div class="sticky top-0 z-40 p-2 rounded-b-2xl shadow-lg border-b border-white/10 bg-slate-800/90 w-full backdrop-blur-md flex flex-col gap-2">
+    <div class="sticky top-0 z-50 p-2 rounded-b-2xl shadow-lg border-b border-white/10 bg-slate-800/90 w-full backdrop-blur-md flex flex-col gap-2">
       <div class="flex items-center justify-between gap-1 w-full">
         <div class="flex gap-1 sm:gap-2 flex-wrap items-center">
 
@@ -1830,7 +1830,7 @@ async function renderAbsensiModule(container) {
                ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
              <button type="button" id="btn-dropdown-kelas" onclick="toggleDropdownKelasAbsen(event)" class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 hover:bg-pink-500 hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></button>
-             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 max-h-80 overflow-y-auto custom-scrollbar bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5"></div>
+             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-[60] w-56 max-h-80 overflow-y-auto custom-scrollbar bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5"></div>
           </div>
         </div>
         
