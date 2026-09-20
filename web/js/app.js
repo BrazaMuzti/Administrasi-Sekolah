@@ -1813,9 +1813,7 @@ async function renderAbsensiModule(container) {
            <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Mode Tampilan Tanggal">
               <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition shadow-sm"><i class="fa-solid fa-eye text-[10px] sm:text-xs"></i></div>
               <select id="filter-view-mode" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="refreshTableAbsenUI()">
-                <option value="today" class="bg-slate-800 text-white" selected>Hari Ini</option>
-                <option value="week" class="bg-slate-800 text-white">Minggu Ini</option>
-                <option value="all" class="bg-slate-800 text-white">Semua Tgl</option>
+                ${opsiModeTampilanTanggalHTML()}
               </select>
            </div>
           <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Mapel / Ekskul">
@@ -1830,7 +1828,7 @@ async function renderAbsensiModule(container) {
              <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500 group-hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></div>
              <select id="select-kelas" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataMuridDanAbsen()">
                <option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>
-               ${listKelas.map(k => `<option value="${k}" class="bg-slate-800 text-white">${k}</option>`).join('')}
+               ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
           </div>
         </div>
@@ -1865,25 +1863,108 @@ async function renderAbsensiModule(container) {
     </div>
   `;
   pasangPerekamUndoAbsen();
+  window.__listKelasAbsenCache = listKelas;
   handleMapelChange();
 }
 
+/** Opsi "Mode Tampilan Tanggal": label Mapel/Ekskul dinamis mengikuti pilihan "Pilih Mapel/Ekskul".
+ *  "Semua Tgl" hanya muncul saat "Semua Mapel" dipilih (req 6); selain itu opsi jadwal menampilkan
+ *  tanggal2 sesuai hari jadwal_pelajaran (Mapel) / agenda_ekskul (Ekskul) pada bulan berjalan. */
+function opsiModeTampilanTanggalHTML() {
+  const mapelRaw = (document.getElementById('select-mapel') || {}).value || '';
+  const arr = mapelRaw.split('|'), jenis = arr[0] || 'Mapel', nama = arr[1] || '';
+  const isSemuaMapel = jenis === 'SemuaMapel';
+  const labelJadwal = jenis === 'Ekskul'
+    ? `Ekstrakurikuler ${escapeHtml(nama || '')}`
+    : `Mata Pelajaran ${escapeHtml(nama || '')}`;
+  let html = `<option value="today" class="bg-slate-800 text-white">Hari Ini</option>
+              <option value="week" class="bg-slate-800 text-white">Minggu Ini</option>`;
+  if (!isSemuaMapel && nama) html += `<option value="jadwal" class="bg-slate-800 text-white">${labelJadwal} (opsi dipilih)</option>`;
+  if (isSemuaMapel) html += `<option value="all" class="bg-slate-800 text-white">Semua Tgl</option>`;
+  return html;
+}
+
+/** Segarkan opsi "Mode Tampilan Tanggal" mengikuti mapel/ekskul terpilih; pertahankan pilihan bila masih valid. */
+function perbaruiModeTampilanTanggal() {
+  const sel = document.getElementById('filter-view-mode');
+  if (!sel) return;
+  const nilaiLama = sel.value || 'today';
+  sel.innerHTML = opsiModeTampilanTanggalHTML();
+  if ([...sel.options].some(o => o.value === nilaiLama)) sel.value = nilaiLama;
+  else sel.value = 'today';
+}
+
 function handleMapelChange() {
-  const mapelRaw = document.getElementById('select-mapel').value, isEkskul = mapelRaw.startsWith('Ekskul');
+  const mapelRaw = document.getElementById('select-mapel').value, isEkskul = mapelRaw.startsWith('Ekskul'), isSemuaMapel = mapelRaw.startsWith('SemuaMapel');
   const selKelas = document.getElementById('select-kelas'), optSemua = document.getElementById('opt-semua-kelas');
-  if (isEkskul) { optSemua.classList.remove('hidden'); selKelas.value = "Semua Kelas"; document.getElementById('lbl-judul-utama').innerText = `Daftar Hadir Ekstrakurikuler`; } 
+  if (isEkskul || isSemuaMapel) { optSemua.classList.remove('hidden'); selKelas.value = "Semua Kelas"; document.getElementById('lbl-judul-utama').innerText = isSemuaMapel ? `Laporan Hadir Semua Mapel` : `Daftar Hadir Ekstrakurikuler`; } 
   else { optSemua.classList.add('hidden'); if (selKelas.value === "Semua Kelas") selKelas.selectedIndex = 1; document.getElementById('lbl-judul-utama').innerText = `Laporan Hadir Tatap Muka`; }
+  perbaruiOpsiKelasAbsen();
+  perbaruiModeTampilanTanggal();
   perbaruiIkonAkses();
   loadDataMuridDanAbsen();
 }
 
-/** Opsi dropdown mapel: diampu guru di atas, lainnya di bawah. */
+/** Opsi dropdown mapel: diampu guru di atas, lainnya di bawah + opsi "Semua Mapel". */
 function opsiMapelAbsenHTML(lain, diampu) {
   const opt = (arr) => arr.map(m => `<option value="Mapel|${escJs(m)}" class="bg-slate-800 text-white">${escapeHtml(m)}</option>`).join('');
-  if (!diampu || diampu.length === 0) return lain.length > 0 ? `<optgroup label="Mata Pelajaran" class="bg-slate-700 text-blue-300 font-bold">${opt(lain)}</optgroup>` : '';
-  let html = `<optgroup label="Mapel Diampu (Bisa Edit)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
+  const semuaMapelOpt = `<option value="SemuaMapel|Semua Mapel" class="bg-slate-800 text-cyan-300 font-bold">— Semua Mapel —</option>`;
+  if (!diampu || diampu.length === 0) return semuaMapelOpt + (lain.length > 0 ? `<optgroup label="Mata Pelajaran" class="bg-slate-700 text-blue-300 font-bold">${opt(lain)}</optgroup>` : '');
+  let html = semuaMapelOpt + `<optgroup label="Mapel Diampu (Bisa Edit)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
   if (lain.length > 0) html += `<optgroup label="Mapel Lainnya (Baca Saja)" class="bg-slate-700 text-slate-400 font-bold">${opt(lain)}</optgroup>`;
   return html;
+}
+
+/** Hitung set kelas yang diampu guru untuk mapel/ekskul TERPILIH pada select-mapel (khusus modul Hadir Tatap Muka).
+ *  Mapel: wali kelas + jadwal_pelajaran guru (TA aktif) untuk mapel tsb. Ekskul: seluruh kelas (lintas kelas). */
+function hitungKelasDiampuAbsen(jenis, nama) {
+  const set = new Set();
+  if (!currentUser || currentUser.role !== 'guru') return set;
+  const user = currentUser.user || {};
+  if (jenis === 'Ekskul') {
+    if (nama && ekskulDiampuAktif().some(e => e.toLowerCase() === String(nama).toLowerCase())) {
+      (masterDataCache || []).forEach(m => { if (m["Tingkat/Kelas"]) set.add(m["Tingkat/Kelas"]); });
+    }
+    return set;
+  }
+  const wali = waliKelasAktif();
+  if (wali) set.add(wali);
+  if (!nama) return set;
+  const idGuru = user["ID Akun Guru"] || "";
+  (cacheJadwalGuru || []).forEach(j => {
+    if (String(j["Tahun"] || '') !== String(currentTahun || '')) return;
+    if (String(j["ID Akun Guru"] || "") === String(idGuru) && (j["Mapel"] || "") === (nama || "")) {
+      const k = (j["Tingkat/Kelas"] || "").trim();
+      if (k) set.add(k);
+    }
+  });
+  return set;
+}
+
+/** Opsi dropdown "Pilih Kelas" modul Hadir Tatap Muka: kelas diampu (bisa edit) vs lainnya (baca saja).
+ *  Admin/murid: daftar kelas biasa tanpa pengelompokan. */
+function opsiKelasAbsenHTML(listKelas, jenis, nama) {
+  if (!currentUser || currentUser.role !== 'guru') return (listKelas || []).map(k => `<option value="${escJs(k)}" class="bg-slate-800 text-white">${escapeHtml(k)}</option>`).join('');
+  const diampuSet = hitungKelasDiampuAbsen(jenis, nama);
+  const opt = (arr) => arr.map(k => `<option value="${escJs(k)}" class="bg-slate-800 text-white">${escapeHtml(k)}</option>`).join('');
+  const diampu = (listKelas || []).filter(k => diampuSet.has(k));
+  const lain = (listKelas || []).filter(k => !diampuSet.has(k));
+  let html = '';
+  if (diampu.length > 0) html += `<optgroup label="Kelas Diampu (Bisa Edit)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
+  if (lain.length > 0) html += `<optgroup label="Kelas Lainnya (Baca Saja)" class="bg-slate-700 text-slate-400 font-bold">${opt(lain)}</optgroup>`;
+  return html || opt(listKelas || []);
+}
+
+/** Segarkan opsi "Pilih Kelas" (label diampu/lainnya) mengikuti mapel/ekskul terpilih saat ini. */
+function perbaruiOpsiKelasAbsen(listKelasAll) {
+  const selKelas = document.getElementById('select-kelas');
+  if (!selKelas) return;
+  const mapelRaw = (document.getElementById('select-mapel') || {}).value || '';
+  const arr = mapelRaw.split('|'), jenis = arr[0] || 'Mapel', nama = arr[1] || '';
+  const daftar = listKelasAll || window.__listKelasAbsenCache || [];
+  const nilaiLama = selKelas.value;
+  selKelas.innerHTML = `<option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>${opsiKelasAbsenHTML(daftar, jenis, nama)}`;
+  if ([...selKelas.options].some(o => o.value === nilaiLama)) selKelas.value = nilaiLama;
 }
 
 /** Mode akses mapel terpilih: 'keduanya' (admin) | 'menulis' | 'baca'. */
@@ -1892,6 +1973,8 @@ function modeAksesMapel() {
   if (role === 'admin') return 'keduanya';
   const mapelRaw = (document.getElementById('select-mapel') || {}).value || '';
   const arr = mapelRaw.split('|'), jenis = arr[0], nama = arr[1] || '';
+  // [REQ 4] Semua Mapel: tampilan gabungan lintas mapel → mode baca saja (edit tetap per mapel)
+  if (jenis === 'SemuaMapel') return 'baca';
   // [REQ 1c] Murid pengurus ekskul → menulis pada ekskul tsb; anggota → baca
   if (role === 'murid') return (jenis === 'Ekskul' && hakAksesEkskulUntuk(nama) === 'pengurus') ? 'menulis' : 'baca';
   if (!nama) return 'menulis';
@@ -2006,6 +2089,16 @@ function hariJadwalMapelAbsen() {
   const kelas = kelasEl ? kelasEl.value : '';
   const hariKe = (namaHari) => HARI_INDO.findIndex(h => h.toLowerCase() === String(namaHari || '').trim().toLowerCase());
   const set = new Set();
+  if (jenis === 'SemuaMapel') {
+    // [REQ 4/5] Semua Mapel: gabungan hari jadwal seluruh mapel (TA + kelas terpilih)
+    (cacheJadwal || []).forEach(j => {
+      if (String(j["Tahun"] || '') !== String(currentTahun || '')) return;
+      if (kelas && kelas !== 'Semua Kelas' && String(j["Tingkat/Kelas"] || '') !== String(kelas)) return;
+      const idx = hariKe(String(j["Waktu"] || '').split(',')[0]);
+      if (idx >= 0) set.add(idx);
+    });
+    return set;
+  }
   if (jenis === 'Mapel' && nama) {
     (cacheJadwal || []).forEach(j => {
       if (String(j["Tahun"] || '') !== String(currentTahun || '')) return;
@@ -2089,10 +2182,29 @@ function pastikanAgendaHariEkskul(ekskul) {
     .catch(() => { window.__cacheAgendaHariEkskul[ekskul] = []; });
 }
 
+/** [REQ 1/2] Tanggal (1-31) SELURUH BULAN berjalan yang jatuh pada hari jadwal pelajaran/ekskul
+ *  mapel/ekskul terpilih (mis. jadwal Senin → 7,17,21,28). Set kosong (mapel/ekskul belum
+ *  terhubung ke jadwal manapun) → kembalikan seluruh tanggal bulan (fallback). */
+function tanggalJadwalBulanIniAbsen() {
+  const idxBulan = arrBulan.indexOf(currentBulan);
+  if (idxBulan < 0) return [];
+  const partsTahun = String(currentTahun || '').split('/');
+  const tahunAktual = (idxBulan >= 6) ? parseInt(partsTahun[0], 10) : (parseInt(partsTahun[1], 10) || parseInt(partsTahun[0], 10));
+  const hariDalamBulan = new Date(tahunAktual, idxBulan + 1, 0).getDate();
+  const hariSet = hariJadwalMapelAbsen();
+  if (!hariSet || hariSet.size === 0) return Array.from({length: hariDalamBulan}, (_, i) => i + 1);
+  const hasil = [];
+  for (let d = 1; d <= hariDalamBulan; d++) {
+    const hariMingguKe = new Date(tahunAktual, idxBulan, d).getDay();
+    if (hariSet.has(hariMingguKe)) hasil.push(d);
+  }
+  return hasil;
+}
+
 function refreshTableAbsenUI() {
   const isEkskul = document.getElementById('select-mapel').value.startsWith('Ekskul');
   const viewMode = document.getElementById('filter-view-mode').value;
-  // [REQ 3a] Tanggal tampil: Hari Ini / Minggu Ini (sesuai hari jadwal pelajaran) / Semua Tanggal
+  // [REQ 3a] Tanggal tampil: Hari Ini / Minggu Ini (sesuai hari jadwal pelajaran) / Jadwal (sebulan) / Semua Tanggal
   let datesToRender;
   if (viewMode === 'today') datesToRender = [new Date().getDate()];
   else if (viewMode === 'week') {
@@ -2100,7 +2212,12 @@ function refreshTableAbsenUI() {
     const minggu = tanggalMingguIniAbsen();
     datesToRender = minggu.length ? minggu : Array.from({length: 31}, (_, i) => i + 1);
   }
+  else if (viewMode === 'jadwal') {
+    if (isEkskul) pastikanAgendaHariEkskul(document.getElementById('select-mapel').value.split('|')[1] || '');
+    datesToRender = tanggalJadwalBulanIniAbsen();
+  }
   else datesToRender = Array.from({length: 31}, (_, i) => i + 1);
+
 
   const idxBulan = arrBulan.indexOf(currentBulan);
   const partsTahun = currentTahun.split('/');
@@ -2235,7 +2352,8 @@ async function loadDataMuridDanAbsen(paksa = false) {
 
   const kelas = elKelas.value, mapelRaw = elMapel.value;
   currentBulan = elBulan.value; currentTahun = elTahun.value;
-  const isEkskul = mapelRaw.startsWith('Ekskul'), namaMapel = mapelRaw.split('|')[1];
+  const isEkskul = mapelRaw.startsWith('Ekskul'), isSemuaMapel = mapelRaw.startsWith('SemuaMapel');
+  const namaMapel = isSemuaMapel ? 'Semua Mapel' : mapelRaw.split('|')[1];
   const smt = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
   
   const elInfoMapel = document.getElementById('lbl-info-mapel');
@@ -2245,9 +2363,26 @@ async function loadDataMuridDanAbsen(paksa = false) {
   if(tableEl) tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Sinkronisasi Database...</td></tr>`;
 
   try {
-    const payload = { kelas: kelas, mapel: namaMapel, bulan: currentBulan, tahun: currentTahun };
-    const json = await ambilDashboardData(payload, paksa);
+    let json;
+    if (isSemuaMapel) {
+      // [REQ 4/5] Semua Mapel: gabungkan hasil fetch tiap Mapel yang tersedia di dropdown (sudah difilter akses)
+      const daftarMapel = [...elMapel.querySelectorAll('option[value^="Mapel|"]')].map(o => o.value.split('|')[1]).filter(Boolean);
+      const hasilPerMapel = await Promise.all(daftarMapel.map(m => ambilDashboardData({ kelas, mapel: m, bulan: currentBulan, tahun: currentTahun }, paksa)));
+      const sukses = hasilPerMapel.filter(h => h && h.status === 'success');
+      if (sukses.length === 0) { json = { status: 'success', absen: [], murid: [], status_guru: {}, kepsek: namaKepsekGlobal }; }
+      else {
+        const absenGab = [];
+        sukses.forEach(h => (h.absen || []).forEach(a => absenGab.push(a)));
+        const muridMap = new Map();
+        sukses.forEach(h => (h.murid || []).forEach(m => { if (!muridMap.has(m.NIS)) muridMap.set(m.NIS, m); }));
+        json = { status: 'success', absen: absenGab, murid: [...muridMap.values()], status_guru: sukses[0].status_guru || {}, kepsek: sukses[0].kepsek || namaKepsekGlobal };
+      }
+    } else {
+      const payload = { kelas: kelas, mapel: namaMapel, bulan: currentBulan, tahun: currentTahun };
+      json = await ambilDashboardData(payload, paksa);
+    }
       if (json.status === 'success') {
+
       rawAbsenData = json.absen; 
       dataStatusKunciGuru = json.status_guru; 
       namaKepsekGlobal = json.kepsek || "_____________________";
