@@ -1878,6 +1878,11 @@ async function renderAbsensiModule(container) {
   handleMapelChange();
 }
 
+/** Flag fitur: opsi Semua Mapel, Semua Kelas (panel Pilih Kelas mode Mapel biasa) dan Hari Ini disembunyikan untuk guru (permintaan user); tetap tampil untuk admin. Set true untuk aktifkan lagi untuk semua role. */
+const TAMPILKAN_OPSI_SEMUA_ABSEN = false;
+/** Opsi Semua Mapel/Semua Kelas/Hari Ini tetap tampil untuk admin (butuh rekap gabungan), disembunyikan untuk guru. */
+function isAdminAbsen() { return TAMPILKAN_OPSI_SEMUA_ABSEN || (currentUser && currentUser.role === 'admin'); }
+
 /** Opsi "Mode Tampilan Tanggal": label Mapel/Ekskul mengikuti pilihan "Pilih Mapel/Ekskul", urutan
  *  Hari Ini → Mata Pelajaran (opsi dipilih) → Minggu Ini → Semua Tgl (khusus "Semua Mapel", req 6).
  *  Opsi jadwal menampilkan tanggal2 sesuai hari jadwal_pelajaran (Mapel) / agenda_ekskul (Ekskul)
@@ -1887,7 +1892,7 @@ function opsiModeTampilanTanggalHTML() {
   const arr = mapelRaw.split('|'), jenis = arr[0] || 'Mapel', nama = arr[1] || '';
   const isSemuaMapel = jenis === 'SemuaMapel';
   const labelJadwal = jenis === 'Ekskul' ? 'Mata Pelajaran Ekstrakurikuler (opsi dipilih)' : 'Mata Pelajaran (opsi mapel yang dipilih)';
-  let html = `<option value="today" class="bg-slate-800 text-white">Hari Ini</option>`;
+  let html = isAdminAbsen() ? `<option value="today" class="bg-slate-800 text-white">Hari Ini</option>` : '';
   if (!isSemuaMapel && nama) html += `<option value="jadwal" class="bg-slate-800 text-white">${labelJadwal}</option>`;
   html += `<option value="week" class="bg-slate-800 text-white">Minggu Ini</option>`;
   if (isSemuaMapel) html += `<option value="all" class="bg-slate-800 text-white">Semua Tgl</option>`;
@@ -1898,10 +1903,11 @@ function opsiModeTampilanTanggalHTML() {
 function perbaruiModeTampilanTanggal() {
   const sel = document.getElementById('filter-view-mode');
   if (!sel) return;
-  const nilaiLama = sel.value || 'today';
+  const defaultMode = isAdminAbsen() ? 'today' : 'week';
+  const nilaiLama = sel.value || defaultMode;
   sel.innerHTML = opsiModeTampilanTanggalHTML();
   if ([...sel.options].some(o => o.value === nilaiLama)) sel.value = nilaiLama;
-  else sel.value = 'today';
+  else if (sel.options.length) sel.value = sel.options[0].value;
 }
 
 function handleMapelChange() {
@@ -1918,7 +1924,7 @@ function handleMapelChange() {
 /** Opsi dropdown mapel: diampu guru di atas, lainnya di bawah + opsi "Semua Mapel". */
 function opsiMapelAbsenHTML(lain, diampu) {
   const opt = (arr) => arr.map(m => `<option value="Mapel|${escJs(m)}" class="bg-slate-800 text-white">${escapeHtml(m)}</option>`).join('');
-  const semuaMapelOpt = `<option value="SemuaMapel|Semua Mapel" class="bg-slate-800 text-cyan-300 font-bold">— Semua Mapel —</option>`;
+  const semuaMapelOpt = isAdminAbsen() ? `<option value="SemuaMapel|Semua Mapel" class="bg-slate-800 text-cyan-300 font-bold">— Semua Mapel —</option>` : '';
   if (!diampu || diampu.length === 0) return semuaMapelOpt + (lain.length > 0 ? `<optgroup label="Mata Pelajaran" class="bg-slate-700 text-blue-300 font-bold">${opt(lain)}</optgroup>` : '');
   let html = semuaMapelOpt + `<optgroup label="Mapel Diampu (Bisa Edit)" class="bg-slate-700 text-green-300 font-bold">${opt(diampu)}</optgroup>`;
   if (lain.length > 0) html += `<optgroup label="Mapel Lainnya (Baca Saja)" class="bg-slate-700 text-slate-400 font-bold">${opt(lain)}</optgroup>`;
@@ -1971,7 +1977,8 @@ function renderPanelKelasAbsenHTML(listKelas, jenis, nama, nilaiTerpilih) {
   const isGuru = currentUser && currentUser.role === 'guru';
   const btnKelas = (k, aktif) => `<button type="button" onclick="pilihKelasAbsen('${escJs(k)}')" class="w-full text-left px-2 py-1 rounded hover:bg-pink-600/40 transition ${aktif ? 'bg-pink-600/60 font-bold' : ''}">${escapeHtml(k)}</button>`;
   let html = `<div class="px-1 pb-1 mb-1 border-b border-white/10 text-slate-400 font-bold uppercase text-[9px]">Pilih Kelas</div>`;
-  html += btnKelas('Semua Kelas', nilaiTerpilih === 'Semua Kelas');
+  const tampilkanSemuaKelas = isAdminAbsen() || jenis === 'Ekskul' || jenis === 'SemuaMapel';
+  if (tampilkanSemuaKelas) html += btnKelas('Semua Kelas', nilaiTerpilih === 'Semua Kelas');
   if (!isGuru) {
     html += (listKelas || []).map(k => btnKelas(k, nilaiTerpilih === k)).join('');
     return html;
