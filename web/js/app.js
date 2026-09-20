@@ -1867,19 +1867,18 @@ async function renderAbsensiModule(container) {
   handleMapelChange();
 }
 
-/** Opsi "Mode Tampilan Tanggal": label Mapel/Ekskul dinamis mengikuti pilihan "Pilih Mapel/Ekskul".
- *  "Semua Tgl" hanya muncul saat "Semua Mapel" dipilih (req 6); selain itu opsi jadwal menampilkan
- *  tanggal2 sesuai hari jadwal_pelajaran (Mapel) / agenda_ekskul (Ekskul) pada bulan berjalan. */
+/** Opsi "Mode Tampilan Tanggal": label Mapel/Ekskul mengikuti pilihan "Pilih Mapel/Ekskul", urutan
+ *  Hari Ini → Mata Pelajaran (opsi dipilih) → Minggu Ini → Semua Tgl (khusus "Semua Mapel", req 6).
+ *  Opsi jadwal menampilkan tanggal2 sesuai hari jadwal_pelajaran (Mapel) / agenda_ekskul (Ekskul)
+ *  pada bulan berjalan. */
 function opsiModeTampilanTanggalHTML() {
   const mapelRaw = (document.getElementById('select-mapel') || {}).value || '';
   const arr = mapelRaw.split('|'), jenis = arr[0] || 'Mapel', nama = arr[1] || '';
   const isSemuaMapel = jenis === 'SemuaMapel';
-  const labelJadwal = jenis === 'Ekskul'
-    ? `Ekstrakurikuler ${escapeHtml(nama || '')}`
-    : `Mata Pelajaran ${escapeHtml(nama || '')}`;
-  let html = `<option value="today" class="bg-slate-800 text-white">Hari Ini</option>
-              <option value="week" class="bg-slate-800 text-white">Minggu Ini</option>`;
-  if (!isSemuaMapel && nama) html += `<option value="jadwal" class="bg-slate-800 text-white">${labelJadwal} (opsi dipilih)</option>`;
+  const labelJadwal = jenis === 'Ekskul' ? 'Mata Pelajaran Ekstrakurikuler (opsi dipilih)' : 'Mata Pelajaran (opsi mapel yang dipilih)';
+  let html = `<option value="today" class="bg-slate-800 text-white">Hari Ini</option>`;
+  if (!isSemuaMapel && nama) html += `<option value="jadwal" class="bg-slate-800 text-white">${labelJadwal}</option>`;
+  html += `<option value="week" class="bg-slate-800 text-white">Minggu Ini</option>`;
   if (isSemuaMapel) html += `<option value="all" class="bg-slate-800 text-white">Semua Tgl</option>`;
   return html;
 }
