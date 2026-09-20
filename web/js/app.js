@@ -1830,7 +1830,7 @@ async function renderAbsensiModule(container) {
                ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
              <button type="button" id="btn-dropdown-kelas" onclick="toggleDropdownKelasAbsen(event)" class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 hover:bg-pink-500 hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></button>
-             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 max-h-80 overflow-y-auto custom-scrollbar bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5" style="z-index:9999;"></div>
+             <div id="panel-kelas-absen" class="hidden fixed w-56 overflow-y-auto custom-scrollbar bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5" style="z-index:9999;"></div>
           </div>
         </div>
         
@@ -1984,15 +1984,45 @@ function renderPanelKelasAbsenHTML(listKelas, jenis, nama, nilaiTerpilih) {
   return html || opsiKelasAbsenHTML(listKelas, jenis, nama);
 }
 
-/** Buka/tutup panel dropdown "Pilih Kelas"; auto-close saat klik di luar panel. */
+/** Buka/tutup panel dropdown "Pilih Kelas"; auto-close saat klik di luar panel.
+ *  Posisi panel dihitung dinamis (position:fixed) mengikuti tombol pemicu — otomatis
+ *  jatuh ke bawah atau membalik ke atas, dan bergeser ke pinggir bila melebihi batas layar. */
 function toggleDropdownKelasAbsen(ev) {
   if (ev) ev.stopPropagation();
   const panel = document.getElementById('panel-kelas-absen');
-  if (!panel) return;
+  const btn = document.getElementById('btn-dropdown-kelas');
+  if (!panel || !btn) return;
   const sedangTerbuka = !panel.classList.contains('hidden');
   document.querySelectorAll('#panel-kelas-absen').forEach(p => p.classList.add('hidden'));
   if (sedangTerbuka) return;
+
+  const margin = 8;
+  const rect = btn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const lebarPanel = panel.offsetWidth || 224; // fallback w-56 (14rem = 224px)
+
+  // Horizontal: mulai dari kiri tombol, geser ke pinggir kiri/kanan bila melebihi batas layar.
+  let left = rect.left;
+  if (left + lebarPanel + margin > vw) left = vw - lebarPanel - margin;
+  if (left < margin) left = margin;
+
+  // Vertikal: default jatuh ke bawah tombol; bila ruang bawah tak cukup, balik ke atas.
+  const ruangBawah = vh - rect.bottom - margin;
+  const ruangAtas = rect.top - margin;
+  let top, tinggiMaks;
+  if (ruangBawah >= 150 || ruangBawah >= ruangAtas) {
+    top = rect.bottom + 4;
+    tinggiMaks = Math.max(100, ruangBawah - 4);
+  } else {
+    tinggiMaks = Math.max(100, ruangAtas - 4);
+    top = Math.max(margin, rect.top - 4 - tinggiMaks);
+  }
+
+  panel.style.left = left + 'px';
+  panel.style.top = top + 'px';
+  panel.style.maxHeight = tinggiMaks + 'px';
   panel.classList.remove('hidden');
+
   const tutupDiLuar = (e) => {
     if (!panel.contains(e.target) && e.target.id !== 'btn-dropdown-kelas' && !e.target.closest('#btn-dropdown-kelas')) {
       panel.classList.add('hidden');
