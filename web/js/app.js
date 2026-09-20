@@ -1771,6 +1771,16 @@ async function renderAbsensiModule(container) {
     try { await muatDataJadwalLibur(); } catch (e) { console.warn('jadwal absensi:', e); }
   }
 
+  // Kelas diampu guru (untuk grup "Kelas Diampu (Bisa Edit)" di panel Pilih Kelas):
+  // ambil dari jadwal_pelajaran (menu Jadwal & Libur → Jadwal Pelajaran: Kelas & Mapel).
+  if (role === 'guru') {
+    try {
+      const { data: jdRows, error: jdErr } = await supaClient.from('jadwal_pelajaran').select('*');
+      if (!jdErr && jdRows) cacheJadwalGuru = jdRows;
+      else if (jdErr) console.warn('Gagal memuat jadwal pelajaran (absensi):', jdErr.message);
+    } catch (e) { console.warn('jadwal_pelajaran (absensi):', e); }
+  }
+
   let listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
   if (listTahun.length > 0 && !listTahun.includes(currentTahun)) currentTahun = listTahun[0];
   let listKelas = urutAz([...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
@@ -1830,7 +1840,7 @@ async function renderAbsensiModule(container) {
                ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
              <button type="button" id="btn-dropdown-kelas" onclick="toggleDropdownKelasAbsen(event)" class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 hover:bg-pink-500 hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></button>
-             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 overflow-y-auto bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5" style="z-index:9999; max-height: 20rem;"></div>
+             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 overflow-y-auto bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5" style="z-index:9999; max-height: 20rem; width:100px;"></div>
           </div>
         </div>
         
