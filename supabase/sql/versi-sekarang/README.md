@@ -55,8 +55,18 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 34. `upgrade_20260929_jadwal_pelajaran.sql` — tabel jadwal_pelajaran + RLS
 35. `upgrade_20260930_pengurus_tambah_anggota.sql` — RPC daftar_anggota_ekskul_baru (siswa baru langsung jadi anggota)
 36. `upgrade_20260930b_fix_akun_grant_anon.sql` — perbaikan "permission denied for table akun" saat pengurus ekskul murid (anon) menambahkan anggota existing (grant select/update kolom akun ke anon)
+37. `upgrade_20261001_kas_ekstrakurikuler.sql` — tab Kas Umum & Kas Anggota di modul Ekstrakurikuler: tabel `kategori_kas`, `kas_umum`, `iuran_anggota`, trigger auto-posting iuran → kas umum, RPC `hitung_saldo_kas_umum` & `matriks_iuran_anggota`. **Manual:** buat Storage bucket `kas-bukti` (public) di Dashboard.
+38. `upgrade_20261002_kas_masterdata_v2.sql` — link Google Drive manual per kategori di Master Data (murid/guru/mapel/ekskul/administrasi), kolom `deskripsi` di `kategori_kas`, tabel `deskripsi_iuran`, kolom `nama_siswa` di `kas_umum` & `deskripsi_pembayaran` di `iuran_anggota`, update trigger sync agar mengisi `nama_siswa`, tabel `notifikasi`.
+39. `upgrade_20261003_kas_anggota_rentang.sql` — RPC `iuran_anggota_rentang(p_ekskul, p_dari, p_sampai)` untuk filter tab Kas Anggota berbasis rentang tanggal (Dari/Sampai) menggantikan filter Tahun+Bulan.
+40. `upgrade_20261005_kas_anggota_cicil.sql` — status `'cicil'` pada `iuran_anggota.status`, kolom `nominal_dibayar` (akumulasi dibayar) & `tanggal_akhir_bayar` (tenggat), update RPC `iuran_anggota_rentang` agar menyertakan kolom baru.
+41. `upgrade_20261006_import_murid_akses_guru.sql` — RPC `import_akun_murid` dibuat ulang agar guru wali kelas/pembina ekskul (selain admin) juga boleh import Data Akun Murid.
+42. `upgrade_20261007_kalender_tipe_custom.sql` — kolom `tipe_custom` di `kalender_pendidikan` untuk nama kategori bebas saat tipe = `custom` (form Kalender Pendidikan & tampilan tabel/legenda).
+43. `upgrade_20261007_akun_hp_ortu.sql` — kolom `no_telepon_ortu` (No HP Orang Tua) tabel `akun`, RPC `buat_akun_murid` dibuat ulang agar menyimpan kolom baru ini.
+44. `upgrade_20261007_jadwal_guru_custom.sql` — kolom `"Guru Custom"` di `jadwal_pelajaran`, untuk slot jadwal yang diajar guru tanpa akun (nama diketik manual, dipakai di legenda per Jurusan tampilan Lihat Jadwal).
+45. `upgrade_20261008_ekskul_menu_lengkap.sql` — perombakan Menu Ekstrakurikuler: kolom `drive_url` & `pelatih` (jsonb) di `ekstrakurikuler`; tabel baru `pengumuman_ekskul`, `materi_tugas_ekskul`, `sertifikat_prestasi_ekskul`, `arsip_surat_ekskul`, `proposal_kegiatan_ekskul`, `lpj_ekskul`, `pendaftaran_ekskul`, `proker_ekskul`, `jurnal_ekskul`, `inventaris_ekskul`, `peminjaman_alat_ekskul`; RPC `catat_notifikasi_ekskul` (insert ke tabel `notifikasi` — notifikasi in-app, bukan push OS handphone). UI di `web/js/app.js`: menu dirombak jadi 5 tab grup (Persuratan & Proposal, Profil & Anggota, Keuangan & Kas, Jurnal & Program Kerja, Arsip & Penilaian) dengan sub-tab per grup, engine CRUD generik `KONFIG_SUBEKSKUL`/`renderSubEkskulCrud`/`formSubEkskulCrud`, widget Pengumuman & link Drive + profil Pelatih di Info Ekskul. **Manual:** buat Storage bucket `ekskul-berkas` (public) di Dashboard.
+46. `upgrade_20261010_jadwal_piket_ekskul.sql` — sub-tab "Jadwal Piket" di Jurnal & Program Kerja: tabel `jadwal_piket_ekskul` (1 baris per ekskul, `hari` jsonb + `piket` jsonb) + RLS. UI: custom hari, generate otomatis (anggota merata 1×/minggu), tabel draggable di halaman, kartu read-only di Info Ekskul (di atas Pengurus).
 
-> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-36 secara terpisah, urut tanggal.
+> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-46 secara terpisah, urut tanggal.
 
 ## Cara menjalankan di Supabase
 
