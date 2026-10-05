@@ -30,7 +30,7 @@
 //
 // Kode Google Apps Script: lihat file Code.gs di folder yang sama.
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -76,11 +76,23 @@ async function identifikasiPemanggil(token: string): Promise<{ nis_nip: string; 
     const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
       auth: { persistSession: false },
     });
-    const { data: akun } = await admin
+    // 1) Pilih lewat user_id (baris akun tertaut Auth). Service role → lolos RLS.
+    let akun: { nis_nip?: string | null; tipe?: string | null } | null = null;
+    ({ data: akun } = await admin
       .from("akun")
       .select("nis_nip, tipe")
       .eq("user_id", me.user.id)
-      .maybeSingle();
+      .maybeSingle());
+
+    // 2) Baris lama/belum tertaut user_id → cocokkan email (mirror alur
+    //    best-effort login di frontend). Tetap aman: email unique dari Auth.
+    if (!akun && me.user.email) {
+      ({ data: akun } = await admin
+        .from("akun")
+        .select("nis_nip, tipe")
+        .eq("email", me.user.email)
+        .maybeSingle());
+    }
     return akun ? { nis_nip: String(akun.nis_nip || ""), tipe: String(akun.tipe || "") } : null;
   } catch (e) {
     console.warn("identifikasiPemanggil:", e);
@@ -90,7 +102,7 @@ async function identifikasiPemanggil(token: string): Promise<{ nis_nip: string; 
 
 /** Cek pemanggil boleh (admin) ATAU pemilik NIS — via DB (service role). */
 async function pemanggilDiizinkan(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient<any, "public", any>,
   p_nis: string,
   caller: { nis_nip: string; tipe: string } | null,
   klaim: { tipe?: string; nisNip?: string },
@@ -100,20 +112,33 @@ async function pemanggilDiizinkan(
     if (caller.tipe === "murid" && caller.nis_nip === p_nis) return { ok: true, ...caller };
     return { ok: false, tipe: caller.tipe, nis_nip: caller.nis_nip, alasan: "Hanya admin atau murid pemilik NIS yang boleh." };
   }
-  // Token bukan JWT (murid lokal) → klaim dari frontend; verifikasi baris akun
+  // Token bukan JWT (sesi aplikasi lokal) → klaim dari frontend; verifikasi baris
+  // akun di DB — mirror logika RPC simpan_foto_murid (admin ATAU murid pemilik NIS).
+  // RPC security definer tetap menjadi pengadil akhir saat url_foto ditulis.
   const tipe = String(klaim?.tipe || "");
   const nisP = String(klaim?.nisNip || "");
-  if (tipe !== "murid" || nisP !== p_nis) {
-    return { ok: false, tipe, nis_nip: nisP, alasan: "Sesi tidak terverifikasi." };
+  if (tipe === "murid" && nisP === p_nis) {
+    const { data: baris } = await admin
+      .from("akun")
+      .select("nis_nip")
+      .eq("nis_nip", p_nis)
+      .eq("tipe", "murid")
+      .maybeSingle();
+    if (!baris) return { ok: false, tipe, nis_nip: nisP, alasan: "Data murid tidak ditemukan." };
+    return { ok: true, tipe, nis_nip: nisP };
   }
-  const { data: baris } = await admin
-    .from("akun")
-    .select("nis_nip")
-    .eq("nis_nip", p_nis)
-    .eq("tipe", "murid")
-    .maybeSingle();
-  if (!baris) return { ok: false, tipe, nis_nip: nisP, alasan: "Data murid tidak ditemukan." };
-  return { ok: true, tipe, nis_nip: nisP };
+  if (tipe === "admin") {
+    // Admin lokal: verifikasi klaim NIS/NIP-nya ke baris akun ber-tipe admin.
+    const { data: baris } = await admin
+      .from("akun")
+      .select("nis_nip")
+      .eq("nis_nip", nisP)
+      .eq("tipe", "admin")
+      .maybeSingle();
+    if (!baris) return { ok: false, tipe, nis_nip: nisP, alasan: "Akun admin tidak terverifikasi." };
+    return { ok: true, tipe, nis_nip: nisP };
+  }
+  return { ok: false, tipe, nis_nip: nisP, alasan: "Sesi tidak terverifikasi." };
 }
 
 // ============ Upload via Google Apps Script Web App ============

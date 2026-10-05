@@ -104,8 +104,10 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Gelar Depan": (prof && prof.gelar_depan) || "",
     "Gelar Belakang": (prof && prof.gelar_belakang) || "",
     "NIS": tipe === 'murid' ? ((prof && prof.nis_nip) || "") : "",
-    "NIP": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
-    "ID Akun Guru": tipe === 'guru' ? ((prof && prof.nis_nip) || "") : "",
+    // Admin juga punya NIP/NIS sebagai identitas — wajib agar Edge Function
+    // unggah-foto-murid bisa memverifikasi klaim admin (jalur non-JWT).
+    "NIP": (tipe === 'guru' || tipe === 'admin') ? ((prof && prof.nis_nip) || "") : "",
+    "ID Akun Guru": (tipe === 'guru' || tipe === 'admin') ? ((prof && prof.nis_nip) || "") : "",
     "Email": (prof && prof.email) || emailFallback || "",
     "Tingkat/Kelas": (prof && prof.tingkat_kelas) || "",
     "Jabatan": (prof && prof.jabatan) || "",

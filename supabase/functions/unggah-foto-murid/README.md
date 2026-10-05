@@ -148,6 +148,7 @@ npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
 | GAS balas `Respons ... tidak terbaca` / HTML | GAS error di luar try/catch, atau versi web app belum di-update | Cek tab **Executions** di editor GAS; buat **New version** setelah edit. |
 | `Gagal mengunggah: ...` dari GAS | Folder ID salah / folder tidak ditemukan / token salah | Periksa folder ID (hanya 33 karakter) & Script Properties; pastikan script jalan sebagai **Me** (pemilik folder). |
 | Foto tidak tampil di aplikasi/cetak | Akses file belum "anyone reader" | Pastikan `file.setSharing(ANYONE_WITH_LINK, VIEW)` berjalan; domain Workspace tertentu memblokirnya — pakai `Drive.Permissions.insert`. |
+| GAS balas `Service accounts do not have storage quota...` | Script GAS yang aktif masih kode LAMA metode service account (menandatangani JWT dengan `private_key` lalu memanggil Drive API langsung). `DriveApp` (versi repo) TIDAK pernah menghasilkan pesan ini — pesannya persis ciri upload via kredensial service account | Ganti SELURUH isi script GAS dengan `Code.gs` versi repo (DriveApp saja); hapus Script Property `DRIVE_SERVICE_ACCOUNT_JSON`/`DRIVE_MURID_FOLDER_ID` bila masih ada; deploy **New version**; pastikan `GAS_UPLOAD_URL` di Supabase menunjuk URL `/exec` deployment baru (lalu deploy ulang fungsi). |
 | Error jaringan tidak jelas di browser | Halaman dibuka lewat `file://` | Buka lewat server `python3 -m http.server 3007 -d web` atau GitHub Pages. |
 
 ## Perilaku
