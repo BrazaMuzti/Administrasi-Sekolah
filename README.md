@@ -204,27 +204,31 @@ setelah project dibuat), tambahkan:
 
 ## 6. Fitur Foto Siswa, Media Sosial & Alamat Maps (Data Akun Murid)
 
-Data Akun Murid kini mendukung **foto siswa di Google Drive** (integrasi via Google Apps Script),
-**media sosial** (jsonb), **alamat Google Maps** (tautan, dibuka tab baru — iframe
-tidak dipasang karena kebijakan CSP `frame-ancestors`), **dropdown agama** pada profil
-murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lembar foto siswa**.
+Data Akun Murid kini mendukung **foto siswa di Google Drive** (integrasi via Service Account +
+Google Drive API v3 langsung dari Edge Function — *bukan* GAS Web App, yang terbukti menolak
+DriveApp untuk pemanggil anonim), **media sosial** (jsonb), **alamat Google Maps** (tautan,
+dibuka tab baru — iframe tidak dipasang karena kebijakan CSP `frame-ancestors`), **dropdown
+agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lembar foto siswa**.
 
 ### Persyaratan (sekali saja)
 
 1. **Database** — jalankan `supabase/sql/upgrade_20261011_akun_murid_foto_medsos.sql`
    di Supabase SQL Editor (kolom `url_foto`, `alamat_maps`, `media_sosial` + RPC
    `simpan_foto_murid`).
-2. **Google Apps Script (GAS)** — ikuti panduan lengkap
-   `supabase/functions/unggah-foto-murid/README.md`: buat GAS Web App di
-   [script.google.com](https://script.google.com/) (folder **"Foto Siswa"** di Google
-   Drive + script penerima upload base64), deploy dengan *Execute as* **Me** & akses
-   **Anyone**, lalu salin URL `/exec`.
+2. **Service Account Google** — ikuti panduan `supabase/functions/unggah-foto-murid/README.md`:
+   buat service account di project GCP `sisip-510803` (kunci JSON), **pindahkan folder**
+   **"Foto Siswa"** (`1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_`) ke **Google Shared Drive** dan
+   bagikan shared drive ke email SA sebagai **Content manager**, pastikan **Google Drive API**
+   enabled. ⚠️ SA **tidak punya kuota My Drive** — folder tujuan wajib di Shared Drive,
+   kalau tidak Google menolak upload dengan `403 Service Accounts do not have storage quota`.
 3. **Secret & deploy Edge Function**:
    ```bash
-   supabase secrets set GAS_UPLOAD_URL='https://script.google.com/macros/s/<ID>/exec'
-   supabase secrets set GAS_UPLOAD_TOKEN='<token acak — sama dengan Script Property UPLOAD_TOKEN>'
+   supabase secrets set GOOGLE_SA_JSON='<isi lengkap file JSON kunci service account>'
+   supabase secrets set DRIVE_FOLDER_ID='1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_'
    npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
    ```
+   > Untuk `GOOGLE_SA_JSON` lebih aman tempel utuh lewat Dashboard → *Edge Functions → Secrets*
+   > (menghindari masalah quoting JSON bertingkat di shell).
 
 ### Keamanan
 
@@ -232,7 +236,8 @@ murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lembar foto siswa**.
   (login NIS+password) tidak punya JWT Supabase; otorisasi dijaga bertingkat:
   verifikasi JWT RS256 bila ada **dan** RPC `simpan_foto_murid` (security definer)
   yang hanya mengizinkan **admin** atau **murid pemilik NIS** untuk menulis `url_foto`.
-- URL & token Google Apps Script **tidak pernah** keluar dari server (hanya di Supabase secret).
+- Kunci privat service account **tidak pernah** keluar dari server (hanya di Supabase secret
+  `GOOGLE_SA_JSON`; file JSON asli jangan di-commit ke repo).
 - File foto diberi izin "Siapa saja yang memiliki link – Pembaca" agar bisa tampil di
   `<img>`/cetak; nama file `{NIS}_{TA}_{Kelas}.jpg`.
 

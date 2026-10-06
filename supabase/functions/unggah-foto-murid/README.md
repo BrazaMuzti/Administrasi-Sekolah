@@ -1,18 +1,62 @@
-# unggah-foto-murid — Setup Manual (Google Apps Script)
+# unggah-foto-murid — Setup Manual (Google Drive via Service Account)
 
 Edge Function ini mengunggah foto siswa ke **Google Drive** (bukan Supabase Storage)
-lewat perantara **Google Apps Script (GAS) Web App**, lalu menyimpan URL hasilnya ke
-`akun.url_foto`.
+via **Google Drive API v3**, lalu menyimpan URL hasilnya ke `akun.url_foto`.
 
-> **Kenapa lewat GAS?** Dengan Google Drive API langsung, Edge Function terikat kuota
-> standar API dan perlu mengelola kunci service account. Lewat GAS, unggahan dijalankan
-> atas nama akun Google pemilik script (*Execute as: Me*) sehingga lebih sederhana,
-> dan kredensial Google (folder tujuan) tidak pernah keluar dari script.
+> **Kenapa Service Account (bukan GAS Web App)?** (Keputusan 2026-10-06 — didokumentasikan;
+> GAS sebelumnya dipakai, tapi: Web App GAS "Execute as Me" menolak akses DriveApp untuk
+> pemanggil ANONIM — terbukti `Access denied: DriveApp` pada curl/Edge Function, padahal
+> Boundary sudah benar. Service account menandatangani JWT sendiri (RS256), menukarnya
+> dengan akses token OAuth2, lalu upload via Drive API — tanpa consent screen dan tanpa
+> batasan pemanggil anonim.)
 
 > **Prasyarat database:** jalankan `supabase/sql/upgrade_20261011_akun_murid_foto_medsos.sql`
 > (membuat kolom `url_foto`, `alamat_maps`, `media_sosial` + RPC `simpan_foto_murid`).
 
-## Siapkan Google Apps Script (GAS) di Google Drive Anda
+## Siapkan Service Account (sekali saja, ±5 menit)
+
+1. Buka <https://console.cloud.google.com/iam-admin/serviceaccounts?project=sisip-510803>
+   (project yang sama tempat Drive API sudah di-enable).
+2. **Create service account** — beri nama mis. `supabase-drive-upload`, klik Done.
+3. Di baris SA → menu **⋯** (Actions) → **Manage keys** → **ADD KEY → Create new key** →
+   pilih **JSON** → **Create** → file `.json` terunduh. ⚠️ Simpan aman; file ini berisi kunci
+   privat. Jangan commit ke repo.
+4. **Google Shared Drive (wajib untuk kuota SA)**: Service Account **tidak punya
+   kuota penyimpanan My Drive** — menulis ke folder di My Drive mana pun selalu
+   ditolak Google dengan `403 "Service Accounts do not have storage quota"`.
+   Maka folder tujuan **harus berada di Google Shared Drive**:
+   - Buka <https://drive.google.com> → kiri **Shared drives** → pakai/buat drive
+     (project ini memakai **`SISIP`**, drive ID `0ACjDwF0G1CkUUk9PVA`).
+   - Buat **folder baru di dalam shared drive** (klik kanan di area drive →
+     **New folder**; mis. `Foto Siswa`). Catat ID-nya dari URL — contoh
+     `1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_` — lalu set ke secret `DRIVE_FOLDER_ID`.
+     ⚠️ **Jangan** cukup "share" folder dari My Drive (403 kuota tetap muncul);
+     folder harus benar-benar *berada* di dalam shared drive.
+   - Di halaman shared drive → **Share drive** → tambahkan **email service account**
+     (`<nama>@sisip-510803.iam.gserviceaccount.com`) → peran **Content manager**
+     (minimal Contributor cukup untuk upload+share; Content manager agar bisa hapus/kelola).
+   - Pastikan kebijakan shared drive mengizinkan **"Anyone with the link"** —
+     fungsi membuka akses `anyone → reader` agar foto tampil tanpa login.
+   - Verifikasi dari kode/SA: daftarkan isi shared drive (`corpora=drive`,
+     `includeItemsFromAllDrives=true`, `supportsAllDrives=true`) — folder harus
+     muncul di daftar. Catatan: folder yang baru dibuat bisa butuh beberapa detik
+     sebelum terlihat SA (jeda propagasi; sempat `404` sesaat).
+5. Pastikan **Google Drive API** berstatus Enabled: *APIs & Services → Library* → cari
+   "Google Drive API" → jika belum, klik Enable.
+
+### Set secret di Supabase
+
+| Secret | Isi |
+|---|---|
+| `GOOGLE_SA_JSON` | **Isi (teks)** file JSON kunci service account yang diunduh — memuat `client_email` & `private_key`. Set via Dashboard → *Edge Functions* → *Secrets* (tempel utuh). |
+| `DRIVE_FOLDER_ID` | `1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_` (folder "Foto Siswa" **di dalam shared drive `SISIP`**) |
+
+Cara lama `GAS_UPLOAD_URL` / `GAS_UPLOAD_TOKEN` sudah tidak dipakai — boleh dihapus dari secret.
+
+## (Arsip) Cara lama — Google Apps Script (GAS) Web App
+
+> Disimpan untuk referensi/historis. GAS **tidak dipakai lagi** karena batasan DriveApp
+> untuk pemanggil anonim. Kode tetap ada di `Code.gs`.
 
 1. Buka <https://script.google.com/> dan buat proyek baru.
 2. Beri nama proyek, lalu masukkan kode script berikut untuk menerima file upload:
@@ -90,27 +134,27 @@ function kirimJson(obj) {
 
 ## Set secret di Supabase
 
-Dua secret wajib diset: `GAS_UPLOAD_URL` (URL `/exec` GAS) dan `GAS_UPLOAD_TOKEN`
-(token — sama dengan Script Property `UPLOAD_TOKEN`).
+Dua secret wajib: `GOOGLE_SA_JSON` (isi JSON kunci service account) dan `DRIVE_FOLDER_ID`
+(ID folder tujuan).
 
 ### Cara 1 — lewat CLI
 
 ```
-supabase secrets set GAS_UPLOAD_URL='https://script.google.com/macros/s/XXXXXXXX/exec'
-supabase secrets set GAS_UPLOAD_TOKEN='<token-acak-sama-dengan-UPLOAD_TOKEN>'
+supabase secrets set DRIVE_FOLDER_ID='1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_'
+supabase secrets set GOOGLE_SA_JSON='<isi lengkap file JSON kunci service account>'
 ```
 
 ### Cara 2 — lewat Dashboard (tanpa login CLI)
 
 1. Dashboard → pilih project → menu **Edge Functions** → tab **Secrets**.
-2. Klik **New secret** → *Name* `GAS_UPLOAD_URL`, *Value* = URL `/exec` lengkap.
-3. Klik **New secret** → *Name* `GAS_UPLOAD_TOKEN`, *Value* = token acak yang sama
-   dengan Script Property `UPLOAD_TOKEN` di project GAS.
+2. Klik **New secret** → *Name* `GOOGLE_SA_JSON`, *Value* = tempel **seluruh isi** file
+   JSON kunci service account (memuat `client_email` & `private_key`).
+3. Klik **New secret** → *Name* `DRIVE_FOLDER_ID`, *Value* = `1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_`.
 4. Setelah secret diset, **deploy ulang fungsi** (lihat bagian "Deploy") — secret baru
-   terbaca oleh fungsi yang sudah berjalan hanya setelah deploy ulang.
+   terbaca oleh fungsi yang berjalan hanya setelah deploy ulang.
 
-> Secret lama `DRIVE_SERVICE_ACCOUNT_JSON` / `DRIVE_MURID_FOLDER_ID` dari metode
-> service account tidak dipakai lagi — boleh dihapus dari Dashboard bila ingin.
+> Secret lama `GAS_UPLOAD_URL` / `GAS_UPLOAD_TOKEN` (metode GAS) tidak dipakai lagi —
+> boleh dihapus dari Dashboard bila ingin.
 
 ## Deploy
 
@@ -134,7 +178,7 @@ npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
 > `config.toml` sudah memuat `[functions.unggah-foto-murid] verify_jwt = false`
 > — wajib karena murid lokal (login NIS+password) tidak punya JWT Supabase.
 > Otorisasi tetap dijaga: RPC `simpan_foto_murid` hanya mengizinkan **admin** atau
-> **murid pemilik NIS**, dan token GAS tidak pernah keluar server.
+> **murid pemilik NIS**, dan kunci privat service account tidak pernah keluar server.
 
 ## Pemecahan Masalah
 
@@ -143,12 +187,13 @@ npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
 | 404 `NOT_FOUND` di URL fungsi | Fungsi belum di-deploy | `npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>` atau Dashboard → Edge Functions → Deploy. |
 | CORS preflight gagal (browser: "Status code: 404") | Akibat 404 di atas — browser tak bisa preflight ke fungsi yang belum ada | Deploy dulu. Fungsi menangani `OPTIONS` (balas 200 + `Access-Control-Allow-Origin: *`). |
 | 401 `Unauthorized` | Header `apikey`/`Authorization` tidak terkirim | Pastikan `web/js/utils.js` berisi `SUPABASE_URL` & anon key project yang sama dengan ref deploy. |
-| 500 `Upload Drive belum dikonfigurasi admin` | Salah satu secret belum diset | Set `GAS_UPLOAD_URL` & `GAS_UPLOAD_TOKEN`, lalu **deploy ulang**. |
-| GAS balas `Token tidak valid` | Token beda antara Supabase & GAS | Samakan `GAS_UPLOAD_TOKEN` (Supabase) dengan Script Property `UPLOAD_TOKEN` (GAS). |
-| GAS balas `Respons ... tidak terbaca` / HTML | GAS error di luar try/catch, atau versi web app belum di-update | Cek tab **Executions** di editor GAS; buat **New version** setelah edit. |
-| `Gagal mengunggah: ...` dari GAS | Folder ID salah / folder tidak ditemukan / token salah | Periksa folder ID (hanya 33 karakter) & Script Properties; pastikan script jalan sebagai **Me** (pemilik folder). |
-| Foto tidak tampil di aplikasi/cetak | Akses file belum "anyone reader" | Pastikan `file.setSharing(ANYONE_WITH_LINK, VIEW)` berjalan; domain Workspace tertentu memblokirnya — pakai `Drive.Permissions.insert`. |
-| GAS balas `Service accounts do not have storage quota...` | Script GAS yang aktif masih kode LAMA metode service account (menandatangani JWT dengan `private_key` lalu memanggil Drive API langsung). `DriveApp` (versi repo) TIDAK pernah menghasilkan pesan ini — pesannya persis ciri upload via kredensial service account | Ganti SELURUH isi script GAS dengan `Code.gs` versi repo (DriveApp saja); hapus Script Property `DRIVE_SERVICE_ACCOUNT_JSON`/`DRIVE_MURID_FOLDER_ID` bila masih ada; deploy **New version**; pastikan `GAS_UPLOAD_URL` di Supabase menunjuk URL `/exec` deployment baru (lalu deploy ulang fungsi). |
+| 500 `Upload Drive belum dikonfigurasi admin` | `GOOGLE_SA_JSON` / `DRIVE_FOLDER_ID` belum diset | Set `DRIVE_FOLDER_ID` & tempel isi JSON kunci SA ke `GOOGLE_SA_JSON`, lalu **deploy ulang**. |
+| Token Google: `invalid_grant` | Kunci SA salah/kedaluwarsa atau `GOOGLE_SA_JSON` tidak utuh | Unduh ulang kunci JSON, set ulang secret; pastikan `client_email` & `private_key` ada di dalamnya. |
+| 403 `Service Accounts do not have storage quota` | Folder tujuan masih berada di **My Drive** — SA tidak punya kuota sendiri | Pindahkan folder ke **Google Shared Drive** & bagikan shared drive ke SA (Content manager). ID folder tidak berubah. |
+| Drive menolak upload: 403 `The caller does not have permission` | SA bukan member shared drive / folder belum dipindah | Pastikan folder di Shared Drive & SA diberi **Content manager** di {shared drive → Share drive}. |
+| `Gagal membuka akses publik file Drive` | Kebijakan Workspace memblokir sharing "anyone" | Gunakan `role: reader` `type: domain` (anggota domain sekolah), atau minta admin izinkan "Anyone with the link"; bila kritis → pindah ke Supabase Storage. |
+| 429/403 kuota Drive API | Kuota harian project terlampaui | Upload memakai kuota project GCP; tunggu reset atau naikkan kuota di *IAM & Admin → Quotas*. |
+| Gejala GAS web app (`Token tidak valid`, `Respons ... tidak terbaca`, `storage quota`) | Metode GAS sudah diganti Service Account | Lihat arsip `Code.gs`. Metode GAS tidak dipakai lagi — jangan andalkan URL `/exec` untuk upload. |
 | Error jaringan tidak jelas di browser | Halaman dibuka lewat `file://` | Buka lewat server `python3 -m http.server 3007 -d web` atau GitHub Pages. |
 
 ## Perilaku

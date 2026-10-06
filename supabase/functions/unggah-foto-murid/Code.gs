@@ -1,4 +1,14 @@
 /**
+ * ⚠️ ARSIP — TIDAK DIPAKAI LAGI (per 2026-10-06).
+ * --------------------------------------------------------------
+ * Pendekatan unggah-foto-murid SEKARANG memakai SERVICE ACCOUNT
+ * + Google Drive API v3 langsung dari Edge Function (lihat index.ts).
+ * Alasan: Web App GAS "Execute as Me" menolak akses DriveApp untuk
+ * pemanggil ANONIM ("Access denied: DriveApp"), padahal Supabase
+ * memanggil tanpa login Google.
+ * File ini dipertahankan hanya sebagai referensi historis.
+ *
+ * ---- KONTEKS LAMA (valid saat masih dipakai) ----
  * GAS Web App — "unggah-foto-murid"
  * -------------------------------------------------------------
  * Menerima foto (base64) dari Supabase Edge Function, menyimpan ke
@@ -12,7 +22,7 @@
  *   Deploy → New deployment → Web app
  *     - Description      : unggah-foto-murid
  *     - Execute as       : Me
- *     - Who has access   : Anyone          ← wajib, biar bisa dipanggil programatik
+ *     - Who has access   : Anyone
  *   Salin URL /exec → jadi secret GAS_UPLOAD_URL di Supabase.
  *
  * SCRIPT PROPERTIES (Project Settings → Script Properties):
@@ -64,9 +74,13 @@ function doPost(e) {
       .slice(0, 100) || "foto.jpg";
 
     // 4. Folder tujuan (dari Script Properties)
-    var folderId = (PropertiesService.getScriptProperties().getProperty("DRIVE_FOLDER_ID") || "").trim();
+    //    Respons "belum dikonfigurasi" ikut memantulkan nilai MENTAH property
+    //    (JSON.stringify) supaya mudah terlihat spasi tersembunyi/typo key saat debug.
+    var rawFolder = PropertiesService.getScriptProperties().getProperty("DRIVE_FOLDER_ID") || "";
+    var folderId = rawFolder.trim();
     if (!folderId) {
-      return kirimJson({ status: "error", message: "Folder Drive belum dikonfigurasi." });
+      var baca = JSON.stringify({ n: "DRIVE_FOLDER_ID", v: rawFolder });
+      return kirimJson({ status: "error", message: "Folder Drive belum dikonfigurasi. (baca=" + baca + ")" });
     }
 
     // 5. Tulis file ke Google Drive
