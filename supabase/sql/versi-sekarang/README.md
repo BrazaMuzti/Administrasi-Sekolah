@@ -74,7 +74,9 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 
 51. `upgrade_20261014_wajah.sql` — Pengenalan wajah (face scan): kolom `wajah_descriptor jsonb` (128 angka deskriptor wajah face-api.js) + `wajah_status text` ('aktif'/'nonaktif'/NULL) di `akun`; RPC security definer `simpan_wajah_murid(p_nis, p_descriptor, p_status, p_pemanggil_nis, p_pemanggil_tipe)` = satu-satunya penulis kolom wajah (admin ATAU murid pemilik NIS; validasi array 128 angka; `p_status` NULL/'' menghapus). Frontend: `web/vendor/face-api.min.js` + `web/models/` (lokal, offline-friendly) dimuat di `index.html`; `web/js/face.js` menyediakan tab "Registrasi Wajah" di Manajemen Akun Murid (daftar + status + kelola per murid via foto Drive CORS-safe lh3 ATAU kamera) dan tombol "Face Scan" di modal absensi (pencocokan jarak Euclidean client-side → set radio "H" tanpa kirim foto; simpan tetap lewat `save_absen_masal` yang ada).
 
-> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-51 secara terpisah, urut tanggal.
+52. `upgrade_20261014b_fix_nilai_grant.sql` — perbaikan menu **Input Nilai** gagal memuat semua kategori (Pengetahuan/Keterampilan/Sikap/Ekstrakurikuler) dengan pesan "Gagal memuat data. Periksa koneksi internet Anda." Penyebab asli di Network tab: HTTP 401 — `permission denied for table nilai_konfigurasi` (Postgres 42501) karena GRANT privilege tabel untuk role API belum (lengkap) ter-apply di database hidup (RLS policy saja tidak cukup). Grant `select, insert, update, delete` untuk `authenticated` pada `nilai_konfigurasi`, `nilai_teman_sejawat`, `jurnal_sikap` + reload cache PostgREST. Idempotent.
+
+> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-52 secara terpisah, urut tanggal.
 
 ## Cara menjalankan di Supabase
 
