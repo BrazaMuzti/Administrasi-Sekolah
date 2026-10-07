@@ -53,7 +53,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-retry-count, traceparent, tracestate, baggage",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS",
 };
 
 function json(obj: unknown, status = 200) {
@@ -257,6 +257,11 @@ async function unggahViaDrive(
     throw new Error("GOOGLE_SA_JSON tidak memuat client_email/private_key.");
   }
 
+  // Validasi dini MIME — tolak selain jpeg/png/webp/gif sebelum memakai kuota API.
+  if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mimeType)) {
+    throw new Error("Tipe file tidak diizinkan (jpeg/png/webp/gif).");
+  }
+
   const token = await aksesTokenServiceAccount(sa.client_email, sa.private_key);
 
   // Upload multipart: bagian "metadata" (JSON) + bagian "file" (byte gambar).
@@ -313,7 +318,7 @@ Deno.serve(async (req) => {
       foto?: unknown; hapus?: unknown; pemanggil?: { tipe?: string; nisNip?: string };
     };
 
-    const nis = String(body.nis ?? "").trim();
+    const nis = String(body.nis ?? new URL(req.url).searchParams.get("nis") ?? "").trim();
     if (!nis) return json({ status: "error", message: "NIS wajib diisi." }, 400);
 
     const url = Deno.env.get("SUPABASE_URL")!;
@@ -327,8 +332,15 @@ Deno.serve(async (req) => {
       return json({ status: "error", message: izin.alasan || "Tidak berhak." }, 403);
     }
 
-    // 2. Mode HAPUS foto (tanpa upload file baru)
-    if (body.hapus === true) {
+    // 2. Mode HAPUS foto (tanpa upload file baru).
+    //    Dipicu salah satu: method DELETE, body `hapus: true`, atau query `?hapus=1`
+    //    pada `{nis}/foto`. Hanya menghapus URL di DB (akun.url_foto = NULL) — file
+    //    Drive lama sengaja dipertahankan agar tidak ada penghapusan permanen tak disengaja.
+    const hapus =
+      body.hapus === true ||
+      req.method === "DELETE" ||
+      new URL(req.url).searchParams.get("hapus") === "1";
+    if (hapus) {
       const { data: rpc } = await admin.rpc("simpan_foto_murid", {
         p_nis: nis,
         p_url: "",

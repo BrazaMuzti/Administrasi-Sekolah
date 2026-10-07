@@ -196,6 +196,47 @@ npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
 | Gejala GAS web app (`Token tidak valid`, `Respons ... tidak terbaca`, `storage quota`) | Metode GAS sudah diganti Service Account | Lihat arsip `Code.gs`. Metode GAS tidak dipakai lagi — jangan andalkan URL `/exec` untuk upload. |
 | Error jaringan tidak jelas di browser | Halaman dibuka lewat `file://` | Buka lewat server `python3 -m http.server 3007 -d web` atau GitHub Pages. |
 
+## Menghapus Foto Murid (DELETE / `?hapus=1`)
+
+Endpoint yang sama bisa dipakai untuk **menghapus foto** (tanpa upload file baru).
+Otorisasi identik dengan upload: hanya **admin** atau **murid pemilik NIS** yang boleh
+(RPC `simpan_foto_murid` yang memutuskannya). `verify_jwt = false`, header `Authorization`
+& `apikey` tetap wajib dikirim.
+
+Mode hapus terpicu bila salah satu kondisi ini terpenuhi:
+
+1. **Method `DELETE`** — NIS bisa di body maupun query:
+   ```bash
+   # NIS di body JSON (gaya yang dipakai frontend)
+   curl -X DELETE "https://<REF>.supabase.co/functions/v1/unggah-foto-murid" \
+     -H "Authorization: Bearer <TOKEN>" -H "apikey: <ANON_KEY>" \
+     -H "Content-Type: application/json" \
+     -d '{"nis":"12045","pemanggil":{"tipe":"murid","nisNip":"12045"}}'
+
+   # NIS di query string (DELETE tanpa body)
+   curl -X DELETE "https://<REF>.supabase.co/functions/v1/unggah-foto-murid?nis=12045" \
+     -H "Authorization: Bearer <TOKEN>" -H "apikey: <ANON_KEY>"
+   ```
+2. **Query `?hapus=1`** pada method `POST`:
+   ```bash
+   curl -X POST "https://<REF>.supabase.co/functions/v1/unggah-foto-murid?hapus=1" \
+     -H "Authorization: Bearer <TOKEN>" -H "apikey: <ANON_KEY>" \
+     -H "Content-Type: application/json" \
+     -d '{"nis":"12045","pemanggil":{"tipe":"murid","nisNip":"12045"}}'
+   ```
+3. **Body `{"hapus": true, ...}`** pada method `POST` — ini yang dipakai frontend:
+   `web/js/app.js` → `hapusFotoSaya()` memanggil `unggahFotoMurid({ nis, hapus: true })`,
+   lalu `unggahFotoMurid()` mengirim `hapus: true` di body.
+
+Yang terjadi saat mode hapus:
+
+- RPC `simpan_foto_murid` dipanggil dengan `p_url = ''` → kolom `akun.url_foto` di-set
+  `NULL` (lihat `upgrade_20261011_akun_murid_foto_medsos.sql`).
+- **File di Google Drive lama tetap ada** — tidak dihapus otomatis (keputusan sengaja
+  demi keamanan). Hapus manual di folder bila benar-benar ingin dibersihkan.
+- Respons sukses: `{ "status": "success", "message": "Foto murid dihapus.", "url": "" }`.
+- CORS `Access-Control-Allow-Methods` sudah memuat `DELETE`, jadi preflight browser aman.
+
 ## Perilaku
 
 - Nama file: `{NIS}_{TA}_{Kelas}.jpg` (disanitasi) — contoh `12045_2026-2027_XII-TKJ-1.jpg`.
