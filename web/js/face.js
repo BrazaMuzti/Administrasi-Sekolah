@@ -807,7 +807,7 @@
             const imgSnap = cari('wajah-preview');
             if (imgSnap) imgSnap.src = canvas.toDataURL('image/jpeg', 0.85);
           }
-// Bila jalur one-shot (loop sempat dihentikan), nyalakan ulang supaya klik
+          // Bila jalur one-shot (loop sempat dihentikan), nyalakan ulang supaya klik
           // berikutnya terlayani cepat oleh hasil loop (status loop tetap dibungkam).
           if (!pakaiLoop) loopDeteksiKameraLive(videoEl, setHasil);
           setHasil('<i class="fa-solid fa-check text-green-400 mr-1"></i>Wajah terdeteksi dari kamera (skor ' + hasil.skor.toFixed(2) + '). Klik <b>Simpan Data Wajah</b>.', 'text-green-300');
