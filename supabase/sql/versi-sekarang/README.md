@@ -76,7 +76,7 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 
 52. `upgrade_20261014b_fix_nilai_grant.sql` — perbaikan menu **Input Nilai** gagal memuat semua kategori (Pengetahuan/Keterampilan/Sikap/Ekstrakurikuler) dengan pesan "Gagal memuat data. Periksa koneksi internet Anda." Penyebab asli di Network tab: HTTP 401 — `permission denied for table nilai_konfigurasi` (Postgres 42501) karena GRANT privilege tabel untuk role API belum (lengkap) ter-apply di database hidup (RLS policy saja tidak cukup). Grant `select, insert, update, delete` untuk `authenticated` pada `nilai_konfigurasi`, `nilai_teman_sejawat`, `jurnal_sikap` + reload cache PostgREST. Idempotent.
 
-> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-52 secara terpisah, urut tanggal.
+> **Catatan:** `gabungan.sql` saat ini hanya mencakup s.d. file #30 (2026-09-22). Untuk project BARU, jalankan `gabungan.sql` lalu jalankan file #31-54 secara terpisah, urut tanggal.
 
 ## Cara menjalankan di Supabase
 
@@ -85,3 +85,7 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 3. **Salin seluruh isi** file SQL (atau klik ikon upload untuk memasang file `.sql`).
 4. Klik **Run** (atau `Ctrl+Enter`).
 5. Verifikasi lewat **Table Editor**: semua tabel & kolom sudah muncul.
+
+53. `upgrade_20261014c_absen_mandiri_rpc.sql` — perbaikan absen mandiri yang tampak "Berhasil" tapi tidak tersimpan: RPC security definer `absen_mandiri(p_nis, p_nama, p_kelas, p_tahun, p_bulan, p_mapel, p_captcha, p_gps, p_wajah_cocok, p_tanggal)` = satu-satunya pintu tulis absen mandiri. Tanggal SELALU hari ini WIB (bukan turunan currentTahun/currentBulan browser yang basi), validasi captcha + sesi guru Kunci Absen BUKA DI SERVER (kolom akun.captcha tak lagi dibaca klien), upsert ON CONFLICT (nis,tanggal,mapel), kolom baru `absensi.wajah_cocok` utk verifikasi face scan opsional, semester/bulan/tahun-pelajaran diturunkan dari tanggal bila label klien basi. Frontend (`web/js/utils.js`/`utils.example.js`): pakai RPC dulu, fallback lama bila PGRST202. `web/js/app.js`: tombol opsional "Pindai Wajah Saya" di panel absen mandiri + badge terverifikasi. `web/js/face.js`: export `FaceWajah.pindaiWajahMandiri` (single-label matcher, kamera depan, ambang 0.5).
+
+54. `upgrade_20261014d_absen_mandiri_integrasi.sql` — integrasi Absen Mandiri ke rekap guru Mapel & Ekskul: RPC `absen_mandiri` dibuat ulang dengan parameter baru `p_jenis` ('Mapel'/'Ekskul'); tanggal SELALU `(now() at time zone 'Asia/Jakarta')::date` — `p_tanggal` browser kini DIIGNOR; nama diambil server dari `akun.nama_lengkap`; kelas Mapel = `akun.riwayat_kelas[TA]->>'kelas'` (fallback `tingkat_kelas`, siswa non-Aktif di TA ditolak) — PERSIS logika `get_dashboard_data` sehingga baris langsung tampil di rekap guru; kelas Ekskul = `'Semua Kelas'` + validasi keanggotaan (`akun.ekstrakurikuler`); overload v1 di-`drop`. Frontend (`web/js/utils.js`/`utils.example.js`): kirim `p_jenis`; fallback Ekskul menulis `kelas:'Semua Kelas'`; `web/js/app.js`: toast sukses menampilkan Mapel/Ekskul • kelas • bulan • tahun dari respons server.

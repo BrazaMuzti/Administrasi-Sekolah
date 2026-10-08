@@ -1247,6 +1247,8 @@ function startRealtimeClock() {
 // ==========================================
 
 
+let wajahMandiriCocok = false; // true setelah face scan (opsional) berhasil memverifikasi identitas
+
 async function submitAbsenMandiri() {
   const mapelRaw = document.getElementById('murid-mapel').value.split('|');
   const captcha = document.getElementById('murid-captcha').value.trim();
@@ -1260,15 +1262,65 @@ async function submitAbsenMandiri() {
 
   try {
     const smtMandiri = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
-    const res = await apiCall('absen_mandiri', { tahun: currentTahun, semester: smtMandiri, bulan: currentBulan, tanggal: new Date().getDate(), kelas: currentUser.user["Tingkat/Kelas"], jenis: mapelRaw[0], mapel: mapelRaw[1], nis: currentUser.user["NIS"], nama: currentUser.user["Nama Lengkap"], captcha: captcha, gps: gpsLokasi });
+    const res = await apiCall('absen_mandiri', { tahun: currentTahun, semester: smtMandiri, bulan: currentBulan, tanggal: new Date().getDate(), kelas: currentUser.user["Tingkat/Kelas"], jenis: mapelRaw[0], mapel: mapelRaw[1], nis: currentUser.user["NIS"], nama: currentUser.user["Nama Lengkap"], captcha: captcha, gps: gpsLokasi, wajahCocok: wajahMandiriCocok });
     
     if(res.status === 'success') {
-      Swal.fire({ icon: 'success', title: 'Berhasil Absen!', html: `Kehadiran tercatat.<br><span class="text-xs text-slate-400">Lokasi: ${gpsLokasi}</span>`, background: '#1e293b', color: '#fff' });
+      // Info bucket (Mapel/Ekskul • kelas • bulan • tahun) dikembalikan server agar
+      // murid langsung tahu barisnya tercatat di rekap guru pengampu yang mana.
+      const rbMandiri = (res.data && typeof res.data === 'object') ? res.data : {};
+      const labelJenisMandiri = String(rbMandiri.jenis || '').toUpperCase() === 'EKSKUL' ? 'Ekskul' : (rbMandiri.jenis ? 'Mapel' : '');
+      const metaMandiri = [labelJenisMandiri, rbMandiri.kelas, rbMandiri.bulan, rbMandiri.tahun].filter(Boolean).join(' • ');
+      const detailMandiri = metaMandiri
+        ? `Kehadiran tercatat di <b>${metaMandiri}</b>.<br><span class="text-xs text-slate-400">Lokasi: ${gpsLokasi}</span>`
+        : `Kehadiran tercatat.<br><span class="text-xs text-slate-400">Lokasi: ${gpsLokasi}</span>`;
+      Swal.fire({ icon: 'success', title: 'Berhasil Absen!', html: detailMandiri, background: '#1e293b', color: '#fff' });
       cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
       document.getElementById('murid-captcha').value = '';
+      wajahMandiriCocok = false;
+      const stMandiri = document.getElementById('wajah-mandiri-status');
+      if (stMandiri) { stMandiri.innerHTML = ''; stMandiri.className = 'text-[10px] text-slate-500 flex-1'; }
+      const wrapMandiri = document.getElementById('wajah-mandiri-wrap');
+      if (wrapMandiri) { wrapMandiri.classList.add('hidden'); wrapMandiri.innerHTML = ''; }
     } else Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Absen ditolak.', background: '#1e293b', color: '#fff' });
   } catch (e) { Swal.fire({ icon: 'error', title: 'Error Jaringan', text: e.message, background: '#1e293b', color: '#fff' }); }
   finally { btn.innerHTML = `<i class="fa-solid fa-check-circle"></i> Saya Hadir Hari Ini`; btn.disabled = false; }
+}
+
+/** Verifikasi wajah OPSIONAL pada Absen Mandiri: mencocokkan wajah murid
+ *  dengan descriptor terdaftar miliknya (face.js → pindaiWajahMandiri).
+ *  Berhasil → flag wajahMandiriCocok di-set & ditulis ke kolom wajah_cocok.
+ *  Gagal/tidak tersedia → absen tetap bisa jalan (tanpa penanda wajah). */
+async function pindaiWajahMandiriSaya() {
+  const btn = document.getElementById('btn-pindai-wajah-mandiri');
+  const st = document.getElementById('wajah-mandiri-status');
+  const wrap = document.getElementById('wajah-mandiri-wrap');
+  const user = ((typeof currentUser !== 'undefined' && currentUser) || {}).user || {};
+  const nis = String(user['NIS'] || '');
+  const nama = String(user['Nama Lengkap'] || '');
+  if (typeof window.FaceWajah === 'undefined' || typeof window.FaceWajah.pindaiWajahMandiri !== 'function') {
+    if (st) st.innerHTML = '<span class="text-red-400">Fitur wajah tidak tersedia (face.js belum dimuat).</span>';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Menyiapkan kamera...'; }
+  if (wrap) wrap.classList.remove('hidden');
+  try {
+    await window.FaceWajah.pindaiWajahMandiri(String(nis), nama, {
+      wrap,
+      onHasil: () => {
+        wajahMandiriCocok = true;
+        if (st) st.innerHTML = `<span class="text-green-400 font-bold"><i class="fa-solid fa-circle-check mr-1"></i>Wajah terverifikasi — ${escapeHtml(nama)}</span>`;
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-face-grin-beam mr-1"></i> Terverifikasi';
+      }
+    });
+  } catch (e) {
+    console.error('pindaiWajahMandiriSaya:', e);
+    if (st) st.innerHTML = '<span class="text-red-400">' + escapeHtml((e && e.message) || e) + '</span>';
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (!wajahMandiriCocok) btn.innerHTML = '<i class="fa-solid fa-face-smile mr-1"></i> Pindai Wajah Saya';
+    }
+  }
 }
 
 // ==========================================
@@ -1574,6 +1626,7 @@ function cetakKartuQrMurid() {
 async function renderAbsenMandiriMurid(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Sesi Absen...</div>`;
   const user = (currentUser || {}).user || {};
+  wajahMandiriCocok = false; // verifikasi wajah di-reset setiap panel dibuka
   const kelas = user["Tingkat/Kelas"] || '';
   const ekskulSaya = String(user["Ekstrakurikuler"] || '').split(',').map(e => e.trim()).filter(Boolean);
 
@@ -1652,6 +1705,17 @@ async function renderAbsenMandiriMurid(container) {
           <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Kode Captcha dari Guru <span class="text-red-400">*</span></label>
           <input type="text" id="murid-captcha" placeholder="Ketik kode dari guru pengampu" autocomplete="off"
             class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white uppercase tracking-widest font-mono">
+        </div>
+        <div>
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-id-card mr-1"></i> Pindai Wajah <span class="text-slate-500 normal-case font-normal">(opsional — penguat identitas)</span></label>
+          <div class="mt-1 flex items-center gap-2">
+            <button type="button" id="btn-pindai-wajah-mandiri" onclick="pindaiWajahMandiriSaya()"
+              class="bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white px-3 py-2 rounded-lg text-[11px] font-bold transition whitespace-nowrap">
+              <i class="fa-solid fa-face-smile mr-1"></i> Pindai Wajah Saya
+            </button>
+            <div id="wajah-mandiri-status" class="text-[10px] text-slate-500 flex-1"></div>
+          </div>
+          <div id="wajah-mandiri-wrap" class="hidden mt-2"></div>
         </div>
         <button id="btn-absen-mandiri" onclick="submitAbsenMandiri()" ${opsiAktif.length === 0 ? 'disabled' : ''}
           class="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition text-sm">
@@ -8952,7 +9016,7 @@ let cacheAkunMuridSesiAda = false;   // true setelah 1x fetch sukses per sesi
 let ukuranHalamanMurid = 50;         // default ukuran halaman (25/50/75/100)
 let halamanAktifMurid = 1;
 // Kolom ringkas utk daftar tabel + filter + tombol aksi (payload ±60% lebih ringan dari select('*'))
-const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, jabatan_ekskul, email, ekstrakurikuler, tahun_pelajaran, semester, riwayat_kelas';
+const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, jabatan_ekskul, email, ekstrakurikuler, tahun_pelajaran, semester, riwayat_kelas, url_foto';
 // Kolom penuh utk export Excel/PDF (fetch on-demand saat tombol export diklik)
 const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, jabatan_ekskul, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester, url_foto, alamat_maps, media_sosial';
 
@@ -9050,11 +9114,7 @@ async function renderManajemenMurid(container, paksa = false) {
                         </div>
                     </div>
                 </div>
-                <!-- Tab: Daftar Murid / Registrasi Wajah -->
-                <div class="bg-slate-900/90 border-b border-white/10 flex gap-1 px-2 pt-1.5">
-                    <button id="tab-btn-daftar" onclick="gantiTabMurid('daftar')" class="px-3 py-1.5 rounded-t-lg text-[10px] font-bold flex items-center gap-1 transition bg-cyan-600 text-white shadow-sm" title="Tabel data akun murid"><i class="fa-solid fa-table-list"></i> Daftar Murid</button>
-                    <button id="tab-btn-wajah" onclick="gantiTabMurid('wajah')" class="px-3 py-1.5 rounded-t-lg text-[10px] font-bold flex items-center gap-1 transition bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 border border-transparent" title="Pendaftaran data wajah untuk absensi face scan"><i class="fa-solid fa-face-viewfinder text-cyan-400"></i> Registrasi Wajah</button>
-                </div>
+                <!-- Data Akun Murid: satu tabel — status wajah & tombol registrasi ada di tiap baris -->
                 <div id="tab-panel-daftar" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
                     <table class="w-full text-left whitespace-nowrap">
                         <thead class="sticky top-0 bg-slate-900 z-10 text-[10px] uppercase text-slate-400 shadow-md">
@@ -9067,13 +9127,13 @@ async function renderManajemenMurid(container, paksa = false) {
                                 <th class="px-4 py-3 border-b border-white/10">Tahun Pelajaran</th>
                                 <th class="px-4 py-3 border-b border-white/10">Sub Ekskul</th>
                                 <th class="px-4 py-3 border-b border-white/10">Email Login</th>
+                                <th class="px-4 py-3 border-b border-white/10 text-center">Status Wajah</th>
                                 <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
                             </tr>
                         </thead>
                         <tbody id="tbody-murid" class="text-xs text-slate-200"></tbody>
                     </table>
                 </div>
-                <div id="tab-panel-wajah" class="hidden flex-1 overflow-auto custom-scrollbar bg-[#0f172a]"></div>
                 <div id="pag-murid" class="bg-slate-800/80 border-t border-white/10 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300"></div>
             </div>
         `;
@@ -9202,8 +9262,14 @@ async function exportPdfMurid() {
   setTimeout(() => { try { cetakSekali(); } catch (e) {} }, 800);
 }
 
-function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}) {
-    if (!data || data.length === 0) return `<tr><td colspan="9" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
+/** Ambil status wajah satu baris dari peta { nis: 'aktif'|'nonaktif' } (default 'belum'). */
+function statusWajahBaris(petaWajah, nis) {
+    const st = petaWajah && petaWajah[String(nis)];
+    return st === 'aktif' || st === 'nonaktif' ? st : 'belum';
+}
+
+function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}, petaWajah = {}) {
+    if (!data || data.length === 0) return `<tr><td colspan="10" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
 
 
     return data.map((d, i) => {
@@ -9217,9 +9283,19 @@ function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}) {
         let ekskulData = (d.ekstrakurikuler || d.Ekstrakurikuler || d.ekskul || "").replace(/"/g, '&quot;');
         let tahunData = d.tahun_pelajaran || d["ID Tahun Pelajaran"] || "";
         let subEkskulData = subLookup[String(nis)] || '';
+        const stWajah = statusWajahBaris(petaWajah, nis);
+        const wajahAktif = stWajah === 'aktif';
+        const badgeWajah = window.FaceWajah && typeof window.FaceWajah.ikonStatusWajah === 'function'
+            ? window.FaceWajah.ikonStatusWajah(stWajah)
+            : (window.FaceWajah && typeof window.FaceWajah.htmlBadgeWajah === 'function'
+                ? window.FaceWajah.htmlBadgeWajah(stWajah)
+                : '<span class="text-[9px] text-slate-500 uppercase tracking-wider">-</span>');
+        const tombolWajah = window.FaceWajah && typeof window.FaceWajah.kelolaWajah === 'function'
+            ? `<button onclick="window.FaceWajah.kelolaWajah('${escJs(String(nis))}')" class="w-7 h-7 ${wajahAktif ? 'bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400' : 'bg-teal-600/20 hover:bg-teal-600 text-teal-400'} hover:text-white rounded transition mr-1" title="${wajahAktif ? 'Kelola data wajah' : 'Registrasi data wajah'}"><i class="fa-solid fa-face-viewfinder"></i></button>`
+            : '';
 
         return `
-            <tr class="hover:bg-white/5 border-b border-white/5 transition row-murid" data-ekskul="${ekskulData}" data-tahun="${escapeHtml(tahunData)}">
+            <tr class="hover:bg-white/5 border-b border-white/5 transition row-murid" data-nis="${escapeHtml(String(nis))}" data-ekskul="${ekskulData}" data-tahun="${escapeHtml(tahunData)}">
                 <td class="px-4 py-3 text-center">${mulaiNo + i + 1}</td>
                 <td class="px-4 py-3 font-mono text-blue-300 search-target">${nis}</td>
                 <td class="px-4 py-3 font-mono text-slate-300 search-target">${nisn}</td>
@@ -9231,8 +9307,10 @@ function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}) {
                 <td class="px-4 py-3 text-[10px] text-slate-400 search-target">${escapeHtml(tahunData || '-')}</td>
                 <td class="px-4 py-3 text-[10px] text-slate-400">${subEkskulData ? escapeHtml(subEkskulData) : '<span class="italic text-slate-600">-</span>'}</td>
                 <td class="px-4 py-3"><div class="text-[10px] text-slate-400"><i class="fa-solid fa-envelope"></i> ${email}</div></td>
+                <td class="px-4 py-3 text-center sel-status-wajah" title="Status registrasi wajah">${badgeWajah}</td>
 
                 <td class="px-4 py-3 text-center whitespace-nowrap">
+                    ${tombolWajah}
                     <button onclick="editAkunMurid('${escJs(d.id || '')}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
                     <button onclick="resetPasswordMurid('${escJs(nis)}', '${escJs(nama)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>
                     <button onclick="deleteAkunMurid('${escJs(nis)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
@@ -9310,7 +9388,13 @@ async function renderTabelMuridTerfilter() {
     const halaman = cocok.slice(mulai, mulai + ukuranHalamanMurid);
 
     const subLookup = await muridSubEkskulLookup(halaman);
-    tbody.innerHTML = generateTbodyMurid(halaman, mulai, subLookup);
+    let petaWajah = {};
+    if (window.FaceWajah && typeof window.FaceWajah.ambilStatusWajah === 'function' && halaman.length) {
+        try {
+            petaWajah = await window.FaceWajah.ambilStatusWajah(halaman.map(r => String(r.nis_nip || r.NIS || r.nis || '')).filter(Boolean));
+        } catch (e) { console.error('Gagal ambil status wajah:', e); }
+    }
+    tbody.innerHTML = generateTbodyMurid(halaman, mulai, subLookup, petaWajah);
 
 
     const pag = document.getElementById('pag-murid');
@@ -9342,24 +9426,25 @@ function filterTabelMurid() {
     renderTabelMuridTerfilter();
 }
 
-/** Ganti tab halaman Manajemen Akun Murid: 'daftar' | 'wajah'. */
-function gantiTabMurid(tab) {
-    const pDaftar = document.getElementById('tab-panel-daftar');
-    const pWajah = document.getElementById('tab-panel-wajah');
-    const bDaftar = document.getElementById('tab-btn-daftar');
-    const bWajah = document.getElementById('tab-btn-wajah');
-    if (!pDaftar || !pWajah || !bDaftar || !bWajah) return;
-    const isWajah = tab === 'wajah';
-    const aktif = 'px-3 py-1.5 rounded-t-lg text-[10px] font-bold flex items-center gap-1 transition bg-cyan-600 text-white shadow-sm';
-    const nonaktif = 'px-3 py-1.5 rounded-t-lg text-[10px] font-bold flex items-center gap-1 transition bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 border border-transparent';
-    pDaftar.classList.toggle('hidden', isWajah);
-    pWajah.classList.toggle('hidden', !isWajah);
-    bDaftar.className = isWajah ? nonaktif : aktif;
-    bWajah.className = isWajah ? aktif : nonaktif;
-    if (isWajah && window.FaceWajah && typeof window.FaceWajah.renderRegistrasiWajah === 'function') {
-        window.FaceWajah.renderRegistrasiWajah();
+/** Hook dipanggil face.js setiap data wajah murid berubah (simpan / nonaktif / hapus).
+ *  Perbarui sel "Status Wajah" baris terkait di tempat — tanpa render ulang seluruh tabel. */
+window.FaceWajahOnTersimpan = (nis, status) => {
+    try {
+        const aman = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+            ? CSS.escape(String(nis)) : String(nis).replace(/"/g, '');
+        const baris = document.querySelector(`#tbody-murid tr[data-nis="${aman}"]`);
+        const sel = baris && baris.querySelector('.sel-status-wajah');
+        const ikon = window.FaceWajah && typeof window.FaceWajah.ikonStatusWajah === 'function'
+            ? window.FaceWajah.ikonStatusWajah(status) : '';
+        if (sel && ikon) { sel.innerHTML = ikon; return; }
+        renderTabelMuridTerfilter(); // fallback: baris tak terlihat (beda halaman/filter)
+    } catch (e) {
+        console.error('FaceWajahOnTersimpan:', e);
+        try { renderTabelMuridTerfilter(); } catch (e2) { /* abaikan */ }
     }
-}
+};
+
+
 
 /** Buka form edit akun murid dengan data PENUH (fetch 1 baris by id; fallback cache tipis).
  *  Cache daftar memakai kolom ringkas (KOLOM_LIST_MURID) sehingga banyak kolom profil
@@ -9537,6 +9622,12 @@ async function openFormAkunMurid(isNew, data = {}) {
     // Riwayat kelas & status per TA (working copy form) + dual-write tingkat_kelas
     formRiwayatSiswaData = JSON.parse(JSON.stringify(data.riwayat_kelas || data.RiwayatKelas || {}));
     formRiwayatSiswaTahun = currentTahun;
+
+    // Hangatkan peta status wajah (dipakai kolom "Status Wajah") supaya ikon langsung segar
+    // saat tabel dirender ulang setelah form ini ditutup/disimpan (tanpa jeda fetch DB).
+    if (window.FaceWajah && typeof window.FaceWajah.muatPetaWajah === 'function') {
+        window.FaceWajah.muatPetaWajah().catch(() => {});
+    }
 
     // Nilai existing (snake_case dulu, fallback gaya Sheets)
     const nisV = data.nis_nip || data.NIS || data.nis || "";
