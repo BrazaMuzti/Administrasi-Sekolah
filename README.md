@@ -249,3 +249,26 @@ npm run dev:css        # watch mode CSS
 npm run test:e2e       # uji E2E API (butuh kredensial & data uji terpasang)
 npm run deploy         # sama dengan build:css
 ```
+---
+
+## 7. Sumber Referensi — Face Scanner (Absensi Wajah)
+
+Fitur face scan (registrasi wajah & pencocokan descriptor) diadaptasi dari proyek open
+source berikut. **Tekniknya** yang diadopsi, sedangkan **penyimpanan data tetap memakai
+Supabase** (bukan Google Sheets / Apps Script seperti repo aslinya).
+
+- **Repo referensi**: <https://github.com/ManageWithNoobItGuy/GAS-attendance-facescanner-with-gps-V2>
+- **Yang diadopsi**:
+  - Registrasi wajah **beberapa pose** per murid (deskriptor 128D per pose), bukan satu foto.
+  - Pencocokan **jarak Euclidean minimum** terhadap seluruh sampel milik seorang murid.
+  - **Ambang kesamaan (threshold)** untuk memutuskan cocok / tidak dikenali.
+- **Yang tidak diadopsi**:
+  - Google Apps Script & Google Sheets — semua data tetap tersimpan di **Supabase**.
+  - Fitur GPS geofencing — bukan kebutuhan aplikasi sekolah saat ini (bisa ditambah belakangan).
+- **Implementasi di proyek ini**: `web/js/face.js` (face-api.js + model lokal `web/models/`,
+  offline-friendly); penyimpanan descriptor di kolom `akun.wajah_descriptor` lewat RPC
+  `simpan_wajah_murid` (lihat `supabase/sql/versi-sekarang/upgrade_20261014_wajah.sql`).
+- **Migrasi multi-sampel & tuning startup**: `supabase/sql/versi-sekarang/upgrade_20261014e_wajah_multi.sql`
+  — `wajah_descriptor` flat `[128 angka]` → array-of-arrays (maks 6 sampel/murid), RPC
+  `simpan_wajah_murid` + `p_mode 'ganti'/'tambah'`; frontend: registrasi multi-pose + min-distance
+  matching + kamera fallback & pre-warm model.
