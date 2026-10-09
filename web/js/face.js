@@ -120,6 +120,7 @@
       // diunduh ulang — hemat bandwidth & waktu di jaringan sekolah.
       if (!fa.nets.tinyFaceDetector.isLoaded) await fa.nets.tinyFaceDetector.loadFromUri(MODELS_DIR);
       if (!fa.nets.faceLandmark68Net.isLoaded) await fa.nets.faceLandmark68Net.loadFromUri(MODELS_DIR);
+      if (!fa.nets.faceLandmark68TinyNet.isLoaded) await fa.nets.faceLandmark68TinyNet.loadFromUri(MODELS_DIR);
       if (!fa.nets.faceRecognitionNet.isLoaded) await fa.nets.faceRecognitionNet.loadFromUri(MODELS_DIR);
     };
     modelsPromise = (async () => {
@@ -152,6 +153,7 @@
     const muatSekali = async () => {
       if (!fa.nets.tinyFaceDetector.isLoaded) await fa.nets.tinyFaceDetector.loadFromUri(MODELS_DIR);
       if (!fa.nets.faceLandmark68Net.isLoaded) await fa.nets.faceLandmark68Net.loadFromUri(MODELS_DIR);
+      if (!fa.nets.faceLandmark68TinyNet.isLoaded) await fa.nets.faceLandmark68TinyNet.loadFromUri(MODELS_DIR);
     };
     modelsRinganPromise = (async () => {
       // 3 percobaan total (awal + 2 retry) dengan backoff bertahap, sama seperti jalur lengkap.
