@@ -374,7 +374,11 @@
     Object.keys(peta || {}).forEach(nis => {
       const list = normalisasiDescriptorWajah(peta[nis] && peta[nis].descriptor);
       if (list && list.length) {
-        labeled.push(new fa.LabeledFaceDescriptors(String(nis), list));
+        // Wajib Float32Array — build face-api tertentu (mis. yang ter-bundle di
+        // file vendor untuk ponsel) menolak Array biasa di konstruktor
+        // LabeledFaceDescriptors ("expected descriptors to be an array of Float32Array").
+        const floatList = list.map(v => (v instanceof Float32Array) ? v : new Float32Array(v));
+        labeled.push(new fa.LabeledFaceDescriptors(String(nis), floatList));
       }
     });
     if (!labeled.length) return null;
@@ -613,12 +617,12 @@
     const pts = hasilDeteksi.landmarks && hasilDeteksi.landmarks.positions;
     if (!b && !pts) return;
     if (b) {
-      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
       ctx.strokeRect(offX + b.x * s, offY + b.y * s, b.width * s, b.height * s);
     }
     if (pts && pts.length) {
-      ctx.fillStyle = 'rgba(34,211,238,0.30)';
-      ctx.strokeStyle = 'rgba(34,211,238,0.50)';
+      ctx.fillStyle = 'rgba(34,197,94,0.30)';
+      ctx.strokeStyle = 'rgba(34,197,94,0.50)';
       ctx.lineWidth = 1;
       for (let i = 0; i < pts.length; i++) {
         const px = offX + pts[i].x * s;
@@ -736,15 +740,33 @@
       if (!videoDevices.length) return;
       const aktifId = aktifIdOpsi || kameraAktifDeviceId();
       const pilihanLama = selectEl.value || '';
+      // Relabel ramah + urutkan kamera depan dulu: label baku OS (mis. "Facing front: 1-...")
+      // tidak intuitif bagi siswa/guru — tampilkan "Kamera depan"/"Kamera belakang".
+      const hitungNama = {};
+      const urutan = videoDevices
+        .map((d, i) => {
+          const l = String(d.label || '').trim();
+          const lr = l.toLowerCase();
+          let prio = 2, nama = l || ('Kamera ' + (i + 1));
+          if (/front|user|selfie|depan/i.test(lr)) { prio = 0; nama = 'Kamera depan'; }
+          else if (/back|rear|environment|belakang|world/i.test(lr)) { prio = 1; nama = 'Kamera belakang'; }
+          else {
+            const bersih = l.split(':')[0].split('(')[0].split('@')[0].trim();
+            if (bersih) nama = bersih;
+          }
+          const n = (hitungNama[nama] = (hitungNama[nama] || 0) + 1);
+          return { d, i, prio, nama: n > 1 ? nama + ' ' + n : nama };
+        })
+        .sort((a, b) => a.prio - b.prio || a.i - b.i);
       selectEl.innerHTML = '';
-      videoDevices.forEach((d, i) => {
+      urutan.forEach(({ d, nama }) => {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
-        opt.textContent = d.label && d.label.trim() ? d.label.trim() : ('Kamera ' + (i + 1));
+        opt.textContent = nama;
         if (aktifId && d.deviceId === aktifId) opt.selected = true;
         selectEl.appendChild(opt);
       });
-      if (!aktifId) selectEl.value = pilihanLama || (videoDevices[0] ? videoDevices[0].deviceId : '');
+      if (!aktifId) selectEl.value = pilihanLama || (urutan[0] ? urutan[0].d.deviceId : '');
       selectEl.dataset.terisi = '1';
       if (selectEl.dataset.dipasang !== '1') {
         selectEl.dataset.dipasang = '1';
@@ -820,6 +842,9 @@
           <div class="flex items-center gap-2 bg-slate-900/80 px-2 py-1.5">
             <span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span>
             <select id="camera-select" class="bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 flex-1 min-w-0 focus:outline-none focus:border-cyan-500" title="Pilih kamera"><option value="">Kamera bawaan</option></select>
+            <button type="button" id="btn-wajah-reg-zoom-out" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perkecil (zoom keluar)">−</button>
+            <button type="button" id="btn-wajah-reg-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perbesar (zoom masuk)">+</button>
+            <span id="wajah-reg-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
           </div>
           <div class="relative">
             <video id="wajah-video" autoplay playsinline muted class="w-full h-52 object-cover" style="transform:scaleX(-1)"></video>
@@ -974,6 +999,21 @@
             areaKam.classList.remove('hidden');
             areaKam.style.display = 'block';
             btnKam.disabled = true;
+            // [UPGRADE] Zoom kamera depan (mirror selfie) registrasi wajah.
+            const lblZR = cari('wajah-reg-zoom-label');
+            const btnZIR = cari('btn-wajah-reg-zoom-in');
+            const btnZOR = cari('btn-wajah-reg-zoom-out');
+            let zoomReg = 1;
+            const setTransformReg = () => {
+              zoomReg = Math.min(3, Math.max(1, zoomReg));
+              const t = 'scaleX(-1) scale(' + zoomReg + ')';
+              if (videoEl) videoEl.style.transform = t;
+              if (overlayEl) overlayEl.style.transform = t;
+              if (lblZR) lblZR.textContent = Math.round(zoomReg * 100) + '%';
+            };
+            if (btnZIR) btnZIR.addEventListener('click', () => { zoomReg = Math.min(3, zoomReg + 0.25); setTransformReg(); });
+            if (btnZOR) btnZOR.addEventListener('click', () => { zoomReg = Math.max(1, zoomReg - 0.25); setTransformReg(); });
+            setTransformReg();
             // Isi daftar kamera setelah izin diberikan (label baru muncul saat itu),
             // lalu pasang listener ganti kamera → mulai ulang stream dengan device baru.
             await isiDaftarKamera(kameraPilih, async (deviceId) => {
@@ -1223,6 +1263,12 @@
         <div class="flex items-center gap-2 bg-slate-900/85 px-2 py-1">
           <span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span>
           <select id="wajah-live-kamera" class="bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 flex-1 min-w-0 focus:outline-none focus:border-cyan-500" title="Pilih kamera"><option value="">Kamera bawaan</option></select>
+          <button type="button" id="btn-wajah-cam-env" class="shrink-0 bg-cyan-700 hover:bg-cyan-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Pakai kamera belakang">Belakang</button>
+          <button type="button" id="btn-wajah-cam-user" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Pakai kamera depan (selfie)">Depan</button>
+          <span style="width:1px" class="h-3.5 bg-white/15 shrink-0"></span>
+          <button type="button" id="btn-wajah-live-zoom-out" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perkecil (zoom keluar)">−</button>
+          <button type="button" id="btn-wajah-live-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perbesar (zoom masuk)">+</button>
+          <span id="wajah-live-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
         </div>
         <div class="relative">
           <video id="wajah-live-video" autoplay playsinline muted class="w-full h-56 object-cover"></video>
@@ -1238,6 +1284,28 @@
     const statusEl = document.getElementById('wajah-live-status');
     const btnStop = document.getElementById('btn-wajah-live-stop');
     const selKamera = document.getElementById('wajah-live-kamera');
+
+    // [UPGRADE] Zoom & mirror (kamera depan → selfie terpantul seperti cermin).
+    // Transform CSS diterapkan ke video DAN overlay bersamaan → kotak deteksi
+    // tetap menempel di wajah saat diperbesarkan/dibalik.
+    const btnZiP = document.getElementById('btn-wajah-live-zoom-in');
+    const btnZoP = document.getElementById('btn-wajah-live-zoom-out');
+    const lblZP = document.getElementById('wajah-live-zoom-label');
+    let zoomPindai = 1;
+    let mukaDepanPindai = false;
+    const terapkanTfPindai = () => {
+      zoomPindai = Math.min(3, Math.max(1, zoomPindai));
+      const t = (mukaDepanPindai ? 'scaleX(-1) ' : '') + 'scale(' + zoomPindai + ')';
+      if (video) video.style.transform = t;
+      if (overlay) overlay.style.transform = t;
+      if (lblZP) lblZP.textContent = Math.round(zoomPindai * 100) + '%';
+    };
+    const ubahZoomPindai = (naik) => {
+      zoomPindai = Math.min(3, Math.max(1, Math.round((zoomPindai + (naik ? 0.25 : -0.25)) * 100) / 100));
+      terapkanTfPindai();
+    };
+    if (btnZiP) btnZiP.addEventListener('click', () => ubahZoomPindai(true));
+    if (btnZoP) btnZoP.addEventListener('click', () => ubahZoomPindai(false));
 
     const setStatus = (teks, warna) => {
       if (!statusEl || !statusEl.isConnected) return;
@@ -1258,7 +1326,48 @@
       await video.play();
       if (scanAktif) scanAktif.stream = streamBaru;
       if (streamLama) streamLama.getTracks().forEach(t => t.stop());
+      mukaDepanPindai = (() => {
+        const tr = streamBaru.getVideoTracks && streamBaru.getVideoTracks()[0];
+        const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
+        return !!(st && st.facingMode === 'user');
+      })();
+      terapkanTfPindai();
     };
+
+    // Toggle kamera depan/belakang (facingMode) — tanpa perlu memilih perangkat.
+    let facingMuka = 'environment';
+    const tandaiMukaAktif = () => {
+      const aktifUser = document.getElementById('btn-wajah-cam-user');
+      const aktifEnv = document.getElementById('btn-wajah-cam-env');
+      const sorot = (el, ya) => { if (el) { el.classList.toggle('ring-2', ya); el.classList.toggle('ring-yellow-400', ya); } };
+      sorot(aktifUser, facingMuka === 'user');
+      sorot(aktifEnv, facingMuka === 'environment');
+    };
+    const gantiMukaKamera = async (facing) => {
+      try {
+        const streamLama = scanAktif && scanAktif.stream;
+        const streamBaru = await bukaStreamKamera([facing, {}],
+          { width: { ideal: 1280 }, height: { ideal: 720 } });
+        if (!video || !video.isConnected) { streamBaru.getTracks().forEach(t => t.stop()); return; }
+        video.srcObject = streamBaru;
+        await video.play();
+        if (scanAktif) scanAktif.stream = streamBaru;
+        if (streamLama) streamLama.getTracks().forEach(t => t.stop());
+        facingMuka = facing;
+        mukaDepanPindai = facing === 'user';
+        terapkanTfPindai();
+        tandaiMukaAktif();
+        setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facing === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah ke kamera.', 'text-cyan-100');
+      } catch (e2) {
+        console.error('ganti muka kamera:', e2);
+        setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e2 && e2.message ? e2.message : e2), 'text-amber-200');
+      }
+    };
+    const btnCamUser = document.getElementById('btn-wajah-cam-user');
+    const btnCamEnv = document.getElementById('btn-wajah-cam-env');
+    if (btnCamUser) btnCamUser.addEventListener('click', () => gantiMukaKamera('user'));
+    if (btnCamEnv) btnCamEnv.addEventListener('click', () => gantiMukaKamera('environment'));
+    tandaiMukaAktif();
 
     try {
       const nisList = [...new Set((listMurid || []).map(m => String(m.nis)).filter(Boolean))];
@@ -1290,6 +1399,12 @@
         { width: { ideal: 1280 }, height: { ideal: 720 } });
       video.srcObject = stream;
       await video.play();
+      mukaDepanPindai = (() => {
+        const tr = stream.getVideoTracks && stream.getVideoTracks()[0];
+        const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
+        return !!(st && st.facingMode === 'user');
+      })();
+      terapkanTfPindai();
       scanAktif = { hentikan: false, stream };
       setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera siap — memuat model pengenalan wajah… (bisa ±30 dtk di jaringan lambat)');
 
@@ -1402,7 +1517,8 @@
       // Gambar bingkai deteksi pada overlay (koordinat video → layar)
       const disp = { width: cW, height: cH };
       const resized = fa.resizeResults(deteksi, disp);
-      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+      // Kotak deteksi: hijau (dash) → kotak cocok: hijau solid & lebih tebal.
+      ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
       const b = resized.detection.box;
       ctx.strokeRect(b.x, b.y, b.width, b.height);
 
@@ -1419,7 +1535,7 @@
             try { baruDitandai = o.onMatch(nis) !== false; } catch (e) { baruDitandai = true; }
           }
           if (baruDitandai) hadirCount += 1;
-          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3;
+          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.setLineDash([]);
           ctx.strokeRect(b.x, b.y, b.width, b.height);
           o.setStatus('<i class="fa-solid fa-circle-check mr-1" style="color:#4ade80"></i>Cocok! ' + fxEscape(nis) + ' — Hadir (' + hadirCount + '×) · kemiripan ~' + persenKemiripan(best.distance) + '%.', 'text-green-100');
         }
@@ -1486,11 +1602,22 @@
       }
 
       wrap.innerHTML = `
-        <div class="relative rounded-lg overflow-hidden border border-cyan-500 bg-black">
-          <video id="wajah-mandiri-video" autoplay playsinline muted class="w-full h-40 object-cover" style="transform:scaleX(-1)"></video>
-          <canvas id="wajah-mandiri-overlay" class="absolute inset-0 w-full h-full pointer-events-none" style="transform:scaleX(-1)"></canvas>
-          <div id="wajah-mandiri-live-status" class="absolute top-1.5 left-1.5 right-1.5 text-center text-[10px] font-bold text-white drop-shadow-lg bg-black/40 rounded px-2 py-0.5">Menyiapkan kamera...</div>
-          <button id="btn-wajah-mandiri-stop" class="absolute bottom-1.5 right-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">Berhenti</button>
+        <div class="rounded-lg overflow-hidden border border-cyan-500 bg-black">
+          <div class="flex items-center gap-2 bg-slate-900/85 px-2 py-1">
+            <span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span>
+            <button type="button" id="btn-mandiri-cam-user" class="shrink-0 bg-cyan-700 hover:bg-cyan-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Kamera depan (selfie)">Depan</button>
+            <button type="button" id="btn-mandiri-cam-env" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Kamera belakang">Belakang</button>
+            <span style="width:1px" class="h-3 bg-white/15 shrink-0"></span>
+            <button type="button" id="btn-mandiri-zoom-out" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-0.5 rounded transition" title="Perkecil (zoom keluar)">−</button>
+            <button type="button" id="btn-mandiri-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-0.5 rounded transition" title="Perbesar (zoom masuk)">+</button>
+            <span id="wajah-mandiri-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
+          </div>
+          <div class="relative">
+            <video id="wajah-mandiri-video" autoplay playsinline muted class="w-full h-40 object-cover" style="transform:scaleX(-1)"></video>
+            <canvas id="wajah-mandiri-overlay" class="absolute inset-0 w-full h-full pointer-events-none" style="transform:scaleX(-1)"></canvas>
+            <div id="wajah-mandiri-live-status" class="absolute top-1.5 left-1.5 right-1.5 text-center text-[10px] font-bold text-white drop-shadow-lg bg-black/40 rounded px-2 py-0.5">Menyiapkan kamera...</div>
+            <button id="btn-wajah-mandiri-stop" class="absolute bottom-1.5 right-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">Berhenti</button>
+          </div>
         </div>`;
 
       const video = document.getElementById('wajah-mandiri-video');
@@ -1532,12 +1659,68 @@
 
       btnStop.addEventListener('click', () => berhentiPindaiWajah());
 
+      // ---- Kamera depan/belakang (facingMode) untuk Absen Mandiri ----
+      let facingMandiri = 'user';
+      let zoomMandiri = 1;
+      const lblZM = document.getElementById('wajah-mandiri-zoom-label');
+      const btnZInM = document.getElementById('btn-mandiri-zoom-in');
+      const btnZOutM = document.getElementById('btn-mandiri-zoom-out');
+      const setTransformMandiri = () => {
+        zoomMandiri = Math.min(3, Math.max(1, zoomMandiri));
+        const t = (facingMandiri === 'user' ? 'scaleX(-1) ' : '') + 'scale(' + zoomMandiri + ')';
+        if (video) video.style.transform = t;
+        if (overlay) overlay.style.transform = t;
+        if (lblZM) lblZM.textContent = Math.round(zoomMandiri * 100) + '%';
+      };
+      if (btnZInM) btnZInM.addEventListener('click', () => { zoomMandiri = Math.min(3, zoomMandiri + 0.25); setTransformMandiri(); });
+      if (btnZOutM) btnZOutM.addEventListener('click', () => { zoomMandiri = Math.max(1, zoomMandiri - 0.25); setTransformMandiri(); });
+      setTransformMandiri();
+      const tandaiMukaMandiri = () => {
+        const u = document.getElementById('btn-mandiri-cam-user');
+        const e = document.getElementById('btn-mandiri-cam-env');
+        [u, e].forEach(el => { if (el) { el.classList.remove('ring-2'); el.classList.remove('ring-yellow-400'); } });
+        const t = facingMandiri === 'user' ? u : e;
+        if (t) { t.classList.add('ring-2'); t.classList.add('ring-yellow-400'); }
+      };
+      const gantiMukaMandiri = async (facing) => {
+        try {
+          const lama = scanAktif && scanAktif.stream;
+          const baru = await bukaStreamKamera([facing, {}], { width: { ideal: 640 }, height: { ideal: 480 } });
+          if (!video || !video.isConnected) { baru.getTracks().forEach(t => t.stop()); return; }
+          video.srcObject = baru;
+          await video.play();
+          if (scanAktif) scanAktif.stream = baru;
+          if (lama) lama.getTracks().forEach(t => t.stop());
+          facingMandiri = facing;
+          setTransformMandiri();
+          tandaiMukaMandiri();
+          setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facing === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah lurus ke kamera ±40–80 cm.', 'text-cyan-100');
+        } catch (e2) {
+          console.error('gantiMukaMandiri:', e2);
+          setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e2 && e2.message ? e2.message : e2), 'text-amber-200');
+        }
+      };
+      const btnCamUserM = document.getElementById('btn-mandiri-cam-user');
+      const btnCamEnvM = document.getElementById('btn-mandiri-cam-env');
+      if (btnCamUserM) btnCamUserM.addEventListener('click', () => gantiMukaMandiri('user'));
+      if (btnCamEnvM) btnCamEnvM.addEventListener('click', () => gantiMukaMandiri('environment'));
+      tandaiMukaMandiri();
+
       await loopDeteksiPindai({
         wrap, video, overlay, matcher,
         peta: { [nisS]: { descriptor: daftarSampel } },
         cooldown: {}, terdeteksi: {}, setStatus, nisList: [nisS],
         onMatch: (nisCocok) => {
           if (String(nisCocok) !== nisS) return false; // hanya identitas sendiri
+          // Notif popup + TTS (sama seperti QR Scan) — nama siswa dibacakan.
+          try {
+            fxToast('success', 'Hadir — ' + (nama || nisS));
+            if ('speechSynthesis' in window) {
+              const uc = new SpeechSynthesisUtterance('Absen mandiri berhasil. Selamat datang, ' + (nama || 'siswa'));
+              uc.lang = 'id-ID'; uc.rate = 1.35; uc.pitch = 1;
+              window.speechSynthesis.speak(uc);
+            }
+          } catch (e) { /* TTS/toast opsional */ }
           if (typeof onHasil === 'function') {
             try { onHasil(nisCocok); } catch (e) { console.error('onHasil pindaiWajahMandiri:', e); }
           }
