@@ -1833,6 +1833,23 @@ function hapusFotoSaya(setelahSukses) {
   });
 }
 
+/** Buka modal "Registrasi Wajah" utk akun sendiri (menu siswa "Data Akun Murid").
+ *  Memakai modal yang sama dengan tabel admin (window.FaceWajah.kelolaWajah);
+ *  setelah modal ditutup, render ulang halaman agar badge status wajah terbaru. */
+function kelolaWajahSaya() {
+  const user = (currentUser || {}).user || {};
+  const nis = String(user["NIS"] || '');
+  if (!nis) { showToast('error', 'NIS tidak ditemukan pada sesi.'); return; }
+  if (!window.FaceWajah || typeof window.FaceWajah.kelolaWajah !== 'function') {
+    showToast('error', 'Modul wajah belum memuat. Muat ulang halaman.');
+    return;
+  }
+  window.FaceWajah.kelolaWajah(nis).then(() => {
+    const mc = document.getElementById('main-content');
+    if (mc) renderAkunSayaMurid(mc);
+  }).catch(() => {});
+}
+
 /* ===== Pratinjau Google Maps ("Data Akun Murid") =====
    Kebijakan keamanan: hanya tautan http(s) yang diterima & hanya domain Google
    Maps; iframe diizinkan karena CSP frame-src di web/index.html mengizinkan
@@ -1891,6 +1908,10 @@ async function renderAkunSayaMurid(container) {
     return;
   }
   const ro = (v) => escapeHtml(v || '-');
+  // Status wajah sendiri (badge "Aktif/Nonaktif/Belum") — kolom yang sama dipakai tabel admin.
+  const stWajahSaya = prof.wajah_descriptor
+    ? (prof.wajah_status === 'nonaktif' ? 'nonaktif' : 'aktif')
+    : 'belum';
   const inp = (id, label, val, tipe = 'text') => `
     <div>
       <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">${label}</label>
@@ -1951,8 +1972,10 @@ async function renderAkunSayaMurid(container) {
         <div class="flex-1 text-center sm:text-left">
           <div class="text-sm font-bold text-white">${ro(prof.nama_lengkap)}</div>
           <div class="text-[10px] text-slate-400 mt-0.5">NIS ${ro(prof.nis_nip)} · ${ro(prof.tingkat_kelas)}</div>
+          <div class="mt-1.5 flex items-center flex-wrap gap-1">${(window.FaceWajah && typeof window.FaceWajah.htmlBadgeWajah === 'function') ? window.FaceWajah.htmlBadgeWajah(stWajahSaya) : ''}<span class="text-[9px] text-slate-500">Status data wajah — dipakai absensi wajah</span></div>
           <div class="flex flex-wrap gap-1.5 justify-center sm:justify-start mt-2">
             <button onclick="pilihFotoSaya()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition"><i class="fa-solid fa-camera mr-1"></i>Pilih / Ganti Foto</button>
+            <button onclick="kelolaWajahSaya()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition" title="Mendaftarkan / memperbarui data wajah Anda — dipakai untuk absensi wajah"><i class="fa-solid fa-face-viewfinder mr-1"></i>Registrasi Wajah</button>
             ${prof.url_foto ? `<button onclick="hapusFotoSaya()" class="bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition"><i class="fa-solid fa-trash mr-1"></i>Hapus</button>` : ''}
           </div>
           <p class="text-[9px] text-slate-500 mt-2">Foto tersimpan di Google Drive (folder "Foto Siswa") · potong 3×4 sebelum diunggah.</p>
