@@ -16359,68 +16359,6 @@ function infoPiketLihatLengkap() {
 // [FIX] deklarasi variabel filter sub-ekskul tab Profil & Anggota (dipakai gantiFilterSubAnggotaProfil & renderTabProfilEkskul)
 let filterSubAnggotaProfil = '';
 
-const HARI_PERHATIAN_ULTAH = 7; // peringatan ulang tahun mulai N hari sebelum hari-H
-
-/** Hitung ulang tahun terdekat tiap anggota ekskul (dari tgl_lahir). Urut: terdekat dulu, maks 12. */
-function hitungUlangTahunAnggota(anggota, jumlahHari) {
-  const now = new Date();
-  const thnIni = now.getFullYear();
-  const awalHariIni = new Date(thnIni, now.getMonth(), now.getDate(), 0, 0, 0); // ulang tahun HARI INI tetap terdeteksi
-  const hasil = [];
-  (anggota || []).forEach(a => {
-    const tgl = String(a.tgl_lahir || '').trim();
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(tgl);
-    if (!m) return;
-    const thn = +m[1], bln = +m[2], hri = +m[3];
-    if (bln < 1 || bln > 12 || hri < 1 || hri > 31) return;
-    const kandidat = [];
-    [thnIni, thnIni + 1].forEach(yy => {
-      const d = new Date(yy, bln - 1, hri, 0, 0, 0);
-      if (d.getTime() >= awalHariIni.getTime()) kandidat.push(d);
-    });
-    if (!kandidat.length) return;
-    const pro = kandidat[0];
-    const hari = Math.max(0, Math.round((pro.getTime() - now.getTime()) / 86400000));
-    if (hari <= (jumlahHari || HARI_PERHATIAN_ULTAH)) {
-      const umur = thnIni - thn - ((new Date(thnIni, bln - 1, hri).getTime() > now.getTime()) ? 1 : 0);
-      hasil.push({ a, tanggal: pro, hari, hariIni: hari === 0, umur });
-    }
-  });
-  return hasil.sort((x, y) => x.hari - y.hari).slice(0, 12);
-}
-
-/** Widget kartu peringatan ulang tahun anggota + tombol WhatsApp ucapan (teks terisi otomatis). */
-function htmlWidgetUlangTahun(ultah, ekskul) {
-  const judul = `<h3 class="text-[11px] font-bold text-pink-300 uppercase mb-2"><i class="fa-solid fa-cake-candles"></i> 🎂 Ulang Tahun Anggota (${HARI_PERHATIAN_ULTAH} Hari ke Depan)</h3>`;
-  if (!ultah || ultah.length === 0) {
-    return `<div class="bg-white/5 border border-white/10 rounded-xl p-3">${judul}
-      <p class="text-[10px] text-slate-400 italic">Tidak ada anggota yang berulang tahun dalam ${HARI_PERHATIAN_ULTAH} hari ke depan. 🎈</p>
-    </div>`;
-  }
-  const item = ultah.map(u => {
-    const nama = escapeHtml(u.a.nama_lengkap || '-');
-    const kelas = escapeHtml(u.a.tingkat_kelas || '-');
-    const tglStr = `${String(u.tanggal.getDate()).padStart(2, '0')} ${(arrBulan[u.tanggal.getMonth()] || '').slice(0, 3)} ${u.tanggal.getFullYear()}`;
-    const label = u.hariIni
-      ? '<span class="text-[9px] font-bold bg-pink-600 text-white px-1.5 py-0.5 rounded animate-pulse">HARI INI 🎉</span>'
-      : (u.hari === 1
-        ? '<span class="text-[9px] font-bold bg-amber-600 text-white px-1.5 py-0.5 rounded">BESOK</span>'
-        : `<span class="text-[9px] text-pink-200">${u.hari} hari lagi</span>`);
-    const pesan = `Assalamualaikum ${u.a.nama_lengkap || ''}, selamat ulang tahun yang ke-${u.umur} 🎂🎉. Semoga panjang umur, sehat, dan sukses selalu. Dari keluarga besar ${ekskul || 'ekstrakurikuler'} 💐`;
-    const wa = linkWA(u.a.no_telepon || '', pesan);
-    return `<div class="flex items-center justify-between bg-slate-800/70 border ${u.hariIni ? 'border-pink-500/50' : 'border-white/10'} rounded px-2 py-1.5 gap-2">
-      <div class="min-w-0">
-        <div class="text-[11px] text-slate-200 truncate">${nama} <span class="text-[9px] text-indigo-300">(${kelas})</span></div>
-        <div class="text-[9px] text-slate-400">${tglStr} · ${label}</div>
-      </div>
-      <div class="shrink-0">${wa}</div>
-    </div>`;
-  }).join('');
-  return `<div class="bg-white/5 border border-white/10 rounded-xl p-3">${judul}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5">${item}</div>
-  </div>`;
-}
-
 async function renderTabProfilEkskul() {
   const box = boxEkskul();
   const daftar = window.__daftarEkskul || [];
@@ -16471,7 +16409,6 @@ async function renderTabProfilEkskul() {
         ${htmlSubs}
       </div>
       <div id="anggota-ekskul" class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat anggota...</div>
-      <div id="ultah-ekskul" class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat peringatan ulang tahun...</div>
       <div id="jabatan-ekskul" class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat daftar jabatan...</div>
     </div>`;
   const anggota = (await ambilAnggotaEkskul(aktif))
@@ -16539,10 +16476,6 @@ async function renderTabProfilEkskul() {
           </div>`}</div>`;
   const boxA = document.getElementById('anggota-ekskul');
   if (boxA) boxA.outerHTML = html;
-
-  // ---- Peringatan ulang tahun anggota (beberapa hari sebelum → hari-H) ----
-  const boxU = document.getElementById('ultah-ekskul');
-  if (boxU) boxU.outerHTML = htmlWidgetUlangTahun(hitungUlangTahunAnggota(anggota, HARI_PERHATIAN_ULTAH), aktif);
 
   // [REQ 1a] Daftar Siswa Jabatan Ekstrakurikuler — anggota yang menjabat pada ekskul ini
   const berjabatan = anggota.filter(a => petaJab[String(a.nis_nip)]);
