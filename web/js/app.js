@@ -3134,6 +3134,28 @@ async function saveKeteranganSiswaAPI(nis, updates) {
   } catch (e) { Swal.fire({ icon: 'error', title: 'Error Jaringan', text: e.message || '', background: '#1e293b', color: '#fff' }); }
 }
 
+/** Banner notifikasi non-Swal untuk modal absensi (alur QR/Face Scan).
+ *  Memakai element dalam-flow modal — BUKAN Swal.fire: SweetAlert2 v11 akan
+ *  memanggil _destroy() pada modal yang sedang terbuka, menutup scanner di
+ *  tengah kerja. Tampil saat ada yang cocok, lalu pudar sendiri ±1,5 dtk. */
+function tampilkanBannerScan(ikon, pesan, warna) {
+  const el = document.getElementById('toast-scan-inline');
+  if (!el) return;
+  if (el._tt) clearTimeout(el._tt);
+  if (el._tf) clearTimeout(el._tf);
+  el.classList.remove('hidden', 'opacity-0');
+  el.className = 'flex items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border transition-opacity duration-300 ' + (warna || 'bg-emerald-600/90 border-emerald-400/60');
+  el.textContent = '';
+  const ik = document.createElement('i');
+  ik.className = 'fa-solid ' + ikon + ' mr-1';
+  el.appendChild(ik);
+  el.appendChild(document.createTextNode(String(pesan || '')));
+  el._tf = setTimeout(() => {
+    el.classList.add('opacity-0');
+    el._tt = setTimeout(() => el.classList.add('hidden'), 250);
+  }, 1500);
+}
+
 function showModalEditAbsen(tanggal) {
   tempKeteranganHarian = {}; 
   urutNamaModalAsc = null; // reset urutan nama modal
@@ -3189,14 +3211,14 @@ function showModalEditAbsen(tanggal) {
   
   Swal.fire({
     title: `<div class="text-lg font-bold mt-2">Tgl ${tanggal} ${currentBulan}</div>`, width: '600px',
-    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
+    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div id="toast-scan-inline" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
     background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan', cancelButtonText: 'Batal',
         didOpen: () => {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; showToast('success', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
-      const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; showToast('success', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } } return !sudah; };
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
+      const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } } return !sudah; };
       document.getElementById('btn-face-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear2 = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear2 && prevClear2.catch) prevClear2.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } const fwQr = document.getElementById('qr-reader-in-modal'); if (fwQr) fwQr.classList.add('hidden'); const fwFace = document.getElementById('face-reader-wrap'); if (!fwFace) return; fwFace.classList.remove('hidden'); if (window.FaceWajah) { window.FaceWajah.mulaiPindaiWajahAbsen(listMuridKelas, { wrap: fwFace, onMatch: tandaiHadirWajah }); } });
       // Pertemuan ke- otomatis: lanjut dari jurnal terakhir guru+kelas+mapel+tahun ini
       (async () => {
@@ -3233,6 +3255,18 @@ function showModalEditAbsen(tanggal) {
         Swal.showValidationMessage('Pertemuan ke- harus berupa angka minimal 1.'); return false;
       }
       return { absenList: absenPayload, nisDihapus, ketMasal: inputEl ? inputEl.value : "", jurnal: isiJurnal ? jurnalRaw : null };
+    },
+    willClose: () => {
+      // Kamera dilepas penuh saat modal ditutup. Scanner QR (html5-qrcode) TIDAK
+      // menutup kamera otomatis — stream yang masih millikki bisa diblokir modal
+      // lain dengan error "Kamera sedang dipakai… NotReadable".
+      if (html5QrcodeScanner) {
+        try { const p = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* opsional */ }
+        html5QrcodeScanner = null;
+      }
+      if (window.FaceWajah) { try { window.FaceWajah.berhentiPindaiWajah(); } catch (e) { /* opsional */ } }
+      const fwFaceW = document.getElementById('face-reader-wrap');
+      if (fwFaceW) fwFaceW.classList.add('hidden');
     }
   }).then((res) => {
     if (!res.isConfirmed || !res.value) return;
@@ -6365,12 +6399,14 @@ function openPenilaianMasal() {
           <div class="flex gap-1.5">
             <button type="button" id="btn-urut-masal" class="text-[9px] bg-white/10 px-1.5 py-1 rounded hover:bg-white/20 text-white transition" title="Balik urutan daftar siswa"><i class="fa-solid fa-arrow-down-a-z mr-1"></i>A-Z</button>
             <button type="button" id="btn-qr-masal-nilai" class="text-[9px] bg-blue-600 px-1.5 py-1 rounded hover:bg-blue-700 text-white shadow-md transition">Scan QR</button>
+            <button type="button" id="btn-face-masal-nilai" class="text-[9px] bg-cyan-600 px-1.5 py-1 rounded hover:bg-cyan-700 text-white shadow-md transition">Face Scan</button>
             <button type="button" id="btn-toggle-masal" class="text-[9px] bg-white/10 px-1.5 py-1 rounded hover:bg-white/20 text-white transition">Pilih Semua</button>
           </div>
         </div>
         
         <!-- Ukuran Canvas QR diperkecil -->
         <div id="qr-reader-nilai-masal" class="hidden border-2 border-blue-500/50 rounded-lg mb-2 overflow-hidden shadow-inner bg-black/50" style="max-width: 180px; margin: 0 auto;"></div>
+        <div id="face-reader-nilai-masal" class="hidden rounded-lg overflow-hidden mb-2"></div>
         
         <div class="max-h-[35vh] overflow-y-auto custom-scrollbar bg-black/20 rounded border border-white/10 p-1 scroll-smooth" id="container-chk-masal"></div>
       </div>
@@ -6471,6 +6507,7 @@ function openPenilaianMasal() {
           if(qrContainer.classList.contains('hidden')) {
             qrContainer.classList.remove('hidden');
             scannerNilai = new Html5QrcodeScanner("qr-reader-nilai-masal", { fps: 10, qrbox: {width: 120, height: 120} });
+            window.__scannerNilai = scannerNilai;
             scannerNilai.render((nis) => {
               const chk = popup.querySelector(`#chk-masal-${nis}`);
               if (chk && !chk.checked) {
@@ -6497,9 +6534,71 @@ function openPenilaianMasal() {
             }, () => {});
           } else {
             qrContainer.classList.add('hidden');
-            if(scannerNilai) { scannerNilai.clear(); scannerNilai = null; }
+            if(scannerNilai) { scannerNilai.clear(); scannerNilai = null; window.__scannerNilai = null; }
           }
         };
+
+        // [REQ] Face Scan — sama seperti tombol Face di modal absensi: wajah yang cocok
+        // dengan akun murid (kamera live) → ceklis siswa ditandai + TTS + fokus kolom.
+        // Agnostik kategori (Pengetahuan/Keterampilan/Sikap/Ekstrakurikuler A-D).
+        const tandaiNilaiScan = (nis) => {
+          const nisS = String(nis);
+          const chk = popup.querySelector(`#chk-masal-${nisS}`);
+          if (!chk) return false;
+          const sudah = chk.checked;
+          if (!sudah) {
+            chk.checked = true;
+            const lbl = popup.querySelector(`#lbl-masal-${nisS}`);
+            if (lbl) {
+              lbl.classList.add('bg-green-900/60');
+              lbl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              setTimeout(() => lbl.classList.remove('bg-green-900/60'), 1500);
+            }
+            // TTS Cepat Bahasa Indonesia (nama siswa dibacakan) + auto-focus kolom.
+            try {
+              const namaM = listMuridKelas.find(m => String(m.NIS) === nisS)?.["Nama Lengkap"] || "Siswa";
+              const utt = new SpeechSynthesisUtterance(namaM);
+              utt.lang = 'id-ID'; utt.rate = 1.4;
+              window.speechSynthesis.speak(utt);
+            } catch (e) { /* TTS opsional */ }
+            const inp = popup.querySelector(`.input-masal-individu[data-nis="${nisS}"]`);
+            if (inp) { inp.focus(); if (typeof inp.select === 'function') inp.select(); }
+          }
+          return !sudah;
+        };
+
+        let faceNilaiAktif = false;
+        popup.querySelector('#btn-face-masal-nilai').onclick = () => {
+          const fwFaceN = popup.querySelector('#face-reader-nilai-masal');
+          if (faceNilaiAktif) {
+            faceNilaiAktif = false;
+            fwFaceN.classList.add('hidden');
+            fwFaceN.innerHTML = '';
+            if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah();
+            return;
+          }
+          // Face scan menyala → QR scanner tidak boleh dipakai kamera bersamaan.
+          const qrContainerN = popup.querySelector('#qr-reader-nilai-masal');
+          if (!qrContainerN.classList.contains('hidden')) {
+            qrContainerN.classList.add('hidden');
+            if (window.__scannerNilai) { try { window.__scannerNilai.clear(); } catch (e) {} window.__scannerNilai = null; }
+          }
+          if (!window.FaceWajah || typeof window.FaceWajah.mulaiPindaiWajahAbsen !== 'function') {
+            Swal.fire({ toast: true, position: 'top-end', icon: 'error', title: 'Library wajah belum siap — muat ulang halaman.', showConfirmButton: false, timer: 2000, background: '#1e293b', color: '#fff' });
+            return;
+          }
+          faceNilaiAktif = true;
+          fwFaceN.classList.remove('hidden');
+          window.FaceWajah.mulaiPindaiWajahAbsen(
+            listMuridKelas.map(function (m) { return { nis: String(m.NIS), nama: String(m["Nama Lengkap"] || '') }; }),
+            { wrap: fwFaceN, onMatch: tandaiNilaiScan }
+          );
+        };
+    },
+    willClose: () => {
+      // Kamera dilepas penuh saat modal ditutup (Simpan/Batal) — QR & face stream.
+      if (window.__scannerNilai) { try { window.__scannerNilai.clear(); } catch (e) {} window.__scannerNilai = null; }
+      if (window.FaceWajah) { try { window.FaceWajah.berhentiPindaiWajah(); } catch (e) {} }
     }
   }).then((res) => {
       if (res.isConfirmed) {
