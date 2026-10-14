@@ -97,6 +97,11 @@ function mulaiGeserNamaModal(e) {
 /** Lebar kolom Nama Siswa tabel absensi (dapat digeser via col-resizer; tersimpan di localStorage). */
 let wNamaAbsen = parseInt(localStorage.getItem('sisip_nama_width'), 10) || 110;
 
+/** Lebar kolom Nama Siswa tabel Input Nilai (Pengetahuan/Keterampilan/Sikap/Ekskul).
+ *  Dapat digeser via col-resizer yang sama; tersimpan di localStorage agar konsisten
+ *  antar kategori & bertahan setelah render ulang. Default 160px. */
+let wNamaNilai = parseInt(localStorage.getItem('sisip_nama_nilai_width'), 10) || 160;
+
 /** (A) Urut A-Z/Z-A daftar siswa pada modal absen masal (DOM reorder — pilihan radio aman). */
 let urutNamaModalAsc = null; // null = urutan asli (belum diurutkan)
 function toggleUrutNamaModal() {
@@ -5389,7 +5394,7 @@ function renderTabelPengetahuan() {
       <tr class="bg-slate-800 text-slate-300 text-[10px] uppercase tracking-wider text-center border-b border-white/20">
         <th class="sticky left-0 bg-slate-800 z-50 px-2 py-2 border-r border-white/10 w-8 cursor-pointer hover:bg-slate-700 text-blue-400 shadow-md" onclick="toggleNamaSiswaNilai()">No</th>
         <!-- Ganti kode <th> Nama Siswa yang lama dengan ini: -->
-        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: 160px; min-width: 50px;">
+        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: ${wNamaNilai}px; min-width: ${wNamaNilai}px;">
         <div class="flex items-center justify-between gap-1 pr-1"><span class="truncate font-semibold">Nama Siswa</span><button onclick="event.stopPropagation(); siklusUrutNamaNilai()" class="shrink-0 w-5 h-5 rounded bg-slate-700/70 hover:bg-slate-600 flex items-center justify-center text-[9px]" title="Urutkan Nama (A-Z / Z-A)">${ikonUrutNamaNilai()}</button></div>
         <!-- Garis Handle Geser (Kursor berubah jadi panah geser) -->
         <div class="col-resizer absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-500/50 transition-colors"></div></th>
@@ -7747,7 +7752,7 @@ function renderTabelKeterampilan() {
       <tr class="bg-slate-800 text-slate-300 text-[10px] uppercase tracking-wider text-center border-b border-white/20">
         <th class="sticky left-0 bg-slate-800 z-50 px-2 py-2 border-r border-white/10 w-8 cursor-pointer hover:bg-slate-700 text-blue-400 shadow-md" onclick="toggleNamaSiswaNilai()">No</th>
         <!-- Ganti kode <th> Nama Siswa yang lama dengan ini: -->
-        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: 160px; min-width: 50px;">
+        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: ${wNamaNilai}px; min-width: ${wNamaNilai}px;">
         <div class="flex items-center justify-between gap-1 pr-1"><span class="truncate font-semibold">Nama Siswa</span><button onclick="event.stopPropagation(); siklusUrutNamaNilai()" class="shrink-0 w-5 h-5 rounded bg-slate-700/70 hover:bg-slate-600 flex items-center justify-center text-[9px]" title="Urutkan Nama (A-Z / Z-A)">${ikonUrutNamaNilai()}</button></div>
         <!-- Garis Handle Geser (Kursor berubah jadi panah geser) -->
         <div class="col-resizer absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-500/50 transition-colors"></div></th>
@@ -8248,7 +8253,7 @@ function renderTabelSikap() {
       <tr class="bg-slate-800 text-slate-300 text-[10px] uppercase tracking-wider text-center border-b border-white/20">
         <th class="sticky left-0 bg-slate-800 z-50 px-2 py-2 border-r border-white/10 w-8 cursor-pointer hover:bg-slate-700 text-blue-400 shadow-md" onclick="toggleNamaSiswaNilai()">No</th>
         <!-- Ganti kode <th> Nama Siswa yang lama dengan ini: -->
-        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: 160px; min-width: 50px;">
+        <th rowspan="2" class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: ${wNamaNilai}px; min-width: ${wNamaNilai}px;">
         <div class="flex items-center justify-between gap-1 pr-1"><span class="truncate font-semibold">Nama Siswa</span><button onclick="event.stopPropagation(); siklusUrutNamaNilai()" class="shrink-0 w-5 h-5 rounded bg-slate-700/70 hover:bg-slate-600 flex items-center justify-center text-[9px]" title="Urutkan Nama (A-Z / Z-A)">${ikonUrutNamaNilai()}</button></div>
         <!-- Garis Handle Geser (Kursor berubah jadi panah geser) -->
         <div class="col-resizer absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-500/50 transition-colors"></div></th>
@@ -8982,22 +8987,27 @@ function enableNamaSiswaResize() {
             const newResizer = resizer.cloneNode(true);
             resizer.parentNode.replaceChild(newResizer, resizer);
 
+            // Pointer Events agar bisa digeser via mouse (desktop) DAN sentuhan (HP/tablet),
+            // konsisten dengan mulaiGeserNamaModal. touch-action:none mencegah scroll konflik.
+            newResizer.style.touchAction = 'none';
+
             let startX, startWidth;
 
-            newResizer.addEventListener('mousedown', function (e) {
+            newResizer.addEventListener('pointerdown', function (e) {
+                e.preventDefault();
                 startX = e.clientX;
-                startWidth = th.offsetWidth;
-                
-                function onMouseMove(e) {
-                    let currentWidth = startWidth + (e.clientX - startX);
-                    if (currentWidth < 50) currentWidth = 50;  // Batas minimum 50px
+                startWidth = th.offsetWidth || wNamaNilai;
+
+                function onPointerMove(ev) {
+                    let currentWidth = Math.round(startWidth + (ev.clientX - startX));
+                    if (currentWidth < 50) currentWidth = 50;   // Batas minimum 50px
                     if (currentWidth > 400) currentWidth = 400; // Batas maksimum
-                    
+
                     // Terapkan ukuran pada Header (th)
                     th.style.width = currentWidth + 'px';
                     th.style.minWidth = currentWidth + 'px';
                     th.style.maxWidth = currentWidth + 'px';
-                    
+
                     // Terapkan ukuran secara sinkron pada seluruh isi baris (td) Nama Siswa di bawahnya
                     const table = th.closest('table');
                     if (table) {
@@ -9013,20 +9023,29 @@ function enableNamaSiswaResize() {
                     }
                 }
 
-                function onMouseUp() {
-                    document.removeEventListener('mousemove', onMouseMove);
-                    document.removeEventListener('mouseup', onMouseUp);
-                    // Persist lebar kolom Nama tabel absensi
-                    if (th.id === 'th-nama-absen') {
-                        wNamaAbsen = th.offsetWidth;
-                        localStorage.setItem('sisip_nama_width', String(wNamaAbsen));
-                        refreshTableAbsenUI(); // hitung ulang offset sticky kolom setelahnya
+                function onPointerUp() {
+                    document.removeEventListener('pointermove', onPointerMove);
+                    document.removeEventListener('pointerup', onPointerUp);
+                    document.removeEventListener('pointercancel', onPointerUp);
+                    // Persist lebar kolom Nama
+                    const w = th.offsetWidth;
+                    if (w >= 50) {
+                        if (th.id === 'th-nama-absen') {
+                            // Tabel absensi → key sisip_nama_width
+                            wNamaAbsen = w;
+                            localStorage.setItem('sisip_nama_width', String(wNamaAbsen));
+                            refreshTableAbsenUI(); // hitung ulang offset sticky kolom setelahnya
+                        } else {
+                            // Tabel Input Nilai (Pengetahuan/Keterampilan/Sikap/Ekskul) → key terpisah
+                            wNamaNilai = w;
+                            localStorage.setItem('sisip_nama_nilai_width', String(wNamaNilai));
+                        }
                     }
                 }
 
-                document.addEventListener('mousemove', onMouseMove);
-                document.addEventListener('mouseup', onMouseUp);
-                e.preventDefault(); // Mencegah teks ter-highlight saat digeser
+                document.addEventListener('pointermove', onPointerMove);
+                document.addEventListener('pointerup', onPointerUp);
+                document.addEventListener('pointercancel', onPointerUp);
             });
         });
     }, 50);
@@ -9083,7 +9102,7 @@ function renderTabelEskul() {
       <thead class="sticky top-0 z-40 shadow-lg">
         <tr class="bg-slate-800 text-slate-300 text-[10px] uppercase tracking-wider text-center border-b border-white/20">
           <th class="sticky left-0 bg-slate-800 z-50 px-2 py-2 border-r border-white/10 w-8 cursor-pointer hover:bg-slate-700 text-blue-400 shadow-md" onclick="toggleNamaSiswaNilai()">No</th>
-          <th class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: 160px; min-width: 50px;">
+          <th class="th-nama-siswa sticky left-[32px] bg-slate-800 z-40 px-3 py-2 border-r border-b border-white/10 text-left align-middle select-none relative" style="display:${displayNama}; width: ${wNamaNilai}px; min-width: ${wNamaNilai}px;">
             <div class="flex items-center justify-between gap-1 pr-1"><span class="truncate font-semibold">Nama Siswa</span><button onclick="event.stopPropagation(); siklusUrutNamaNilai()" class="shrink-0 w-5 h-5 rounded bg-slate-700/70 hover:bg-slate-600 flex items-center justify-center text-[9px]" title="Urutkan Nama (A-Z / Z-A)">${ikonUrutNamaNilai()}</button></div>
             <div class="col-resizer absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-500/50 transition-colors"></div>
           </th>
