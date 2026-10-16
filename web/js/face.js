@@ -38,7 +38,18 @@
   // ------------------------------------------------------------------
   // 0. Konstanta
   // ------------------------------------------------------------------
-  const MODELS_DIR = (document.baseURI || location.href).replace(/[^/]*$/, '') + 'models/';
+  const MODELS_DIR = (function () {
+    // Hitung dari URL skrip face.js sendiri (path relatif `js/face.js` di index.html
+    // selalu di-resolve browser ke lokasi asli `web/js/face.js`). Dari situ naik satu
+    // level ke `models/`. Jauh lebih andal daripada document.baseURI/location.href yang
+    // bisa memuat path filesistem (mis. server dev) → URL models 404.
+    try {
+      const s = (typeof document !== 'undefined' && document.currentScript) ||
+                (typeof document !== 'undefined' && document.querySelector('script[src*="face.js"]'));
+      if (s && s.src) return s.src.replace(/[^/]*$/, '') + '../models/';
+    } catch (e) { /* lanjut ke fallback */ }
+    return (document.baseURI || location.href).replace(/[^/]*$/, '') + 'models/';
+  })();
   const JARAK_COCOK = 0.5;          // ambang jarak Euclidean utk "Hadir" (FaceMatcher default 0.6)
   const JARAK_KENAL = 0.6;          // ambang utk membuat matcher (di luar ini dianggap tak dikenal)
   const COOLDOWN_MS = 2500;         // jeda antar-matching orang yang sama
@@ -405,9 +416,15 @@
   function pemanggilKini() {
     const cur = (typeof currentUser !== 'undefined') ? currentUser : null;
     if (!cur) return { nis: '', tipe: 'admin' };
+    const u = cur.user || {};
+    // Murid → NIS; guru → NIP / "ID Akun Guru"; fallback ke username.
+    const idPemanggil = String(
+      u['NIS'] || u.NIS || u['NIP'] || u.NIP || u['ID Akun Guru'] || u.nipGuru ||
+      cur.nis || cur.nipGuru || cur.username || ''
+    );
     return {
-      nis: String((cur.user && (cur.user['NIS'] || cur.user.NIS)) || cur.nis || cur.username || ''),
-      tipe: String(cur.role || ((cur.user && cur.user['Jabatan']) || '') || '')
+      nis: idPemanggil,
+      tipe: String(cur.role || u['Jabatan'] || '')
     };
   }
 
@@ -550,7 +567,7 @@
     const ikon = POSE_IKON[(idx || 0) % POSE_IKON.length];
     const arah = POSE_ARAH[(idx || 0) % POSE_ARAH.length];
     overlayEl.innerHTML =
-      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;background:rgba(0,0,0,0.18);border:2px dashed rgba(255,255,255,0.45);border-radius:12px">' +
+      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;background:rgba(0,0,0,0.10);border:1.5px dashed rgba(255,255,255,0.32);border-radius:12px">' +
         '<div style="font-size:30px;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,0.6);animation:posePulse 1.6s ease-in-out infinite">' + ikon + '</div>' +
         '<div style="margin-top:6px;font-size:10px;font-weight:900;letter-spacing:2px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.8)">' + arah + '</div>' +
       '</div>';
@@ -948,9 +965,24 @@
       : (murid.wajah_descriptor ? (murid.wajah_status === 'nonaktif' ? 'nonaktif' : 'aktif') : 'belum');
     const nama = murid.nama_lengkap || '';
     const kelas = murid.tingkat_kelas || '';
+    // [B4] Navegasi prev/next antar murid di modal registrasi wajah (sesi admin/guru).
+    // Prioritas: mrdNavNis = urutan NIS hasil filter tabel aktif (diisi app.js renderTabelMuridTerfilter)
+    // → navigasi mengikuti filter yang sedang dipilih (tahun/kelas/ekskul/status/cari/pencarian).
+    // Fallback: seluruh cache admin bila mrdNavNis kosong/tak ada (mis. sesi self-service).
+    let daftarNav = [];
+    let idxNav = -1;
+    if (typeof mrdNavNis !== 'undefined' && Array.isArray(mrdNavNis) && mrdNavNis.length > 1) {
+      daftarNav = mrdNavNis.slice();
+      idxNav = daftarNav.indexOf(String(nis));
+    } else if (typeof cacheAkunMurid !== 'undefined' && Array.isArray(cacheAkunMurid) && cacheAkunMurid.length > 1) {
+      daftarNav = cacheAkunMurid
+        .filter(m => String(m.tipe || '') === 'murid' || (m.nis_nip || m.NIS || m.nis))
+        .map(m => String(m.nis_nip || m.NIS || m.nis));
+      idxNav = daftarNav.indexOf(String(nis));
+    }
 
     Swal.fire({
-      title: `<div class="text-sm font-bold mt-1"><i class="fa-solid fa-face-viewfinder text-cyan-400 mr-2"></i>Foto Siswa</div>`,
+      title: `<div class="flex items-center gap-2 mt-1">${daftarNav.length > 1 ? `<button id="nav-wajah-prev" class="w-6 h-6 rounded bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center transition" title="Murid sebelumnya"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>` : ''}<div class="text-sm font-bold"><i class="fa-solid fa-face-viewfinder text-cyan-400 mr-2"></i>Foto Siswa</div>${daftarNav.length > 1 ? `<button id="nav-wajah-next" class="w-6 h-6 rounded bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center transition" title="Murid berikutnya"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>` : ''}</div>`,
       html: `
         <div class="flex items-start gap-3 justify-between mb-2">
           <div class="text-left flex-1">
@@ -975,7 +1007,7 @@
           <div class="relative h-36 overflow-hidden">
             <video id="wajah-video" autoplay playsinline muted class="w-full h-full object-cover" style="transform:scaleX(-1); transform-origin:center"></video>
             <canvas id="wajah-overlay" class="absolute inset-0 w-full h-full pointer-events-none" style="transform:scaleX(-1); transform-origin:center"></canvas>
-            <div id="wajah-pose-box" class="absolute inset-0 w-full h-full pointer-events-none" style="transform:scaleX(-1); transform-origin:center"></div>
+            <div id="wajah-pose-box" class="absolute inset-0 w-full h-full pointer-events-none" style="transform:none; transform-origin:center"></div>
           </div>
           <div id="wajah-panduan" class="px-2 py-1.5 bg-slate-900/70 border-t border-white/10 text-[10px] leading-relaxed text-slate-300">
             <b class="text-cyan-300">Posisi &amp; perintah:</b> hadapkan wajah lurus ke kamera · cahaya cukup dari depan · jarak 40–80 cm · tanpa masker/kacamata gelap. Ganti pose saat indikator hijau — mode <b>Auto 6 pose</b> menambah sampel sendiri (6/6 lalu <b>Simpan Data Wajah</b>); klik <b>Deteksi dari Kamera</b> utk sampel manual.
@@ -1022,6 +1054,21 @@
           hasilEl.innerHTML = teks;
           hasilEl.className = 'text-center text-[11px] min-h-[16px] mb-2 ' + (warna || 'text-slate-300');
         };
+        // [B4] Navigasi prev/next antar murid — tutup modal ini & buka murid tetangga.
+        if (daftarNav.length > 1) {
+          const nav = (step) => {
+            const nx = idxNav + step;
+            if (nx < 0 || nx >= daftarNav.length) return;
+            const nisTujuan = daftarNav[nx];
+            if (!nisTujuan || String(nisTujuan) === String(nis)) return;
+            Swal.close();
+            kelolaWajah(String(nisTujuan));
+          };
+          const btnPrev = popup.querySelector('#nav-wajah-prev');
+          const btnNext = popup.querySelector('#nav-wajah-next');
+          if (btnPrev) btnPrev.addEventListener('click', () => nav(-1));
+          if (btnNext) btnNext.addEventListener('click', () => nav(1));
+        }
         const aktifkanSimpan = () => {
           if (!btnSimpan) return;
           const n = sampelWajah.length;
@@ -1056,9 +1103,19 @@
           if (btnKosong) btnKosong.addEventListener('click', () => {
             sampelWajah = [];
             skorSementara = 0;
+            laatstAutoGambar = 0;
+            // [B3] Hapus semua → mulai /langkah 0 dari awal: kamera auto-mindai dihidupkan
+            // kembali, pose pertama diucapkan ulang & overlay panah di-reset (progres di awal).
+            autoGambarAktif = true;
+            setLavelAuto();
+            const pdBox = popup.querySelector('#wajah-pose-box');
+            if (pdBox) updateOverlayPose(pdBox, 0);
+            ucapkanTTS('Mulai. ' + TIPS_POSE[0] + '.');
             renderInfoSampel();
             aktifkanSimpan();
             setHasil('<i class="fa-solid fa-broom text-amber-300 mr-1"></i>Sampel dibersihkan. Deteksi dari kamera lagi atau gunakan foto.', 'text-amber-200');
+            // Hidupkan ulang loop auto bila kamera masih menyala (mode ON baku).
+            if (videoEl && videoEl.srcObject) mulaiAutoGambar();
           });
         };
 
@@ -1240,6 +1297,7 @@
           if (sampelWajah.length >= JUMLAH_SAMPEL_MAKS) {
             renderInfoSampel();
             setHasil('<i class="fa-solid fa-circle-exclamation text-amber-300 mr-1"></i>Sampel sudah maksimal (' + JUMLAH_SAMPEL_MAKS + '). Klik <b>Simpan Data Wajah</b>.', 'text-amber-300');
+            ucapkanTTS('Selesai. Tekan Simpan Data Wajah.');
             return;
           }
           sampelWajah.push(Array.isArray(hasil.descriptor) ? Array.from(hasil.descriptor) : hasil.descriptor);
@@ -1312,6 +1370,9 @@
                     autoGambarAktif = false;
                     setLavelAuto();
                     setHasil('<i class="fa-solid fa-circle-check text-green-400 mr-1"></i><b>' + JUMLAH_SAMPEL_MAKS + '/' + JUMLAH_SAMPEL_MAKS + ' sampel terekam (auto)</b> — klik <b>Simpan Data Wajah</b>.', 'text-green-300');
+                    // [B2] Beri tahu lewat suara bahwa pendataan selesai & tinggal simpan.
+                    updateOverlayPose(poseBoxEl, 0);
+                    ucapkanTTS('Selesai. Tekan Simpan Data Wajah.');
                   } else {
                     setHasil('<i class="fa-solid fa-camera text-cyan-300 mr-1"></i>Auto-mindai: sampel <b>' + sampelWajah.length + '/' + JUMLAH_SAMPEL_MAKS + '</b> — pose berikut: <i class="text-cyan-200">' + TIPS_POSE[sampelWajah.length % TIPS_POSE.length] + '</i>.', 'text-green-300');
                   }
@@ -2072,9 +2133,29 @@
     }
   });
 
-  // ==================================================================
-  // 8. EKSPOR API PUBLIK
-  // ==================================================================
+  // [B6] Registrasi wajah otomatis dari foto profil yang sudah tersimpan (url_foto).
+  // Dipakai menu "Data Akun Murid": satu klik menyisipkan 1 sampel descriptor dari
+  // foto Drive murid tanpa buka modal kamera. Mengembalikan { ok, skor, pesan? }.
+  async function registrasiOtomatisDariFoto(nis, urlFoto, nama) {
+    const nisS = String(nis || '');
+    if (!urlFoto) return { ok: false, pesan: 'Murid belum punya foto profil. Gunakan kamera.' };
+    try {
+      await pastikanModelsRinganTepatWaktu();
+      const img = await muatGambarDariUrl(urlFoto);
+      const hasil = await hasilDeteksiKuat(img, 'foto');
+      const d = Array.from(hasil.descriptor);
+      await simpanWajahKeDb(nisS, [d], 'aktif', 'ganti');
+      if (petaWajahCache) petaWajahCache[nisS] = { descriptor: [d], status: 'aktif' };
+      try { beriTahuWajahTersimpan(nisS, 'aktif'); } catch (e) {}
+      if (typeof refreshDaftarWajahTable === 'function') { try { refreshDaftarWajahTable(); } catch (e) {} }
+      return { ok: true, skor: hasil.skor, nama: nama || '' };
+    } catch (e) {
+      console.error('registrasiOtomatisDariFoto:', e);
+      return { ok: false, pesan: (e && e.message) ? e.message : String(e) };
+    }
+  }
+
+  /* [8] EKSPOR API PUBLIK — jangan sampai terkomentari */
   window.FaceWajah = {
     kelolaWajah,
     hapusDataWajah,
@@ -2085,6 +2166,7 @@
     mulaiPindaiWajahAbsen,
     berhentiPindaiWajah,
     pindaiWajahMandiri,
+    registrasiOtomatisDariFoto,
     urlFotoUntukCanvas
   };
 })();

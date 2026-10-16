@@ -48,6 +48,17 @@
   }
 }
 
+/* Firefox melaporkan backdrop-filter didukung sehingga `@supports not` di atas
+   TIDAK terpicu, padahal bug paint-nya membuat elemen ber-blur tak ter-render
+   (header/top-bar hilang). Paksa background solid penuh khusus Firefox di sini. */
+@-moz-document url-prefix() {
+  .glass-header {
+    background: rgb(15, 23, 42);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 /* Sidebar Collapsed Mode */
 .glass-sidebar.collapsed { width: 5rem !important; }
 .glass-sidebar.collapsed .sidebar-text { display: none !important; }
@@ -78,11 +89,52 @@ table {
 }
 
 .table-sticky-header th {
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   background-color: rgb(30, 41, 59);
   z-index: 20;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+/* [F1] Sticky header andal di Firefox: thead ikut dicapai jadi sticky supaya
+   kolom ikut terkunci meski container di-scroll horizontal. Firefox butuh
+   thead/td-di-atas di-pling, `border-collapse: separate` (sudah di atas) agak
+   ikut menempatkan benar. */
+.table-sticky-header thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* [E1] Animasi kilat hijau pada baris siswa saat tercocokkan oleh scan wajah/QR
+   di modal absensi — berkedip lalu memudar (bukan highlight statis). */
+.animasi-scan-nama {
+  animation: scanNamaPuls 0.9s ease-in-out 2 !important;
+}
+@keyframes scanNamaPuls {
+  0%   { background-color: rgba(34, 197, 94, 0.85); box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.9); }
+  50%  { background-color: rgba(34, 197, 94, 0.45); box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.5); }
+  100% { background-color: transparent; box-shadow: inset 0 0 0 0 transparent; }
+}
+
+/* [F2] Modal SweetAlert2 pada layar kecil — scroll badan modal yang panjang
+   (form akun murid, daftar hadir) tetap terkelola baik di Firefox & Safari. */
+@media (max-width: 640px) {
+  .swal2-container.swal2-backdrop-show,
+  .swal2-container.swal2-noanimation {
+    align-items: flex-start !important;
+  }
+  .swal2-container .swal2-popup {
+    max-width: 100vw !important;
+    max-height: 96dvh !important;
+    overflow-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+  .swal2-container .swal2-popup .swal2-html-container {
+    max-height: none !important;
+    overflow: visible !important;
+  }
 }
 
 /* Custom Scrollbar */
@@ -122,4 +174,98 @@ table {
 @keyframes anim-cake-boble {
   0%, 100% { transform: translateY(0) rotate(-6deg); }
   50% { transform: translateY(-4px) rotate(6deg); }
+}
+
+/* ============================================================
+   [AKU] ID CARD MURID — Dashboard siswa
+   Kartu bergaya ID Card dengan animasi kilau (flash) berjalan
+   ============================================================ */
+.id-card-murid {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(30, 41, 59, 0.6));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+/* Pita kilau yang menyapu kartu (flash) */
+.id-card-murid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+  animation: idCardFlash 4.5s linear infinite;
+}
+@keyframes idCardFlash {
+  0%   { transform: translateX(-120%); }
+  /* jeda panjang di posisi awal agar kilau tidak mengganggu baca */
+  60%  { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+/* Foto & QR di dalam ID card */
+.id-card-foto {
+  border-radius: 0.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: #0f172a;
+  object-fit: cover;
+}
+.id-card-qr {
+  background: #fff;
+  border-radius: 0.5rem;
+  padding: 0.4rem;
+}
+
+/* ============================================================
+   [AKU] Preview perbesar foto (lightbox) — klik foto murid
+   ============================================================ */
+.sisip-foto-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.88);
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  cursor: zoom-out;
+}
+.sisip-foto-preview-backdrop img {
+  max-width: 92vw;
+  max-height: 88vh;
+  border-radius: 12px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+  cursor: default;
+}
+.sisip-foto-preview-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.sisip-foto-preview-close:hover { background: rgba(255, 255, 255, 0.25); }
+
+/* Box log hasil pemindaian (Sinkron Foto / Wajah Masal) — scroll */
+.sisip-log-box {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.55);
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

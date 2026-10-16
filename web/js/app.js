@@ -8,7 +8,7 @@ const INFO_APLIKASI = {
   namaPanjang: 'Sistem Informasi Sekolah Indonesia Pintar',
   versi: '1.0.0',
   deskripsi: 'Aplikasi administrasi sekolah: absensi, penilaian, jadwal, kalender pendidikan & laporan — berbasis web, multi-peran (admin, guru, murid).',
-  pengembang: 'Tim Pengembang SISIP : Indra Nur Muhammad, S.Pd., M.Pd.',
+  pengembang: 'Tim Pengembang SISIP : Indra Nur Muhammad, S.Pd., M.Pd., Yusman, S.Ip.',
   kontak: {
     
     wa: '6281320682233',          // contoh: '6281234567890' (62 di depan, tanpa +)
@@ -488,7 +488,6 @@ let userName = namaDenganGelar(
   }
   // Guru dan Admin bisa akses Manajemen Murid
   if (role === 'admin' || role === 'guru') {
-      menus.push({ id: 'ekstrakurikuler', icon: 'fa-medal', text: 'Ekstrakurikuler' });
       menus.push({ id: 'akun-murid', icon: 'fa-user-graduate', text: 'Data Akun Murid' });
       menus.push({ id: 'rapor', icon: 'fa-scroll', text: 'Rapor & Leger' });
       menus.push({ id: 'poin-siswa', icon: 'fa-scale-balanced', text: 'Poin Siswa' });
@@ -500,6 +499,12 @@ let userName = namaDenganGelar(
 
   if (isPengurus) menus.push({ id: 'absensi', icon: 'fa-clipboard-user', text: 'Input Hadir (Pengurus)' });
 
+  // [REQ 4] Menu Ekstrakurikuler hanya utk: admin, pembina (guru pembina ekskul),
+  // walikelas (guru wali kelas), atau murid anggota ekskul. Guru biasa (non-pembina,
+  // non-walikelas) TIDAK mendapat menu ini.
+  if (role === 'admin' || (role === 'guru' && (!!waliKelasAktif() || ekskulDiampuAktif().length > 0))) {
+    menus.push({ id: 'ekstrakurikuler', icon: 'fa-medal', text: 'Ekstrakurikuler' });
+  }
   // Murid anggota/pengurus ekstrakurikuler → menu Ekstrakurikuler (lihat Info, Agenda, Profil)
   // [REQ 1c] termasuk ekskul yang dijabatinya (peta jabatan), bukan hanya yang diikuti
   if (role === 'murid' && ekskulMilikMurid().length > 0) menus.push({ id: 'ekstrakurikuler', icon: 'fa-medal', text: 'Ekstrakurikuler' });
@@ -769,7 +774,12 @@ function changeMenu(menuId, menuText) {
   else if (menuId === 'nilai') renderNilaiModule(mainContent);
   // TAMBAHKAN DUA BARIS INI:
   else if (menuId === 'akun-admin') renderManajemenAdmin(mainContent);
-  else if (menuId === 'akun-murid') renderManajemenMurid(mainContent);
+  else if (menuId === 'akun-murid') {
+    renderManajemenMurid(mainContent);
+    // [AUTO-ISI FOTO] Sekali per sesi: isi url_foto kosong dari Drive + daftar wajah otomatis.
+    // Best-effort (dijalankan fire-and-forget) — lihat autoIsiFotoKosongSekaliSesi().
+    try { if (typeof autoIsiFotoKosongSekaliSesi === 'function') autoIsiFotoKosongSekaliSesi(); } catch (e) { console.warn('autoIsiFotoKosongSekaliSesi trigger:', e); }
+  }
   else if (menuId === 'akun-guru') renderManajemenGuru(mainContent);
   else if (menuId === 'jadwal-libur') renderJadwalLiburModule(mainContent);
   else if (menuId === 'administrasi-guru') renderAdministrasiGuru(mainContent);
@@ -1374,6 +1384,19 @@ async function renderDashboardMurid(container) {
   const nama = user["Nama Lengkap"] || '';
   const kelas = user["Tingkat/Kelas"] || '';
   const ekskulSaya = String(user["Ekstrakurikuler"] || '').split(',').map(e => e.trim()).filter(Boolean);
+  // [D2] Ambil foto profil murid untuk ID Card (dashboard + cetak).
+  let fotoSaya = user["URL Foto"] || user["url_foto"] || '';
+  try {
+    if (supaClient && nis) {
+      const { data: barisFoto } = await supaClient.from('akun').select('url_foto').eq('nis_nip', nis).maybeSingle();
+      if (barisFoto && barisFoto.url_foto) fotoSaya = String(barisFoto.url_foto);
+    }
+  } catch (e) { console.warn('renderDashboardMurid/foto:', e); }
+  window.__fotoIdCardSaya = fotoSaya;
+  window.__namaIdCardSaya = nama;
+  window.__nisIdCardSaya = nis;
+  window.__kelasIdCardSaya = kelas;
+
 
   if (cacheKalender.length === 0 || cacheLibur.length === 0) {
     try { await muatDataJadwalLibur(); } catch (e) { console.warn(e); }
@@ -1547,22 +1570,34 @@ async function renderDashboardMurid(container) {
         <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-chart-pie text-blue-400 mr-2"></i> Dashboard Murid</h2>
         <p class="text-[10px] text-slate-400">Tahun Pelajaran ${escapeHtml(tahun)} · Semester ${smt} · ${hariIni}, ${fmtTglKalender(isoHariIni)}</p>
       </div>
-      <div class="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col sm:flex-row items-center gap-4">
-        <div class="bg-white p-2 rounded-lg shrink-0"><img src="${qrUrl}" alt="QR NIS" class="w-28 h-28" onerror="this.parentElement.innerHTML='<div class=\\'w-28 h-28 flex items-center justify-center text-slate-400\\'><i class=\\'fa-solid fa-qrcode text-4xl\\'></i></div>'"></div>
+      <!-- [D2] ID CARD Siswa : foto kiri (klik preview), tombol cetak, QR kanan -->
+      <div class="id-card-murid p-4 flex flex-col sm:flex-row items-center gap-4">
+        <div class="w-24 rounded-xl overflow-hidden border-2 border-white/20 bg-slate-900 flex items-center justify-center shrink-0" style="height:128px;">
+          ${fotoSaya
+            ? `<img src="${escapeHtml(fotoSaya)}" alt="Foto" class="w-full h-full object-cover cursor-zoom-in" onclick="bukaPreviewFoto('${escapeHtml(fotoSaya)}')" title="Klik untuk perbesar" onerror="this.outerHTML='<div class=&quot;w-full h-full flex items-center justify-center text-3xl font-bold text-blue-300&quot;>${escapeHtml((nama || ' ').trim().charAt(0).toUpperCase())}</div>'">`
+            : `<div class="w-full h-full flex items-center justify-center text-3xl font-bold text-blue-300">${escapeHtml((nama || ' ').trim().charAt(0).toUpperCase())}</div>`}
+        </div>
         <div class="flex-1 text-center sm:text-left">
-          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Kartu QR NIS Saya</div>
+          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold"><i class="fa-solid fa-id-card text-blue-400 mr-1"></i> ID CARD SISWA</div>
           <div class="text-lg font-extrabold text-white leading-tight">${escapeHtml(nama)}</div>
           <div class="text-[10px] text-slate-300">NIS: <span class="font-mono font-bold text-yellow-300">${escapeHtml(nis)}</span> · Kelas ${escapeHtml(kelas || '-')}</div>
           ${ekskulSaya.length ? `<div class="text-[9px] text-slate-400 mt-1"><i class="fa-solid fa-medal text-yellow-400 mr-1"></i>${ekskulSaya.map(escapeHtml).join(', ')}</div>` : ''}
-          <button onclick="cetakKartuQrMurid()" class="mt-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5"><i class="fa-solid fa-print"></i> Cetak Kartu QR</button>
-        </div>
-        <div class="flex-1 w-full">
-          <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
-            <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Absensi Hari Ini</div>
-            <button onclick="changeMenu('absen-mandiri', 'Absensi Hari Ini')" class="bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1.5" title="Buka menu Absen Mandiri Siswa (face scan / captcha)"><i class="fa-solid fa-user-check"></i> Absensi Hari Ini</button>
+          <div class="flex flex-wrap gap-1.5 justify-center sm:justify-start mt-2">
+            <button onclick="cetakIdCardMurid()" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5"><i class="fa-solid fa-print"></i> Cetak ID Card</button>
+            <button onclick="cetakKartuQrMurid()" class="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5" title="Cetak QR Kartu Murid ukuran penuh"><i class="fa-solid fa-qrcode"></i> Cetak QR</button>
           </div>
-          <div class="flex flex-wrap gap-1">${chipHariIni || '<span class="text-[10px] text-slate-500 italic">Hari libur / belum ada sesi absen.</span>'}</div>
         </div>
+        <div class="bg-white rounded-lg p-1.5 shrink-0" style="width:96px;height:96px;">
+          <img src="${qrUrl}" alt="QR NIS" class="w-full h-full" onerror="this.style.display='none'">
+        </div>
+      </div>
+      <!-- [D3] Split: Absensi Hari Ini (chip) + tombol Absen Hari Ini (buka menu face scan / captcha) -->
+      <div class="bg-white/5 border border-white/10 rounded-xl p-3">
+        <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-bold"><i class="fa-solid fa-user-check text-green-400 mr-1"></i> Absensi Hari Ini</div>
+          <button onclick="changeMenu('absen-mandiri', 'Absensi Hari Ini')" class="bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1.5" title="Buka menu Absensi (face scan / captcha)"><i class="fa-solid fa-user-check"></i> Absen Hari Ini</button>
+        </div>
+        <div class="flex flex-wrap gap-1">${chipHariIni || '<span class="text-[10px] text-slate-500 italic">Hari libur / belum ada sesi absen.</span>'}</div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
         ${kartu('fa-calendar-check', 'bg-green-600/20 text-green-400', 'Hari Efektif Bulan Ini', `${heBerjalan} / ${heTotal}`, 'berjalan / total')}
@@ -1630,6 +1665,71 @@ async function muatNotifikasiKasDashboard(nis, ekskulSaya) {
     box.querySelector('div').innerHTML = `<p class="text-[11px] text-red-400 italic">Gagal memuat notifikasi: ${escapeHtml(e.message || '')}</p>`;
   }
 }
+
+/** [D4] Cetak ID Card murid (berisi FOTO + QR + identitas). Data foto diambil dari
+ *  window.__fotoIdCardSaya (diset renderDashboardMurid) dengan fallback fetch. */
+async function cetakIdCardMurid() {
+  const user = (currentUser || {}).user || {};
+  const nis = user["NIS"] || '';
+  const nama = user["Nama Lengkap"] || '';
+  const kelas = user["Tingkat/Kelas"] || '';
+  const ekskul = String(user["Ekstrakurikuler"] || '');
+
+  let foto = window.__fotoIdCardSaya || '';
+  if (!foto && supaClient && nis) {
+    try {
+      const { data: b } = await supaClient.from('akun').select('url_foto').eq('nis_nip', nis).maybeSingle();
+      if (b && b.url_foto) foto = String(b.url_foto);
+    } catch (e) { /* biarkan kosong */ }
+  }
+
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(nis)}`;
+  const inisial = String(nama || ' ').trim().split(/\s+/).slice(0, 2).map(s => s.charAt(0)).join('').toUpperCase() || '?';
+  const win = window.open('', '_blank');
+  if (!win) { showToast('error', 'Popup diblokir browser.'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><title>ID Card Murid — ${nama}</title>
+    <style>
+      body { font-family: Arial, sans-serif; display: flex; justify-content: center; padding: 24px; }
+      .kartu { width: 352px; border: 3px solid #1e3a8a; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+      .kartu .atas { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: #fff; padding: 14px; text-align: center; }
+      .kartu .atas h1 { margin: 0; font-size: 17px; letter-spacing: 1px; }
+      .kartu .atas p { margin: 2px 0 0; font-size: 10px; }
+      .kartu .isi { padding: 16px; display: flex; gap: 14px; align-items: center; }
+      .kartu .isi .kiri { flex: 1; }
+      .kartu .foto-wrap { width: 110px; height: 135px; border: 2px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #f1f5f9; display: flex; align-items: center; justify-content: center; }
+      .kartu .foto-wrap img { width: 100%; height: 100%; object-fit: cover; }
+      .kartu .foto-kosong { font-size: 34px; font-weight: bold; color: #94a3b8; }
+      .kartu .kanan { flex: 1; text-align: center; }
+      .kartu .kanan .qr { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; width: 130px; height: 130px; margin: 0 auto; }
+      .kartu .qr img { width: 100%; height: 100%; }
+      .kartu .nis { font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold; letter-spacing: 1.5px; margin-top: 8px; }
+      .kartu .nama { font-size: 14px; font-weight: bold; margin-top: 6px; }
+      .kartu .kelas { font-size: 11px; color: #475569; margin-top: 3px; }
+      .kartu .ekskul { font-size: 10px; color: #64748b; margin-top: 3px; }
+      .kartu .bawah { background: #f1f5f9; padding: 8px; text-align: center; font-size: 9px; color: #475569; }
+    </style></head><body>
+    <div class="kartu">
+      <div class="atas"><h1>KARTU SISWA</h1><p>NIS: ${nis} · Kelas ${kelas}</p></div>
+      <div class="isi">
+        <div class="kiri">
+          <div class="foto-wrap">${foto ? `<img src="${foto}" alt="Foto">` : `<div class="foto-kosong">${inisial}</div>`}</div>
+        </div>
+        <div class="kanan">
+          <div class="qr"><img src="${qrUrl}" alt="QR"></div>
+          <div class="nis">${nis}</div>
+          <div class="nama">${nama}</div>
+          <div class="kelas">Kelas ${kelas}</div>
+          ${ekskul ? `<div class="ekskul">Ekskul: ${ekskul}</div>` : ''}
+        </div>
+      </div>
+      <div class="bawah">ID Card ini berisi foto &amp; QR NIS Anda — dibawa saat kegiatan sekolah &amp; absensi.</div>
+    </div>
+    <script>window.onload = () => setTimeout(() => window.print(), 400);<\/script>
+    </body></html>`);
+  win.document.close();
+}
+
+/** Cetak kartu QR NIS murid (pola cetakQRMuridTerfilter). */
 
 /** Cetak kartu QR NIS murid (pola cetakQRMuridTerfilter). */
 function cetakKartuQrMurid() {
@@ -1797,7 +1897,8 @@ function pilihFotoSaya(setelahSukses) {
     rd.onload = () => bukaCropperFoto(rd.result, async (hasil) => {
       Swal.fire({ title: 'Mengunggah Foto...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
       const res = await unggahFotoMurid({
-        nis, nama: String(user["Nama Lengkap"] || user["Nama Guru"] || ''),
+        nis, nisn: String(user["NISN"] || ''),
+        nama: String(user["Nama Lengkap"] || user["Nama Guru"] || ''),
         tahun: currentTahun, kelas: String(user["Tingkat/Kelas"] || ''), dataUrl: hasil, hapus: false
       });
       Swal.close();
@@ -1903,6 +2004,39 @@ function bukaGmapsSaya() {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+
+/** [D1] Perbesar foto (lightbox) — klik foto murid; tutup lewat tombol ×, klik latar, atau ESC. */
+function bukaPreviewFoto(url) {
+  if (!url) return;
+  const lama = document.getElementById('sisip-foto-preview');
+  if (lama) lama.remove();
+
+  const wrap = document.createElement('div');
+  wrap.id = 'sisip-foto-preview';
+  wrap.className = 'sisip-foto-preview-backdrop';
+  wrap.innerHTML = `
+    <button type="button" class="sisip-foto-preview-close" title="Tutup (Esc)"><i class="fa-solid fa-xmark"></i></button>
+    <img src="${escapeHtml(url)}" alt="Foto perbesar" onerror="this.alt='Gagal memuat foto';this.style.opacity='.4'">`;
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) tutupPreviewFoto(); });
+  wrap.querySelector('.sisip-foto-preview-close').addEventListener('click', tutupPreviewFoto);
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') { tutupPreviewFoto(); document.removeEventListener('keydown', onKey); }
+  };
+  document.addEventListener('keydown', onKey);
+  wrap._onKey = onKey;
+  document.body.appendChild(wrap);
+}
+
+function tutupPreviewFoto() {
+  const el = document.getElementById('sisip-foto-preview');
+  if (!el) return;
+  if (el._onKey) document.removeEventListener('keydown', el._onKey);
+  el.remove();
+}
+
+/** [REQ D1] render Akun Saya Murid — halaman "Data Akun Murid" / profil siswa. */
+
 async function renderAkunSayaMurid(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Profil...</div>`;
   const user = (currentUser || {}).user || {};
@@ -1971,7 +2105,7 @@ async function renderAkunSayaMurid(container) {
       <div class="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
         <div class="w-24 rounded-lg overflow-hidden border border-white/15 bg-slate-800 flex items-center justify-center shrink-0" style="height:128px;">
           ${prof.url_foto
-            ? `<img src="${escapeHtml(prof.url_foto)}" alt="Foto" class="w-full h-full object-cover" onerror="this.outerHTML='<div class=&quot;w-full h-full flex items-center justify-center text-3xl font-bold text-slate-600&quot;>${escapeHtml((prof.nama_lengkap || ' ').trim().charAt(0).toUpperCase())}</div>'">`
+            ? `<img src="${escapeHtml(prof.url_foto)}" alt="Foto" class="w-full h-full object-cover cursor-zoom-in" onclick="bukaPreviewFoto('${escapeHtml(prof.url_foto)}')" title="Klik untuk perbesar" onerror="this.outerHTML='<div class=&quot;w-full h-full flex items-center justify-center text-3xl font-bold text-slate-600&quot;>${escapeHtml((prof.nama_lengkap || ' ').trim().charAt(0).toUpperCase())}</div>'">`
             : `<div class="w-full h-full flex items-center justify-center text-3xl font-bold text-slate-600">${escapeHtml((prof.nama_lengkap || ' ').trim().charAt(0).toUpperCase())}</div>`}
         </div>
         <div class="flex-1 text-center sm:text-left">
@@ -2295,12 +2429,11 @@ async function renderAbsensiModule(container) {
              </select>
           </div>
           <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Kelas">
-             <select id="select-kelas" class="hidden" onchange="loadDataMuridDanAbsen()">
+             <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 group-hover:bg-pink-500 group-hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></div>
+             <select id="select-kelas" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataMuridDanAbsen()">
                <option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>
                ${opsiKelasAbsenHTML(listKelas, 'Mapel', listMapelDiampu[0] || '')}
              </select>
-             <button type="button" id="btn-dropdown-kelas" onclick="toggleDropdownKelasAbsen(event)" class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-pink-400 hover:bg-pink-500 hover:text-white transition shadow-sm"><i class="fa-solid fa-users text-[10px] sm:text-xs"></i></button>
-             <div id="panel-kelas-absen" class="hidden absolute left-0 top-full mt-1 z-50 w-56 overflow-y-auto bg-slate-800 border border-white/20 rounded-lg shadow-xl text-[11px] text-white p-1.5" style="z-index:9999; max-height: 20rem;"></div>
           </div>
         </div>
         
@@ -2452,74 +2585,9 @@ function opsiKelasAbsenHTML(listKelas, jenis, nama) {
   return html || opt(listKelas || []);
 }
 
-/** Panel dropdown kustom "Pilih Kelas": kelas diampu tampil paling atas (langsung terlihat),
- *  "Kelas Lainnya (Baca Saja)" dikolapse (tersembunyi) dan muncul saat header-nya diklik. */
-function renderPanelKelasAbsenHTML(listKelas, jenis, nama, nilaiTerpilih) {
-  const isGuru = currentUser && currentUser.role === 'guru';
-  const btnKelas = (k, aktif) => `<button type="button" onclick="pilihKelasAbsen('${escJs(k)}')" class="w-full text-left px-2 py-1 rounded hover:bg-pink-600/40 transition ${aktif ? 'bg-pink-600/60 font-bold' : ''}">${escapeHtml(k)}</button>`;
-  let html = `<div class="px-1 pb-1 mb-1 border-b border-white/10 text-slate-400 font-bold uppercase text-[9px]">Pilih Kelas</div>`;
-  const tampilkanSemuaKelas = isAdminAbsen() || jenis === 'Ekskul' || jenis === 'SemuaMapel';
-  if (tampilkanSemuaKelas) html += btnKelas('Semua Kelas', nilaiTerpilih === 'Semua Kelas');
-  if (!isGuru) {
-    html += (listKelas || []).map(k => btnKelas(k, nilaiTerpilih === k)).join('');
-    return html;
-  }
-  const diampuSet = hitungKelasDiampuAbsen(jenis, nama);
-  const diampu = (listKelas || []).filter(k => diampuSet.has(k));
-  const lain = (listKelas || []).filter(k => !diampuSet.has(k));
-  if (diampu.length > 0) {
-    html += `<div class="px-1 pt-1 pb-0.5 text-green-300 font-bold text-[9px] uppercase">Kelas Diampu (Bisa Edit)</div>`;
-    html += diampu.map(k => btnKelas(k, nilaiTerpilih === k)).join('');
-  }
-  if (lain.length > 0) {
-    const terbuka = lain.includes(nilaiTerpilih); // otomatis terbuka bila kelas terpilih ada di "lainnya"
-    html += `<button type="button" onclick="toggleKelasLainnyaAbsen(this)" class="w-full flex items-center justify-between px-1 pt-1.5 pb-0.5 text-slate-400 font-bold text-[9px] uppercase hover:text-white transition">
-               <span>Kelas Lainnya (Baca Saja) (${lain.length})</span>
-               <i class="fa-solid fa-chevron-${terbuka ? 'up' : 'down'} text-[8px]"></i>
-             </button>`;
-    html += `<div class="${terbuka ? '' : 'hidden'}">${lain.map(k => btnKelas(k, nilaiTerpilih === k)).join('')}</div>`;
-  }
-  return html || opsiKelasAbsenHTML(listKelas, jenis, nama);
-}
-
-/** Buka/tutup panel dropdown "Pilih Kelas"; auto-close saat klik di luar panel. */
-function toggleDropdownKelasAbsen(ev) {
-  if (ev) ev.stopPropagation();
-  const panel = document.getElementById('panel-kelas-absen');
-  if (!panel) return;
-  const sedangTerbuka = !panel.classList.contains('hidden');
-  document.querySelectorAll('#panel-kelas-absen').forEach(p => p.classList.add('hidden'));
-  if (sedangTerbuka) return;
-  panel.classList.remove('hidden');
-  const tutupDiLuar = (e) => {
-    if (!panel.contains(e.target) && e.target.id !== 'btn-dropdown-kelas' && !e.target.closest('#btn-dropdown-kelas')) {
-      panel.classList.add('hidden');
-      document.removeEventListener('click', tutupDiLuar);
-    }
-  };
-  setTimeout(() => document.addEventListener('click', tutupDiLuar), 0);
-}
-
-/** Kolapse/expand daftar "Kelas Lainnya (Baca Saja)" di dalam panel (tanpa menutup panel). */
-function toggleKelasLainnyaAbsen(btn) {
-  const wrap = btn.nextElementSibling;
-  const icon = btn.querySelector('i');
-  if (!wrap) return;
-  wrap.classList.toggle('hidden');
-  if (icon) { icon.classList.toggle('fa-chevron-down'); icon.classList.toggle('fa-chevron-up'); }
-}
-
-/** Pilih kelas dari panel kustom: set value select asli (agar semua logika lama tetap jalan via event change). */
-function pilihKelasAbsen(kelas) {
-  const sel = document.getElementById('select-kelas');
-  if (!sel) return;
-  sel.value = kelas;
-  sel.dispatchEvent(new Event('change'));
-  const panel = document.getElementById('panel-kelas-absen');
-  if (panel) panel.classList.add('hidden');
-}
-
-/** Segarkan opsi "Pilih Kelas" (label diampu/lainnya) mengikuti mapel/ekskul terpilih saat ini. */
+/** Segarkan opsi native `<select id="select-kelas">` (label diampu/lainnya) mengikuti mapel/ekskul
+ *  terpilih saat ini. Sekarang Pilih Kelas memakai select asli yang menimpa ikon (sama seperti
+ *  Tahun Pelajaran & Mapel Diampu), sehingga hanya perlu membangun ulang opsi-opsi di dalamnya. */
 function perbaruiOpsiKelasAbsen(listKelasAll) {
   const selKelas = document.getElementById('select-kelas');
   if (!selKelas) return;
@@ -2529,8 +2597,6 @@ function perbaruiOpsiKelasAbsen(listKelasAll) {
   const nilaiLama = selKelas.value;
   selKelas.innerHTML = `<option value="Semua Kelas" id="opt-semua-kelas" class="bg-slate-800 text-white">-- Semua --</option>${opsiKelasAbsenHTML(daftar, jenis, nama)}`;
   if ([...selKelas.options].some(o => o.value === nilaiLama)) selKelas.value = nilaiLama;
-  const panel = document.getElementById('panel-kelas-absen');
-  if (panel) panel.innerHTML = renderPanelKelasAbsenHTML(daftar, jenis, nama, selKelas.value);
 }
 
 /** Mode akses mapel terpilih: 'keduanya' (admin) | 'menulis' | 'baca'. */
@@ -3222,8 +3288,8 @@ function showModalEditAbsen(tanggal) {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } }, () => {}); });
-      const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { r.classList.add('bg-green-900/50'); setTimeout(() => r.classList.remove('bg-green-900/50'), 1500); } } return !sudah; };
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } }, () => {}); });
+      const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } return !sudah; };
       document.getElementById('btn-face-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear2 = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear2 && prevClear2.catch) prevClear2.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } const fwQr = document.getElementById('qr-reader-in-modal'); if (fwQr) fwQr.classList.add('hidden'); const fwFace = document.getElementById('face-reader-wrap'); if (!fwFace) return; fwFace.classList.remove('hidden'); if (window.FaceWajah) { window.FaceWajah.mulaiPindaiWajahAbsen(listMuridKelas, { wrap: fwFace, onMatch: tandaiHadirWajah }); } });
       // Pertemuan ke- otomatis: lanjut dari jurnal terakhir guru+kelas+mapel+tahun ini
       (async () => {
@@ -9219,6 +9285,33 @@ const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kela
 // Kolom penuh utk export Excel/PDF (fetch on-demand saat tombol export diklik)
 const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, jabatan_ekskul, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester, url_foto, alamat_maps, media_sosial';
 
+// ===== Persistensi filter "Data Akun Murid" =====
+// Simpan pilihan filter + kolom cari + halaman agar tetap terjaga saat renderManajemenMurid()
+// membangun ulang DOM (setelah simpan/edit/hapus/import/kenaikan/sinkron foto/refresh).
+let sFilterMurid = { tahun: 'ALL', kelas: 'ALL', ekskul: 'ALL', status: 'ALL', wajah: 'ALL', cari: '', halaman: 1 };
+
+/** Baca nilai filter tabel murid dari DOM (bila elemen tersedia) ke sFilterMurid. */
+function simpanStateFilterMurid() {
+    const ambil = (id) => { const el = document.getElementById(id); return el ? String(el.value || '') : null; };
+    const cariEl = document.getElementById('search-murid');
+    const t = ambil('filter-tahun-murid');
+    const k = ambil('filter-kelas-murid');
+    const e = ambil('filter-ekskul-murid');
+    const s = ambil('filter-status-murid');
+    const w = ambil('filter-status-wajah');
+    // Hanya simpan bila bukan buka-pertama (semua null berarti belum ada DOM → jangan timpa default ALL).
+    if (t !== null) sFilterMurid.tahun = t;
+    if (k !== null) sFilterMurid.kelas = k;
+    if (e !== null) sFilterMurid.ekskul = e;
+    if (s !== null) sFilterMurid.status = s;
+    if (w !== null) sFilterMurid.wajah = w;
+    if (cariEl) sFilterMurid.cari = String(cariEl.value || '');
+    sFilterMurid.halaman = halamanAktifMurid;
+};
+
+// Urutan NIS murid hasil filter tabel aktif (untuk navigasi wajah di modal — dibaca face.js).
+let mrdNavNis = [];
+
 /** Kosongkan cache akun (murid) + cache dashboard — dipanggil setiap CRUD akun. */
 function invalidasiCacheAkun() {
   cacheAkunMurid = [];
@@ -9227,6 +9320,8 @@ function invalidasiCacheAkun() {
 }
 
 async function renderManajemenMurid(container, paksa = false) {
+    // Pertahankan pilihan filter + cari + halaman yang aktif (bila ada) sebelum DOM dibangun ulang.
+    simpanStateFilterMurid();
     container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Data Akun Murid...</div>`;
     
     try {
@@ -9258,9 +9353,10 @@ async function renderManajemenMurid(container, paksa = false) {
         const listEkskul = urutAz(denganSto([...new Set(masterDataCache.map(m => mdVal(m, "Ekstrakurikuler", "ekstrakurikuler")).filter(Boolean))]));
         const listKelasMurid = urutAz([...new Set((cacheAkunMurid || []).map(m => m.tingkat_kelas || m["Tingkat/Kelas"]).filter(Boolean))]);
         
-        const tahunOptions = listTahun.map(t => `<option value="${t}">${t}</option>`).join('');
-        const ekskulOptions = listEkskul.map(e => `<option value="${e}">${e}</option>`).join('');
-        const kelasOptions = listKelasMurid.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('');
+        const awal = sFilterMurid || { tahun: 'ALL', kelas: 'ALL', ekskul: 'ALL' };
+        const tahunOptions = listTahun.map(t => `<option value="${t}"${String(t) === String(awal.tahun) ? ' selected' : ''}>${t}</option>`).join('');
+        const ekskulOptions = listEkskul.map(e => `<option value="${e}"${String(e) === String(awal.ekskul) ? ' selected' : ''}>${e}</option>`).join('');
+        const kelasOptions = listKelasMurid.map(k => `<option value="${escJs(k)}"${String(k) === String(awal.kelas) ? ' selected' : ''}>${escapeHtml(k)}</option>`).join('');
 
         container.innerHTML = `
             <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
@@ -9271,31 +9367,38 @@ async function renderManajemenMurid(container, paksa = false) {
                         <!-- Baris 1: Filter Tahun / Kelas / Ekskul / Status / Cari (grid 2 kolom rapat di mobile) -->
                         <div class="grid grid-cols-2 sm:flex sm:gap-2 gap-1.5 items-center">
                             <select id="filter-tahun-murid" class="h-8 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                                <option value="ALL">Semua Tahun</option>
+                                <option value="ALL"${awal.tahun === 'ALL' ? ' selected' : ''}>Semua Tahun</option>
                                 ${tahunOptions}
                             </select>
 
                             <select id="filter-kelas-murid" class="h-8 w-full sm:w-28 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                                <option value="ALL">Semua Kelas</option>
-                                <option value="GRP:X">Semua Kelas X</option>
-                                <option value="GRP:XI">Semua Kelas XI</option>
-                                <option value="GRP:XII">Semua Kelas XII</option>
+                                <option value="ALL"${awal.kelas === 'ALL' ? ' selected' : ''}>Semua Kelas</option>
+                                <option value="GRP:X"${awal.kelas === 'GRP:X' ? ' selected' : ''}>Semua Kelas X</option>
+                                <option value="GRP:XI"${awal.kelas === 'GRP:XI' ? ' selected' : ''}>Semua Kelas XI</option>
+                                <option value="GRP:XII"${awal.kelas === 'GRP:XII' ? ' selected' : ''}>Semua Kelas XII</option>
                                 ${kelasOptions}
                             </select>
 
                             <select id="filter-ekskul-murid" class="h-8 w-full sm:w-36 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()">
-                                <option value="ALL">Semua Ekskul</option>
+                                <option value="ALL"${awal.ekskul === 'ALL' ? ' selected' : ''}>Semua Ekskul</option>
                                 ${ekskulOptions}
                             </select>
 
                             <select id="filter-status-murid" class="h-8 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Status siswa pada TA terpilih">
-                                <option value="ALL">Semua Status</option>
-                                ${STATUS_SISWA.map(s => `<option value="${escJs(s)}">${s}</option>`).join('')}
+                                <option value="ALL"${awal.status === 'ALL' ? ' selected' : ''}>Semua Status</option>
+                                ${STATUS_SISWA.map(s => `<option value="${escJs(s)}"${String(s) === String(awal.status) ? ' selected' : ''}>${s}</option>`).join('')}
+                            </select>
+
+                            <select id="filter-status-wajah" class="h-8 w-full sm:w-32 bg-slate-700 border border-white/20 rounded-lg px-1.5 text-[10px] sm:text-[11px] text-white outline-none focus:border-blue-500 cursor-pointer" onchange="filterTabelMurid()" title="Filter status registrasi wajah murid">
+                                <option value="ALL"${awal.wajah === 'ALL' ? ' selected' : ''}>Semua Wajah</option>
+                                <option value="aktif"${awal.wajah === 'aktif' ? ' selected' : ''}>Wajah Aktif</option>
+                                <option value="nonaktif"${awal.wajah === 'nonaktif' ? ' selected' : ''}>Wajah Nonaktif</option>
+                                <option value="belum"${awal.wajah === 'belum' ? ' selected' : ''}>Wajah Belum</option>
                             </select>
 
                             <div class="relative col-span-2">
                                 <span class="absolute left-2.5 top-1.5 text-slate-400 pointer-events-none"><i class="fa-solid fa-magnifying-glass text-[10px]"></i></span>
-                                <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." class="h-8 w-full bg-black/40 border border-white/20 rounded-lg pl-7 pr-2 text-[11px] text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
+                                <input type="text" id="search-murid" placeholder="Cari NIS / Nama..." value="${escJs(sFilterMurid.cari || '')}" class="h-8 w-full bg-black/40 border border-white/20 rounded-lg pl-7 pr-2 text-[11px] text-white outline-none focus:border-blue-500" onkeyup="filterTabelMurid()">
                             </div>
                         </div>
 
@@ -9309,6 +9412,9 @@ async function renderManajemenMurid(container, paksa = false) {
                             ${isAdminAktif() ? `<button onclick="prosesKenaikanKelas()" class="h-8 bg-violet-600 hover:bg-violet-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Proses kenaikan kelas — khusus admin (X→XI→XII→Lulus, dapat dikoreksi turun)"><i class="fa-solid fa-arrow-up-right-dots"></i> <span class="hidden sm:inline">Kenaikan</span></button>` : ''}
                             <button onclick="cetakMutasiSiswa()" class="h-8 bg-orange-600 hover:bg-orange-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Laporan mutasi siswa antar tahun pelajaran"><i class="fa-solid fa-file-signature"></i> <span class="hidden sm:inline">Mutasi</span></button>
                             <button onclick="cetakFotoSiswa()" class="h-8 bg-cyan-600 hover:bg-cyan-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Cetak lembar foto siswa (mengikuti filter tabel aktif)"><i class="fa-solid fa-camera-retro"></i> <span class="hidden sm:inline">Foto</span></button>
+                            <!-- [REQ 2] Sinkronkan URL foto murid dari Google Drive (admin, guru/wali kelas, pembina ekskul) -->
+                            ${bisaImportMuridAktif() ? `<button onclick="sinkronkanFotoDrive()" class="h-8 bg-teal-700 hover:bg-teal-600 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Auto-update foto siswa dari file Google Drive berformat \"{NISN} {Nama siswa}.jpg\" (fallback NIS). Membaca folder terkonfigurasi & memperbarui url_foto yang berubah — admin, wali kelas & pembina ekskul"><i class="fa-brands fa-google-drive"></i> <span class="hidden sm:inline">Sinkron Foto</span></button>` : ''}
+                            ${bisaImportMuridAktif() ? `<button onclick="scanWajahMasal()" class="h-8 bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Registrasi wajah otomatis dari foto profil utk murid yang belum punya wajah (mengikuti filter aktif)"><i class="fa-solid fa-face-viewfinder"></i><i class="fa-solid fa-users text-[6px] -ml-1 -mb-2 text-white/90"></i> <span class="hidden sm:inline">Wajah Masal</span></button>` : ''}
                             <button onclick="openFormAkunMurid(true)" class="h-8 bg-blue-600 hover:bg-blue-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Tambah Murid"><i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Tambah</span></button>
                         </div>
                     </div>
@@ -9326,8 +9432,7 @@ async function renderManajemenMurid(container, paksa = false) {
                                 <th class="px-4 py-3 border-b border-white/10">Tahun Pelajaran</th>
                                 <th class="px-4 py-3 border-b border-white/10">Sub Ekskul</th>
                                 <th class="px-4 py-3 border-b border-white/10">Email Login</th>
-                                <th class="px-4 py-3 border-b border-white/10 text-center">Status Wajah</th>
-                                <th class="px-4 py-3 border-b border-white/10 text-center">Aksi</th>
+                                <th class="px-4 py-3 border-b border-white/10 text-center">Status Wajah &amp; Aksi</th>
                             </tr>
                         </thead>
                         <tbody id="tbody-murid" class="text-xs text-slate-200"></tbody>
@@ -9336,6 +9441,7 @@ async function renderManajemenMurid(container, paksa = false) {
                 <div id="pag-murid" class="bg-slate-800/80 border-t border-white/10 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300"></div>
             </div>
         `;
+        halamanAktifMurid = Math.max(1, Number(sFilterMurid.halaman) || 1);
         renderTabelMuridTerfilter();
     } catch(e) {
         console.error("Error renderManajemenMurid:", e);
@@ -9468,7 +9574,7 @@ function statusWajahBaris(petaWajah, nis) {
 }
 
 function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}, petaWajah = {}) {
-    if (!data || data.length === 0) return `<tr><td colspan="10" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
+    if (!data || data.length === 0) return `<tr><td colspan="8" class="p-6 text-center text-slate-500">Belum ada data murid yang tersimpan.</td></tr>`;
 
 
     return data.map((d, i) => {
@@ -9490,18 +9596,17 @@ function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}, petaWajah = {}) {
                 ? window.FaceWajah.htmlBadgeWajah(stWajah)
                 : '<span class="text-[9px] text-slate-500 uppercase tracking-wider">-</span>');
         const tombolWajah = window.FaceWajah && typeof window.FaceWajah.kelolaWajah === 'function'
-            ? `<button onclick="window.FaceWajah.kelolaWajah('${escJs(String(nis))}')" class="w-7 h-7 ${wajahAktif ? 'bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400' : 'bg-teal-600/20 hover:bg-teal-600 text-teal-400'} hover:text-white rounded transition mr-1" title="${wajahAktif ? 'Kelola data wajah' : 'Registrasi data wajah'}"><i class="fa-solid fa-face-viewfinder"></i></button>`
+            ? `<button onclick="window.FaceWajah.kelolaWajah('${escJs(String(nis))}')" class="inline-flex items-center gap-1 h-7 ${wajahAktif ? 'bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300' : stWajah === 'nonaktif' ? 'bg-amber-600/20 hover:bg-amber-600 text-amber-300' : 'bg-teal-600/20 hover:bg-teal-600 text-teal-300'} hover:text-white rounded px-1.5 transition mr-1 whitespace-nowrap" title="${wajahAktif ? 'Wajah terdaftar &amp; aktif — klik untuk kelola/registrasi ulang' : 'Registrasi data wajah (klik untuk memulai)'}">${badgeWajah}<span class="text-[9px] font-bold">${wajahAktif ? 'Wajah' : stWajah === 'nonaktif' ? 'Nonaktif' : 'Registrasi'}</span></button>`
             : '';
-        // [AKSES] Sembunyikan tombol aksi bila pengguna tidak berhak mengelola baris ini
-        // (admin = semua; guru wali/pembina = baris yang diampu; murid = baris miliknya).
-        const bolehEdit = bisaEditAkunMurid(d);
+        // [AKSES] Edit & Reset Password SELALU tampil di kolom Aksi — tidak tergantung Status Wajah
+        // maupun role (admin/guru/pembina/murid). Otorisasi sesungguhnya tetap di sisi server
+        // (RLS + RPC set_password_murid menolak pemanggil tak berwenang), jadi ini hanya efek UI.
+        // Tombol Hapus tetap khusus admin (adminPenuh).
         const adminPenuh = isAdminAktif();
-        const tombolEdit = bolehEdit
-            ? `<button onclick="editAkunMurid('${escJs(d.id || '')}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>`
+        const tombolEdit = (d && d.id)
+            ? `<button onclick="editAkunMurid('${escJs(d.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>`
             : '';
-        const tombolReset = adminPenuh
-            ? `<button onclick="resetPasswordMurid('${escJs(nis)}', '${escJs(nama)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>`
-            : '';
+        const tombolReset = `<button onclick="resetPasswordMurid('${escJs(nis)}', '${escJs(nama)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition mr-1" title="Reset Password"><i class="fa-solid fa-key"></i></button>`;
         const tombolHapus = adminPenuh
             ? `<button onclick="deleteAkunMurid('${escJs(nis)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>`
             : '';
@@ -9519,7 +9624,6 @@ function generateTbodyMurid(data, mulaiNo = 0, subLookup = {}, petaWajah = {}) {
                 <td class="px-4 py-3 text-[10px] text-slate-400 search-target">${escapeHtml(tahunData || '-')}</td>
                 <td class="px-4 py-3 text-[10px] text-slate-400">${subEkskulData ? escapeHtml(subEkskulData) : '<span class="italic text-slate-600">-</span>'}</td>
                 <td class="px-4 py-3"><div class="text-[10px] text-slate-400"><i class="fa-solid fa-envelope"></i> ${email}</div></td>
-                <td class="px-4 py-3 text-center sel-status-wajah" title="Status registrasi wajah">${badgeWajah}</td>
 
                 <td class="px-4 py-3 text-center whitespace-nowrap">
                     ${tombolWajah}
@@ -9588,11 +9692,31 @@ async function muridSubEkskulLookup(rows) {
     return hasil;
 }
 
-/** Render ulang tabel murid sesuai filter aktif (cari/tahun/kelas/ekskul/status) + pagination. */
+/** Render ulang tabel murid sesuai filter aktif (cari/tahun/kelas/ekskul/status/wajah) + pagination. */
 async function renderTabelMuridTerfilter() {
     const tbody = document.getElementById('tbody-murid');
     if (!tbody) return;
-    const cocok = muridTersaring(cacheAkunMurid);
+    let cocok = muridTersaring(cacheAkunMurid);
+
+    // [FILTER STATUS WAJAH] filter nilai select #filter-status-wajah (aktif/nonaktif/belum).
+    // Status wajah tidak ada di cache ringkas → ambil via window.FaceWajah.ambilStatusWajah
+    // utk SEMUA baris yang lolos filter lain (sebelum paginasi), lalu saring lagi.
+    const filtWajah = ((document.getElementById('filter-status-wajah') || {}).value || 'ALL').toLowerCase();
+    if (filtWajah !== 'all' && cocok.length && window.FaceWajah && typeof window.FaceWajah.ambilStatusWajah === 'function') {
+        try {
+            const nisWajah = cocok.map(r => String(r.nis_nip || r.NIS || r.nis || '')).filter(Boolean);
+            const petaW = await window.FaceWajah.ambilStatusWajah(nisWajah);
+            cocok = cocok.filter(r => {
+                const st = petaW[String(r.nis_nip || r.NIS || r.nis)] || 'belum';
+                return st === filtWajah;
+            });
+        } catch (e) { console.error('Gagal filter status wajah:', e); }
+    }
+
+    // [NAV URGENT/WAJAH] Populasi mrdNavNis = urutan NIS hasil filter LENGKAP (termasuk status
+    // wajah & cari). Dipakai kelolaWajah() (face.js) utk nav sebelumnya/berikutnya di modal wajah
+    // agar mengikuti filter tabel yang sedang aktif, bukan seluruh cacheAkunMurid.
+    mrdNavNis = cocok.map(r => String(r.nis_nip || r.NIS || r.nis || '')).filter(Boolean);
 
     const totalHalaman = Math.max(1, Math.ceil(cocok.length / ukuranHalamanMurid));
     if (halamanAktifMurid > totalHalaman) halamanAktifMurid = totalHalaman;
@@ -9620,7 +9744,7 @@ async function renderTabelMuridTerfilter() {
                 <div class="flex items-center gap-1.5">
                     <button onclick="gantiHalamanMurid(-1)" ${halamanAktifMurid <= 1 ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition" title="Halaman Sebelumnya"><i class="fa-solid fa-chevron-left"></i></button>
                     <button onclick="gantiHalamanMurid(1)" ${halamanAktifMurid >= totalHalaman ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition" title="Halaman Berikutnya"><i class="fa-solid fa-chevron-right"></i></button>
-                    <select onchange="ukuranHalamanMurid = Number(this.value); halamanAktifMurid = 1; renderTabelMuridTerfilter();" class="bg-slate-700 border border-white/10 rounded px-1 py-1 text-white outline-none cursor-pointer">${ukuranOpts}</select>
+                    <select onchange="ukuranHalamanMurid = Number(this.value); halamanAktifMurid = 1; sFilterMurid.halaman = 1; renderTabelMuridTerfilter();" class="bg-slate-700 border border-white/10 rounded px-1 py-1 text-white outline-none cursor-pointer">${ukuranOpts}</select>
                 </div>`;
         }
     }
@@ -9629,27 +9753,24 @@ async function renderTabelMuridTerfilter() {
 /** Ganti halaman tabel murid (arah: -1 = sebelumnya, 1 = berikutnya). */
 function gantiHalamanMurid(arah) {
     halamanAktifMurid = Math.max(1, halamanAktifMurid + arah);
+    sFilterMurid.halaman = halamanAktifMurid;
     renderTabelMuridTerfilter();
 }
 
 /** Terapkan ulang filter tabel murid (reset ke halaman pertama). */
 function filterTabelMurid() {
+    simpanStateFilterMurid(); // simpan pilihan filter + cari agar terbawa bila DOM dibangun ulang
     halamanAktifMurid = 1;
+    sFilterMurid.halaman = 1;
     renderTabelMuridTerfilter();
 }
 
 /** Hook dipanggil face.js setiap data wajah murid berubah (simpan / nonaktif / hapus).
- *  Perbarui sel "Status Wajah" baris terkait di tempat — tanpa render ulang seluruh tabel. */
+ *  Kolom status wajah kini tergabung ke tombol Registrasi Wajah → render ulang tabel
+ *  agar ikon status + label & filter status wajah konsisten. */
 window.FaceWajahOnTersimpan = (nis, status) => {
     try {
-        const aman = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
-            ? CSS.escape(String(nis)) : String(nis).replace(/"/g, '');
-        const baris = document.querySelector(`#tbody-murid tr[data-nis="${aman}"]`);
-        const sel = baris && baris.querySelector('.sel-status-wajah');
-        const ikon = window.FaceWajah && typeof window.FaceWajah.ikonStatusWajah === 'function'
-            ? window.FaceWajah.ikonStatusWajah(status) : '';
-        if (sel && ikon) { sel.innerHTML = ikon; return; }
-        renderTabelMuridTerfilter(); // fallback: baris tak terlihat (beda halaman/filter)
+        renderTabelMuridTerfilter();
     } catch (e) {
         console.error('FaceWajahOnTersimpan:', e);
         try { renderTabelMuridTerfilter(); } catch (e2) { /* abaikan */ }
@@ -9801,19 +9922,67 @@ function suntikCSSMobileFormAkun() {
     styleEl.id = 'swal-mobile-akun-style';
     styleEl.textContent = `
         .swal2-popup.swal-mobile-akun .swal2-html-container { text-align: left; padding-left: 0; padding-right: 0; overflow: visible !important; }
+        /* Desktop: modal berukuran tetap; biarkan grid form yang menggulung sendiri (single scroll). */
+        @media (min-width: 641px) {
+            .swal2-popup.swal-mobile-akun .akun-form-grid {
+                max-height: 70vh;
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding-right: 0.4rem;
+            }
+            .swal2-popup.swal-mobile-akun .swal2-html-container { overflow: visible !important; }
+        }
         @media (max-width: 640px) {
+            /* Pastikan seluruh popup akun selalu benar-benar di tengah layar (horizontal)
+               walau ada padding container SweetAlert / konten lebar yang nyaris meluber. */
+            .swal2-container:has(.swal-mobile-akun) {
+                justify-content: center !important;
+                padding-inline: 0 !important;
+                overflow-x: hidden !important;
+            }
             .swal2-popup.swal-mobile-akun {
                 width: calc(100vw - 12px) !important;
                 max-width: 100vw !important;
                 max-height: 96dvh !important;
-                margin: 0 !important;
-                padding: 0.75rem !important;
+                margin-inline: auto !important;
+                padding: 0.6rem !important;
                 border-radius: 0.75rem;
+                overflow-x: hidden !important;
             }
             .swal2-popup.swal-mobile-akun .swal2-title { padding: 0 0 0.5rem; font-size: 0.95rem; }
             .swal2-popup.swal-mobile-akun .swal2-html-container { padding-bottom: env(safe-area-inset-bottom, 0) !important; }
             .swal2-popup.swal-mobile-akun .swal2-actions { flex-wrap: wrap !important; gap: 0.4rem !important; }
             .swal2-popup.swal-mobile-akun .swal2-styled { margin: 0 !important; flex: 1 1 auto; }
+            /* Form mobile: rapi, satu kolom penuh, tanpa overflow horizontal. */
+            .swal2-popup.swal-mobile-akun .akun-form-grid {
+                display: grid !important;
+                grid-template-columns: 1fr !important;
+                gap: 0.55rem !important;
+                padding: 0.35rem 0 !important;
+                min-width: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            .swal2-popup.swal-mobile-akun .akun-form-grid > * { min-width: 0 !important; max-width: 100% !important; width: 100% !important; margin-inline: auto !important; }
+            .swal2-popup.swal-mobile-akun .akun-form-grid input,
+            .swal2-popup.swal-mobile-akun .akun-form-grid select,
+            .swal2-popup.swal-mobile-akun .akun-form-grid textarea {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .swal2-popup.swal-mobile-akun .akun-form-grid label { line-height: 1.3 !important; }
+            /* Cegah konten dalam baris lebar penuh meluber di layar sempit (mis. blok Foto Siswa / Ekskul). */
+            .swal2-popup.swal-mobile-akun .akun-form-grid > [class*="col-span-2"] { width: 100% !important; max-width: 100% !important; margin-inline: auto !important; box-sizing: border-box !important; }
+            .swal2-popup.swal-mobile-akun .akun-form-grid > [class*="col-span-2"] > * { max-width: 100% !important; min-width: 0 !important; }
+            .swal2-popup.swal-mobile-akun .akun-form-grid [class*="flex"] { flex-wrap: wrap !important; }
+            /* HP: kotak ekstrakurikuler & sub-ekskul dibuat lebih sempit (multi-kolom kecil), tanpa
+               memaksa display (hormati style.display none dari onToggleEkskulForm). */
+            .swal2-popup.swal-mobile-akun .akun-form-grid [style*="grid-template-columns:repeat(auto-fill,minmax(132px,1fr))"],
+            .swal2-popup.swal-mobile-akun .akun-form-grid .sub-ekskul-form-wrap {
+                grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)) !important;
+                gap: 0.35rem !important;
+            }
         }
         @media (max-width: 380px) {
             .swal2-popup.swal-mobile-akun .swal2-actions .swal2-styled { width: 100% !important; }
@@ -9922,74 +10091,86 @@ async function openFormAkunMurid(isNew, data = {}) {
     const lbl = "font-bold text-blue-300";
 
     const formHTML = `
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[11px] text-slate-300 mt-1 max-h-[70vh] overflow-y-auto overflow-x-hidden custom-scrollbar p-1 pr-2 min-w-0" style="max-height:70vh;overflow-y:auto;overflow-x:hidden;">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left text-[11px] text-slate-300 mt-1 min-w-0 akun-form-grid">
             ${sec('Identitas Siswa')}
-            <div><label class="${lbl}">ID Akun</label><input id="f_idakun" value="${escJs(nisV)}" readonly class="w-full bg-black/60 border border-white/10 rounded px-2 py-1 mt-0.5 text-slate-400 outline-none opacity-70"></div>
-            <div><label class="${lbl}">NIS *</label><input id="f_nis" value="${escJs(nisV)}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500 disabled:opacity-50"></div>
-            <div><label class="${lbl}">NISN</label><input id="f_nisn" value="${escJs(nisnV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">No HP/WA</label><input id="f_wa" value="${escJs(waV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">No HP Orang Tua</label><input id="f_wa_ortu" value="${escJs(waOrtuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div class="sm:col-span-2 grid grid-cols-3 gap-2">
+                <div><label class="${lbl}">ID Akun</label><input id="f_idakun" value="${escJs(nisV)}" readonly class="w-full bg-black/60 border border-white/10 rounded px-2 py-1 mt-0.5 text-slate-400 outline-none opacity-70"></div>
+                <div><label class="${lbl}">NIS *</label><input id="f_nis" value="${escJs(nisV)}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500 disabled:opacity-50"></div>
+                <div><label class="${lbl}">NISN</label><input id="f_nisn" value="${escJs(nisnV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            </div>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">No HP/WA</label><input id="f_wa" value="${escJs(waV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">No HP Orang Tua</label><input id="f_wa_ortu" value="${escJs(waOrtuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            </div>
             <div class="sm:col-span-2"><label class="${lbl}">Nama Lengkap *</label><input id="f_nama" value="${escJs(namaV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
 
             ${sec('Foto Siswa')}
             <div class="sm:col-span-2 flex flex-wrap items-center gap-3 bg-black/20 p-2 rounded border border-white/10">
-                <div id="foto-pratinjau-form" class="w-16 rounded-md overflow-hidden border border-white/20 bg-slate-800 flex items-center justify-center" style="height:80px;">${fotoPratinjauHtml(fotoV)}</div>
+                <div id="foto-pratinjau-form" onclick="pilihFotoMuridForm()" title="Klik untuk memilih / seret foto ke kotak ini" ondragover="seretFotoFormEv(this,event)" ondragleave="keluarFotoFormEv(this,event)" ondrop="dropFotoMuridForm(this,event)" class="w-16 rounded-md overflow-hidden border border-white/20 bg-slate-800 flex items-center justify-center cursor-pointer" style="height:80px;">${fotoPratinjauHtml(fotoV)}</div>
                 <div class="space-y-1.5 min-w-[200px] flex-1">
                     <div class="flex flex-wrap gap-1.5">
                         <button type="button" onclick="pilihFotoMuridForm()" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-[10px] font-bold"><i class="fa-solid fa-camera mr-1"></i>Pilih / Ganti</button>
                         <button type="button" onclick="hapusFotoMuridForm()" class="bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Hapus</button>
                     </div>
-                    <p class="text-[9px] text-slate-400">Pas foto 3×4 (rasio 3:4, hasil potong 900×1200). Foto tersimpan di Google Drive folder "Foto Siswa", nama file otomatis <b>NIS_TA_Kelas.jpg</b>.</p>
+                    <p class="text-[9px] text-slate-400">Pas foto 3×4 (rasio 3:4, hasil potong 900×1200). <b>Seret &amp; letakkan foto</b> ke kotak di samping atau klik <b>Pilih / Ganti</b>. Foto tersimpan di Google Drive folder "Foto Siswa", nama file otomatis <b>NISN Nama siswa.jpg</b>.</p>
                 </div>
             </div>
 
             ${sec('Tahun & Kelas')}
-            <div><label class="${lbl}">ID Tahun Pelajaran</label>
-                <select id="f_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optTahun}</select>
-            </div>
-            <div><label class="${lbl}">Semester</label>
-                <select id="f_semester" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
-                    <option value="">-- Pilih --</option>
-                    <option value="Ganjil" ${semesterV==='Ganjil'?'selected':''}>Ganjil</option>
-                    <option value="Genap" ${semesterV==='Genap'?'selected':''}>Genap</option>
-                </select>
-            </div>
-            <div><label class="${lbl}">Tingkat/Kelas</label>
-                <select id="f_kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optKelas}</select>
-            </div>
-            <div><label class="${lbl}">Jenis Kelamin</label>
-                <select id="f_jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
-                    <option value="">-- Pilih --</option>
-                    <option value="Laki-laki" ${jkV==='Laki-laki'?'selected':''}>Laki-laki</option>
-                    <option value="Perempuan" ${jkV==='Perempuan'?'selected':''}>Perempuan</option>
-                </select>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">ID Tahun Pelajaran</label>
+                    <select id="f_tahun" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optTahun}</select>
+                </div>
+                <div><label class="${lbl}">Semester</label>
+                    <select id="f_semester" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
+                        <option value="">-- Pilih --</option>
+                        <option value="Ganjil" ${semesterV==='Ganjil'?'selected':''}>Ganjil</option>
+                        <option value="Genap" ${semesterV==='Genap'?'selected':''}>Genap</option>
+                    </select>
+                </div>
+                <div><label class="${lbl}">Tingkat/Kelas</label>
+                    <select id="f_kelas" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${optKelas}</select>
+                </div>
+                <div><label class="${lbl}">Jenis Kelamin</label>
+                    <select id="f_jk" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
+                        <option value="">-- Pilih --</option>
+                        <option value="Laki-laki" ${jkV==='Laki-laki'?'selected':''}>Laki-laki</option>
+                        <option value="Perempuan" ${jkV==='Perempuan'?'selected':''}>Perempuan</option>
+                    </select>
+                </div>
             </div>
 
             ${sec('Data Pribadi')}
-            <div><label class="${lbl}">Tgl Lahir</label><input id="f_lahir" type="date" value="${escJs(lahirV)}" style="color-scheme: dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Golongan Darah</label>
-                <select id="f_goldar" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
-                    <option value="">-- Pilih --</option>
-                    ${['A','B','AB','O'].map(g => `<option value="${g}" ${goldarV===g?'selected':''}>${g}</option>`).join('')}
-                </select>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">Tgl Lahir</label><input id="f_lahir" type="date" value="${escJs(lahirV)}" style="color-scheme: dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Golongan Darah</label>
+                    <select id="f_goldar" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none">
+                        <option value="">-- Pilih --</option>
+                        ${['A','B','AB','O'].map(g => `<option value="${g}" ${goldarV===g?'selected':''}>${g}</option>`).join('')}
+                    </select>
+                </div>
+                <div><label class="${lbl}">Agama</label>
+                    <select id="f_agama" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${listAgama.map(a => `<option value="${escJs(a)}" ${agamaV === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
+                </div>
+                <div><label class="${lbl}">Email Login (opsional)</label><input id="f_email" type="email" value="${escJs(emailV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
             </div>
-            <div><label class="${lbl}">Agama</label>
-                <select id="f_agama" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none"><option value="">-- Pilih --</option>${listAgama.map(a => `<option value="${escJs(a)}" ${agamaV === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
-            </div>
-            <div><label class="${lbl}">Email Login (opsional)</label><input id="f_email" type="email" value="${escJs(emailV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
 
             ${sec('Orang Tua / Wali')}
-            <div><label class="${lbl}">Nama Orang tua Ayah</label><input id="f_ayah" value="${escJs(ayahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Pekerjaan Ayah</label><input id="f_pk_ayah" value="${escJs(pkAyahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Nama Orang tua Ibu</label><input id="f_ibu" value="${escJs(ibuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Pekerjaan Ibu</label><input id="f_pk_ibu" value="${escJs(pkIbuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Nama Wali</label><input id="f_wali" value="${escJs(waliV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Alamat</label><input id="f_alamat" value="${escJs(alamatV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">Nama Orang tua Ayah</label><input id="f_ayah" value="${escJs(ayahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Pekerjaan Ayah</label><input id="f_pk_ayah" value="${escJs(pkAyahV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Nama Orang tua Ibu</label><input id="f_ibu" value="${escJs(ibuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Pekerjaan Ibu</label><input id="f_pk_ibu" value="${escJs(pkIbuV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Nama Wali</label><input id="f_wali" value="${escJs(waliV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+            </div>
 
             ${sec('Media Sosial & Lokasi')}
-            <div class="sm:col-span-2"><label class="${lbl} mb-1 block">Alamat Google Maps <span class="font-normal text-slate-400">(tautan)</span></label>
-                <input id="f_alamat_maps" value="${escJs(alamatMapsV)}" placeholder="https://maps.app.goo.gl/..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500">
-                <p class="text-[9px] text-slate-400 mt-0.5">Tempel tautan Google Maps lokasi rumah. Dibuka di tab baru (iframe tidak dipasang karena kebijakan keamanan aplikasi).</p>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">Alamat</label><input id="f_alamat" value="${escJs(alamatV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl} mb-1 block">Alamat Google Maps <span class="font-normal text-slate-400">(tautan)</span></label>
+                    <input id="f_alamat_maps" value="${escJs(alamatMapsV)}" placeholder="https://maps.app.goo.gl/..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500">
+                    <p class="text-[9px] text-slate-400 mt-0.5 break-words">Tempel tautan Google Maps lokasi rumah. Dibuka di tab baru (iframe tidak dipasang karena kebijakan keamanan aplikasi).</p>
+                </div>
             </div>
             <div class="sm:col-span-2">
                 <label class="${lbl} mb-1 block">Media Sosial <span class="font-normal text-slate-400">(Instagram, TikTok, Facebook, YouTube, dll.)</span></label>
@@ -9998,16 +10179,18 @@ async function openFormAkunMurid(isNew, data = {}) {
             </div>
 
             ${sec('Jabatan & Ekstrakurikuler')}
-            <div><label class="${lbl} mb-1 block">Jabatan Kelas</label>
-                <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10" style="flex-wrap:wrap;">
-                    <div id="badge-jabatan-kelas" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
-                    <button type="button" onclick="openPopupPilihJabatan('kelas')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl} mb-1 block">Jabatan Kelas</label>
+                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10" style="flex-wrap:wrap;">
+                        <div id="badge-jabatan-kelas" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                        <button type="button" onclick="openPopupPilihJabatan('kelas')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                    </div>
                 </div>
-            </div>
-            <div><label class="${lbl} mb-1 block">Jabatan Ekstrakurikuler</label>
-                <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10" style="flex-wrap:wrap;">
-                    <div id="badge-jabatan-ekskul" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
-                    <button type="button" onclick="openPopupPilihJabatan('ekskul')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                <div><label class="${lbl} mb-1 block">Jabatan Ekstrakurikuler</label>
+                    <div class="flex items-center justify-between gap-2 bg-black/20 p-1.5 rounded border border-white/10" style="flex-wrap:wrap;">
+                        <div id="badge-jabatan-ekskul" class="flex flex-wrap gap-1 flex-1 min-w-0"></div>
+                        <button type="button" onclick="openPopupPilihJabatan('ekskul')" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-[10px] font-bold transition whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i>Kelola</button>
+                    </div>
                 </div>
             </div>
 
@@ -10019,10 +10202,12 @@ async function openFormAkunMurid(isNew, data = {}) {
             </div>
 
             ${sec('Catatan & Keamanan')}
-            <div><label class="${lbl}">Catatan Khusus</label><input id="f_catatan" value="${escJs(catatanV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
-            <div><label class="${lbl}">Password ${isNew ? '*' : '(kosong = tidak diubah)'}</label><input id="f_pass" type="text" value="${isNew ? '123456' : ''}" placeholder="${isNew ? '' : 'biarkan kosong'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"><p class="text-[9px] text-slate-400 mt-0.5">Hash bcrypt (password lokal, tanpa Google). Minimal 6 karakter.</p></div>
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl}">Catatan Khusus</label><input id="f_catatan" value="${escJs(catatanV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
+                <div><label class="${lbl}">Password ${isNew ? '*' : '(kosong = tidak diubah)'}</label><input id="f_pass" type="text" value="${isNew ? '123456' : ''}" placeholder="${isNew ? '' : 'biarkan kosong'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"><p class="text-[9px] text-slate-400 mt-0.5 break-words">Hash bcrypt (password lokal, tanpa Google). Minimal 6 karakter.</p></div>
+            </div>
 
-            <div class="col-span-2 border border-sky-500/30 rounded-lg p-2 bg-sky-900/10">
+            <div class="sm:col-span-2 w-full border border-sky-500/30 rounded-lg p-2 bg-sky-900/10">
                 <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
                     <label class="font-bold text-sky-300 text-[10px]"><i class="fa-solid fa-arrow-up-right-dots mr-1"></i> Riwayat Kelas &amp; Status per Tahun Pelajaran</label>
                     <select id="rs_tahun" onchange="gantiTahunFormRiwayatSiswa(this.value)" class="bg-slate-700 border border-white/20 rounded px-1.5 py-0.5 text-[10px] text-white outline-none">
@@ -10481,7 +10666,7 @@ function cetakMutasiSiswa() {
 let formFotoMurid = { dataUrl: null, hapus: false, asal: '' };
 
 /** Kirim foto murid ke Edge Function 'unggah-foto-murid' → URL Drive disimpan ke akun.url_foto. */
-async function unggahFotoMurid({ nis, nama, tahun, kelas, dataUrl, hapus }) {
+async function unggahFotoMurid({ nis, nisn, nama, tahun, kelas, dataUrl, hapus }) {
   const u = (currentUser || {}).user || {};
   const pemanggil = {
     tipe: String((currentUser || {}).role || ''),
@@ -10515,10 +10700,463 @@ async function unggahFotoMurid({ nis, nama, tahun, kelas, dataUrl, hapus }) {
       'Authorization': `Bearer ${token}`,
       'apikey': SUPABASE_ANON_KEY
     },
-    body: JSON.stringify({ nis, nama, tahun, kelas, foto: dataUrl || undefined, hapus: !!hapus, pemanggil })
+    body: JSON.stringify({ nis, nisn: String(nisn || ''), nama, tahun, kelas, foto: dataUrl || undefined, hapus: !!hapus, pemanggil })
   });
   return res.json().catch(() => ({ status: 'error', message: 'Gagal membaca respons server.' }));
 }
+
+/** Unduh teks sebagai file .txt dari browser (untuk laporan log sinkron/wajah). */
+function unduhTeksSebagaiTxt(namaFile, isi) {
+  try {
+    const blob = new Blob([isi], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = namaFile;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 400);
+  } catch (e) {
+    console.error('unduhTeksSebagaiTxt:', e);
+    showToast('error', 'Gagal mengunduh file log.');
+  }
+}
+
+/** Format daftar rincian laporan ({label, status}) menjadi teks .txt yang rapi. */
+function rincianKeTeks(baris) {
+  if (!Array.isArray(baris) || baris.length === 0) return '(tidak ada baris rincian)';
+  let teks = '';
+  baris.forEach((b, i) => {
+    const no = String(i + 1).padStart(3, '0');
+    const label = b.label != null ? b.label : '';
+    const status = b.status != null ? b.status : '';
+    teks += `${no}. [${status}] ${label}\n`;
+  });
+  return teks;
+}
+
+
+/**
+ * [REQ B4/C5] Modal pilihan "Timpah Semua / Lewati Semua / Pilih per siswa".
+ * Menampilkan daftar murid yang SUDAH punya data (foto / wajah) → user memutuskan
+ * apakah data lama boleh ditimpa atau dilewati.
+ * @param {Array<{nis:string,nama:string,kelas:string}>} daftar  murid yang sudah punya data
+ * @param {string} judul         judul modal
+ * @param {string} deskripsi     penjelasan singkat
+ * @returns {Promise<{hasil:'timpah'|'lewati'|'pilih', lewatiNis:Set<string>}|null>} null bila dibatalkan
+ */
+async function pilihTimpahLewati(daftar, judul, deskripsi) {
+  const n = (daftar || []).length;
+  if (!n) return { hasil: 'timpah', lewatiNis: new Set() };
+
+  let pilihan = 'timpah';           // state pilihan: timpah/lewati/pilih
+  const lewatiSet = new Set();      // bila 'pilih' → NIS yang dicentang = LEWATI
+
+  const html = `
+    <div class="text-left text-xs text-slate-300">
+      <p class="text-[10px] text-slate-400 mb-2">${deskripsi}</p>
+      <div class="space-y-1 mb-2">
+        <label class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5 cursor-pointer">
+          <input type="radio" name="tl-mode" value="timpah" checked class="accent-emerald-500">
+          <span><b class="text-emerald-300">Timpah Semua</b> <span class="text-[9px] text-slate-400">— timpa data lama semua siswa berikut</span></span>
+        </label>
+        <label class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5 cursor-pointer">
+          <input type="radio" name="tl-mode" value="lewati" class="accent-red-500">
+          <span><b class="text-red-300">Lewati Semua</b> <span class="text-[9px] text-slate-400">— pertahankan data lama semua siswa berikut</span></span>
+        </label>
+        <label class="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5 cursor-pointer">
+          <input type="radio" name="tl-mode" value="pilih" class="accent-indigo-500">
+          <span><b class="text-indigo-300">Pilih per Siswa</b> <span class="text-[9px] text-slate-400">— centang siswa yang data lamanya <u>tidak</u> boleh ditimpa</span></span>
+        </label>
+      </div>
+      <div id="tl-list" class="max-h-56 overflow-auto rounded-lg bg-slate-900 border border-white/10 p-2 space-y-1">
+        ${(daftar || []).map(r => `
+          <label class="flex items-center gap-2 text-[10px]">
+            <input type="checkbox" data-nis="${escJs(String(r.nis))}" class="tl-skip accent-red-500">
+            <span class="font-bold text-white">${escapeHtml(r.nama)}</span>
+            <span class="text-slate-400">· ${escapeHtml(r.nis || '-')}</span>
+            <span class="text-slate-500 ml-auto">${escapeHtml(r.kelas || '')}</span>
+          </label>`).join('')}
+      </div>
+      <p class="text-[9px] text-slate-500 mt-1">Siswa yang <b>tidak</b> dicentang pada mode per-siswa akan ditimpa.</p>
+    </div>`;
+
+const hasil = await Swal.fire({
+    title: judul,
+    html,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Lanjutkan',
+    cancelButtonText: 'Batal',
+    confirmButtonColor: '#059669',
+    background: '#1e293b', color: '#fff',
+    didOpen: () => {
+      const list = document.getElementById('tl-list');
+      const ubahAktif = () => {
+        const mode = (document.querySelector('input[name="tl-mode"]:checked') || {}).value;
+        const cbx = list ? list.querySelectorAll('.tl-skip') : [];
+        cbx.forEach(c => { c.disabled = mode !== 'pilih'; });
+      };
+      document.querySelectorAll('input[name="tl-mode"]').forEach(r => r.addEventListener('change', ubahAktif));
+      const chk = list ? list.querySelectorAll('.tl-skip') : [];
+      if (list) {
+        const w = document.createElement('div');
+        w.className = 'mb-1 flex gap-3';
+        w.innerHTML = `<button type="button" class="underline text-slate-400 hover:text-white text-[9px]">pilih semua</button>
+                        <button type="button" class="underline text-slate-400 hover:text-white text-[9px]">kosongkan semua</button>`;
+        w.querySelectorAll('button')[0].onclick = () => chk.forEach(c => { c.checked = true; });
+        w.querySelectorAll('button')[1].onclick = () => chk.forEach(c => { c.checked = false; });
+        list.insertAdjacentElement('beforebegin', w);
+      }
+      ubahAktif();
+    },
+    preConfirm: () => {
+      pilihan = (document.querySelector('input[name="tl-mode"]:checked') || {}).value || 'timpah';
+      const cbx = document.querySelectorAll('.tl-skip');
+      cbx.forEach(c => { if (c.checked) lewatiSet.add(String(c.getAttribute('data-nis'))); });
+      if (pilihan === 'pilih' && lewatiSet.size === 0) {
+        Swal.showValidationMessage('Mode "Pilih per Siswa": centang setidaknya satu siswa yang TIDAK boleh ditimpa, atau pilih Timpah/Lewati Semua.');
+        return false;
+      }
+      return true;
+    }
+  });
+  if (hasil.isConfirmed) return { hasil: pilihan, lewatiNis: lewatiSet };
+  return null;
+}
+/**
+ * [REQ 2] Sinkronkan URL foto siswa dari file Google Drive (admin, wali kelas, pembina ekskul).
+ * Memanggil Edge Function `sinkron-foto-drive`: membaca folder DRIVE_FOLDER_ID,
+ * mencocokkan nama file "{NISN} {Nama}.jpg" (fallback NIS) ke tabel akun, lalu
+ * memperbarui url_foto yang berbeda. Hasil laporan ditampilkan lewat toast + ringkasan.
+ */
+async function sinkronkanFotoDrive() {
+  // [HAK AKSES] Lapis kedua (pertahanan ekstra selain sembunyi tombol):
+  // hanya admin & guru (wali kelas/pembina) yg boleh; selain itu ditolak.
+  if (!bisaImportMuridAktif()) {
+    return showToast('error', 'Fitur Sinkron Foto khusus admin, wali kelas, atau pembina ekskul.');
+  }
+  const u = (currentUser || {}).user || {};
+  const pemanggil = {
+    tipe: String((currentUser || {}).role || ''),
+    nisNip: String(u['NIS'] || u['NIP'] || u['ID Akun Guru'] || '')
+  };
+  // Fallback: ambil NIS/NIP admin dari tabel akun via email bila identitas belum tersimpan.
+  if (!pemanggil.nisNip && pemanggil.tipe === 'admin') {
+    try {
+      const em = String(u['Email'] || '').trim();
+      if (em && supaClient) {
+        const { data: baris } = await supaClient.from('akun').select('nis_nip').eq('email', em).maybeSingle();
+        if (baris && baris.nis_nip) pemanggil.nisNip = String(baris.nis_nip);
+      }
+    } catch (e) { /* biarkan kosong — Edge Function punya fallback JWT/email sendiri */ }
+  }
+  let token = getToken();
+  try {
+    const { data: sesi } = await supaClient.auth.getSession();
+    if (sesi && sesi.session && sesi.session.access_token) token = sesi.session.access_token;
+  } catch (e) { /* biarkan token aplikasi */ }
+
+  // Gunakan cache daftar murid (bukan string nama kolom) agar nisTarget berisi murid
+  // hasil filter tabel aktif — sesuai filter yang dipilih (export Excel/PDF memakai jalur yang sama).
+  let rows = muridTersaring(cacheAkunMurid);
+
+  // Filter status wajah (aktif/nonaktif/belum) — sinkron mengikuti seluruh 5 filter + pencarian.
+  const filtWajah = (((document.getElementById('filter-status-wajah') || {}).value) || 'ALL').toLowerCase();
+  if (filtWajah !== 'all' && rows.length && window.FaceWajah && typeof window.FaceWajah.ambilStatusWajah === 'function') {
+    try {
+      const nisWajah = rows.map(r => String(r.nis_nip || r.NIS || r.nis || '')).filter(Boolean);
+      const petaW = await window.FaceWajah.ambilStatusWajah(nisWajah);
+      rows = rows.filter(r => (petaW[String(r.nis_nip || r.NIS || r.nis)] || 'belum') === filtWajah);
+    } catch (e) { console.error('Gagal filter status wajah (sinkron foto):', e); }
+  }
+
+  const nisTarget = (rows || []).map(r => String(r.nis_nip || r.NIS || r.nis || '')).filter(Boolean);
+  if (!nisTarget.length) return showToast('error', 'Tidak ada murid hasil filter yang tersinkron.');
+
+  // [B4] Pilih "Timpah/Lewati" untuk murid yang SUDAH punya foto (url_foto ada).
+  const sudahFoto = (rows || []).filter(r => r.url_foto || r['URL Foto'] || r.url_foto).map(r => ({
+    nis: String(r.nis_nip || r.NIS || r.nis || ''),
+    nama: r.nama_lengkap || r['Nama Lengkap'] || r.Nama || r.nama || 'Tanpa Nama',
+    kelas: kelasSiswaTahun(r) || '-'
+  }));
+  const keputusan = await pilihTimpahLewati(sudahFoto, 'Sinkron Foto — Siswa Sudah Punya Foto', `Sebanyak ${sudahFoto.length} siswa sudah memiliki foto. Tentukan cara menangani foto lamanya bila ada file Drive baru yang cocok.`);
+  if (!keputusan) return; // dibatalkan user
+
+  let lewatiNis = [];
+  if (keputusan.hasil === 'lewati') {
+    lewatiNis = sudahFoto.map(r => r.nis).filter(Boolean);
+  } else if (keputusan.hasil === 'pilih') {
+    lewatiNis = Array.from(keputusan.lewatiNis || new Set());
+  }
+  lewatiNis = lewatiNis.filter(Boolean);
+
+  showToast('info', `Menyinkronkan foto dari Drive untuk ${nisTarget.length} murid...`);
+  let res;
+  try {
+    const fetchRes = await fetch(`${SUPABASE_URL}/functions/v1/sinkron-foto-drive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ pemanggil, nisTarget, lewatiNis })
+    });
+    if (fetchRes.status === 404) {
+      // Edge Function belum di-deploy ke project Supabase yang terhubung.
+      res = { status: 'error', message: 'Fungsi sinkron-foto-drive belum di-deploy pada project Supabase. Jalankan: `npx supabase functions deploy sinkron-foto-drive` (pastikan secret GOOGLE_SA_JSON & DRIVE_FOLDER_ID sudah diset).' };
+    } else if (fetchRes.status === 503) {
+      // Konfigurasi secret server (GOOGLE_SA_JSON / DRIVE_FOLDER_ID) belum diset.
+      res = { status: 'error', message: 'Sinkronisasi Drive belum dikonfigurasi admin.\n\nCara perbaiki (sekali saja, lalu deploy ulang):\n1. Buka dashboard Supabase project yang dipakai web aplikasi ini.\n2. Project Settings → Edge Functions → Secrets.\n3. Set GOOGLE_SA_JSON = isi JSON service account (sama seperti yang dipakai unggah-foto-murid).\n4. Set DRIVE_FOLDER_ID = ID folder Google Shared Drive berisi foto murid (format nama "{NISN} {Nama}.jpg").\n5. Jalankan: npx supabase functions deploy sinkron-foto-drive --project-ref <PROJECT_REF>\n\nCatatan: folder Drive juga harus dibagikan ke email service account (peran Content Manager), dan file foto dibagikan "siapa saja → lihat" agar URL thumbnail-nya dapat ditampilkan.' };
+    } else if (fetchRes.status === 401 || fetchRes.status === 403) {
+      res = { status: 'error', message: 'Akses ditolak fungsi sinkron-foto-drive. Periksa izin (admin / wali kelas / pembina ekskul).' };
+    } else {
+      res = await fetchRes.json().catch(() => ({ status: 'error', message: `Respons server tidak terbaca (HTTP ${fetchRes.status}).` }));
+    }
+  } catch (e) {
+    // NetworkError = request tidak pernah mendapat respons (bukan 404/401/403).
+    // Penyebab umum: fungsi belum di-deploy (di beberapa proxy 404 jadi NetworkError),
+    // URL server salah/konfigurasi lokal tersimpan di localStorage, blokir jaringan/CSP,
+    // atau SUPABASE_URL menunjuk non-HTTPS (mixed content).
+    res = {
+      status: 'error',
+      message:
+        'Gagal terhubung ke server sinkron-foto-drive (' + (e && e.name === 'TypeError' ? 'jaringan' : (e && e.message) || 'net::ERR') + ').\n\n' +
+        'URL yang dituju: ' + SUPABASE_URL + '/functions/v1/sinkron-foto-drive\n\n' +
+        'Kemungkinan penyebab & cara perbaiki:\n' +
+        '1. Fungsi BELUM di-deploy ke project ini → jalankan di terminal: npx supabase functions deploy sinkron-foto-drive --project-ref <PROJECT_REF> (PROJECT_REF bisa dilihat di Dashboard → Settings → Project reference), lalu set secret GOOGLE_SA_JSON & DRIVE_FOLDER_ID.\n' +
+        '2. URL di atas bukan https://...supabase.co (mis. http://localhost:54321) → buka menu ⚙️ Konfigurasi Server di layar login dan isi ulang URL/key yang benar.\n' +
+        '3. Koneksi/kesalahan jaringan atau firewall → pastikan device bisa mengakses URL di atas (buka langsung di browser).'
+    };
+  }
+
+  if (!res || res.status !== 'success') {
+    const pesan = (res && res.message) || 'Sinkronisasi gagal.';
+    // Pesan diagnostik multiline (mis. dari blok catch NetworkError) tidak pas di toast
+    // 2.5 dtk & `\n` tak dirender → tampilkan sebagai modal dengan pre-line.
+    if (pesan.indexOf('\n') !== -1) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Sinkron Foto Gagal',
+        html: `<div style="text-align:left;white-space:pre-line;font-size:12px;line-height:1.6">${escapeHtml(pesan)}</div>`,
+        confirmButtonText: 'Mengerti',
+        confirmButtonColor: '#475569',
+        background: '#1e293b', color: '#fff'
+      });
+    } else {
+      showToast('error', pesan);
+    }
+    return;
+  }
+  const l = res.laporan || {};
+  showToast('success', res.message || 'Sinkronisasi selesai.');
+
+  // [B2] Bangun isi log rincian dari `l.rincian` (array {file,status,nis}).
+  const petaStatusLabel = {
+    'baru': ['Foto baru dipasang', 'text-emerald-300'],
+    'diperbarui': ['Foto diperbarui', 'text-cyan-300'],
+    'sama': ['Sudah sama', 'text-slate-400'],
+    'tidak-cocok': ['Tidak cocok dengan murid', 'text-amber-300'],
+    'tanpa-nomor': ['Tanpa nomor identitas', 'text-amber-300'],
+    'lewat-filter': ['Di luar filter (dilewati)', 'text-slate-500'],
+    'lewati': ['Foto lama dipertahankan', 'text-indigo-300'],
+    'gagal': ['Gagal', 'text-red-300']
+  };
+  const barisLog = (l.rincian || []).map(r => {
+    const labelWarna = petaStatusLabel[r.status] || [r.status || '?', 'text-slate-300'];
+    const identitas = r.file || String(r.nis || '');
+    return `<div class="text-[10px] leading-snug"><span class="${labelWarna[1]} font-bold">[${labelWarna[0]}]</span> <span class="text-slate-300">${escapeHtml(identitas)}</span>${r.nis && r.file ? ` <span class="text-slate-500">(NIS ${escapeHtml(String(r.nis))})</span>` : ''}</div>`;
+  }).join('');
+
+  const teksTxt =
+    'LAPORAN SINKRONISASI FOTO DRIVE\n' +
+    'Tanggal: ' + new Date().toLocaleString('id-ID') + '\n' +
+    `Dipindai: ${l.dipindai ?? 0} berkas\n` +
+    `Terpasang/diperbarui: ${l.terpasang ?? 0} (baru: ${l.terpasang - (l.diperbarui ?? 0)}, diperbarui: ${l.diperbarui ?? 0})\n` +
+    `Sudah sama: ${l.sama ?? 0}\n` +
+    `Tidak cocok: ${l.tidak_cocok ?? 0}\n` +
+    `Di luar filter: ${l.lewat_filter ?? 0}\n` +
+    `Dilewati (foto lama dipertahankan): ${l.lewati ?? 0}\n` +
+    `Gagal: ${l.gagal ?? 0}\n\n--- RINCIAN ---\n` +
+    rincianKeTeks((l.rincian || []).map(r => ({ label: (r.file || '') + (r.nis ? ` (NIS ${r.nis})` : ''), status: petaStatusLabel[r.status] ? petaStatusLabel[r.status][0] : (r.status || '?') })));
+
+  Swal.fire({
+    icon: 'success',
+    title: 'Sinkronisasi Foto Selesai',
+    html:
+      `<div class="text-left">` +
+      `<div class="text-[12px] text-slate-300 mb-2">` +
+      `<b>Dipindai:</b> ${l.dipindai ?? 0} berkas · ` +
+      `<b>Terpasang:</b> <span class="text-emerald-300">${l.terpasang ?? 0}</span> · ` +
+      `<b>Baru:</b> ${l.terpasang - (l.diperbarui ?? 0)} · ` +
+      `<b>Diperbarui:</b> ${l.diperbarui ?? 0}<br>` +
+      `<b>Sudah sama:</b> ${l.sama ?? 0} · ` +
+      `<b>Tidak cocok:</b> ${l.tidak_cocok ?? 0} · ` +
+      `<b>Di luar filter:</b> ${l.lewat_filter ?? 0} · ` +
+      `<b>Dilewati:</b> ${l.lewati ?? 0} · ` +
+      `<b>Gagal:</b> ${l.gagal ?? 0}</div>` +
+      `<div class="flex justify-end mb-1"><button id="export-log-btn" class="h-7 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded text-[11px] font-bold transition">⬇ Export .txt</button></div>` +
+      `<div class="sisip-log-box custom-scrollbar" style="max-height:210px;overflow:auto;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.1);border-radius:.5rem;padding:.5rem .6rem">${barisLog || '<div class="text-[10px] text-slate-500">Tanpa rincian.</div>'}</div>` +
+      `</div>`,
+    background: '#1e293b', color: '#fff',
+    confirmButtonText: 'OK',
+    didOpen: () => {
+      const btn = document.getElementById('export-log-btn');
+      if (btn) btn.onclick = () => unduhTeksSebagaiTxt('sinkron-foto-drive-log.txt', teksTxt);
+    }
+  });
+  // Muat ulang tabel + cache agar URL foto terbaru tampil
+  invalidasiCacheAkun();
+  renderManajemenMurid(document.getElementById('main-content'), true);
+
+  // [CHAIN OTOMATIS] Setelah foto selesai di-sinkronkan dari Drive, daftarkan wajah
+  // secara otomatis untuk murid yang foto-nya BARU terpasang tapi belum punya wajah.
+  // Best-effort & non-mengganggu: berjalan di latar, hasilnya ditampilkan via toast.
+  autoDaftarWajahDariFotoBaru(res.laporan ? res.laporan.rincian : []);
+}
+
+
+// ============================================================================
+// [REQ 2b] Auto-isi foto kosong + daftar wajah otomatis dari foto baru (kepala, bukan MI)
+// ----------------------------------------------------------------------------
+// Fitur otomatis pelengkap "Sinkron Foto" manual:
+//   1) autoIsiFotoKosongSekaliSesi() — saat menu "Data Akun Murid" pertama kali dibuka
+//      dalam satu sesi, otomatis memanggil sinkron-foto-drive mode "hanya-kosong" untuk
+//      mengisi url_foto murid yang MASIH KOSONG dari Google Drive. Tidak menimpa foto
+//      yang sudah ada, tanpa modal, best-effort, dipanggil sekali per sesi.
+//   2) autoDaftarWajahDariFotoBaru(rincian) — setelah foto baru dipasang (baik dari
+//      auto-isi maupun sinkron manual), mendaftarkan wajah murid yang baru ber-foto tapi
+//      wajahnya masih "belum", memakai face.js (registrasiOtomatisDariFoto). Best-effort.
+// ============================================================================
+
+/** Kunci sesi agar auto-isi foto kosong hanya berjalan SATU KALI per sesi browser. */
+let autoIsiFotoKosongSekaliSesiJalan = false;
+let autoIsiFotoKosongSekaliSesiSelesai = false;
+
+/**
+ * Sinkron foto kosong dari Google Drive otomatis (sekali per sesi).
+ * Wajib admin / wali kelas / pembina ekskul; non-aktif bila modul wajah belum siap.
+ */
+async function autoIsiFotoKosongSekaliSesi() {
+  // 1) Hanya sekali per sesi
+  if (autoIsiFotoKosongSekaliSesiJalan || autoIsiFotoKosongSekaliSesiSelesai) return;
+  // 2) Hak akses sama dengan tombol Sinkron Foto / Wajah Masal
+  if (!bisaImportMuridAktif()) return;
+  // 3) Butuh face.js untuk tahap daftar wajah (tahap foto boleh jalan sendiri)
+  const fw = window.FaceWajah;
+  if (!fw || typeof fw.registrasiOtomatisDariFoto !== 'function') return;
+
+  autoIsiFotoKosongSekaliSesiJalan = true;
+  try {
+    // Pemanggil identik dengan sinkronkanFotoDrive()
+    const u = (currentUser || {}).user || {};
+    const pemanggil = {
+      tipe: String((currentUser || {}).role || ''),
+      nisNip: String(u['NIS'] || u['NIP'] || u['ID Akun Guru'] || '')
+    };
+    if (!pemanggil.nisNip && pemanggil.tipe === 'admin') {
+      try {
+        const em = String(u['Email'] || '').trim();
+        if (em && supaClient) {
+          const { data: baris } = await supaClient.from('akun').select('nis_nip').eq('email', em).maybeSingle();
+          if (baris && baris.nis_nip) pemanggil.nisNip = String(baris.nis_nip);
+        }
+      } catch (e) { /* biarkan kosong — Edge Function punya fallback JWT/email */ }
+    }
+    let token = getToken();
+    try {
+      const { data: sesi } = await supaClient.auth.getSession();
+      if (sesi && sesi.session && sesi.session.access_token) token = sesi.session.access_token;
+    } catch (e) { /* biarkan token aplikasi */ }
+
+    // Hanya isi yang KOSONG: mode="hanya-kosong", tanpa nisTarget/lewatiNis
+    const fetchRes = await fetch(`${SUPABASE_URL}/functions/v1/sinkron-foto-drive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ pemanggil, mode: 'hanya-kosong' })
+    });
+    if (!fetchRes.ok) return; // diam — ini best-effort, jangan ganggu pengguna
+    let res;
+    try { res = await fetchRes.json(); } catch (e) { res = null; }
+    if (!res || res.status !== 'success') return;
+
+    const l = res.laporan || {};
+    const baru = (l.rincian || []).filter(r => r.status === 'baru' && r.nis);
+    const info = [`Foto otomatis terpasang untuk ${l.terpasang ?? 0} murid.`];
+    if (baru.length) info.push(`${baru.length} murid ber-foto baru, mendaftarkan wajah…`);
+    showToast('info', info.join(' '));
+    if (baru.length) {
+      // Jangan menunggu — biarkan daftar wajah berjalan di latar
+      autoDaftarWajahDariFotoBaru(baru).catch(() => {});
+    }
+  } catch (e) {
+    console.error('autoIsiFotoKosongSekaliSesi:', e);
+  } finally {
+    autoIsiFotoKosongSekaliSesiJalan = false;
+    autoIsiFotoKosongSekaliSesiSelesai = true;
+  }
+}
+
+/** Kunci anti-bentrok registrasi wajah otomatis (hindari tabrakan dgn Wajah Masal). */
+let autoDaftarWajahSedangProses = false;
+
+/**
+ * Daftarkan wajah otomatis untuk murid yang baru ber-foto tapi wajahnya masih "belum".
+ * @param {Array<{nis?: string, status?: string}>} rincian  rincian laporan sinkron foto.
+ */
+async function autoDaftarWajahDariFotoBaru(rincian) {
+  const fw = window.FaceWajah;
+  if (!fw || typeof fw.registrasiOtomatisDariFoto !== 'function') return 0;
+  if (autoDaftarWajahSedangProses) return 0;
+  autoDaftarWajahSedangProses = true;
+
+  // Ambil daftar NIS yang baru ber-foto (dari rincian laporan)
+  const nisBaru = (rincian || [])
+    .filter(r => r && r.nis && (!r.status || r.status === 'baru'))
+    .map(r => String(r.nis));
+  if (!nisBaru.length) { autoDaftarWajahSedangProses = false; return 0; }
+
+  let statusMap = {};
+  try { statusMap = await fw.ambilStatusWajah(nisBaru); }
+  catch (e) { console.warn('autoDaftarWajah ambilStatusWajah:', e); }
+
+  // Data kebutuhan untuk face.js: url_foto & nama_lengkap dari tabel akun
+  let peta = {};   // nis -> {url_foto, nama}
+  try {
+    const src = await supaAmbilSemua(
+      supaClient.from('akun').select('nis_nip, url_foto, nama_lengkap')
+        .eq('tipe', 'murid').in('nis_nip', nisBaru)
+    );
+    (src || []).forEach(d => { peta[String(d.nis_nip)] = { url_foto: d.url_foto, nama: d.nama_lengkap }; });
+  } catch (e) { console.warn('autoDaftarWajah fetch akun:', e); }
+
+  let ok = 0, gagal = 0;
+  for (const nis of nisBaru) {
+    const st = statusMap[nis] || 'belum';
+    if (st !== 'belum') continue;          // sudah punya wajah -> lewati
+    const info = peta[nis] || {};
+    if (!info.url_foto) continue;          // tak ada foto -> tak bisa daftar
+    try {
+      const r = await fw.registrasiOtomatisDariFoto(nis, info.url_foto, info.nama || nis);
+      if (r && r.ok) ok++; else gagal++;
+    } catch (e) { gagal++; console.warn('autoDaftarWajah:', nis, e); }
+  }
+
+  try { if (fw.muatPetaWajah) await fw.muatPetaWajah(); } catch (e) {}
+  try { if (typeof renderTabelMuridTerfilter === 'function') renderTabelMuridTerfilter(); } catch (e) {}
+
+  const total = ok + gagal;
+  if (total > 0) {
+    showToast(ok > 0 && gagal === 0 ? 'success' : (gagal > 0 && ok > 0 ? 'info' : 'error'),
+      `Wajah otomatis: ${ok} berhasil${gagal ? `, ${gagal} gagal` : ''}.`);
+  }
+  autoDaftarWajahSedangProses = false;
+  return ok;
+}
+
 
 // ---- Modal pemotongan foto (Cropper.js) ----
 let sisipCropper = { cropper: null, onDone: null };
@@ -10613,24 +11251,50 @@ function fotoPratinjauHtml(url) {
   return `<img src="${escapeHtml(url)}" alt="Foto" style="width:100%;height:100%;object-fit:cover;" class="w-full h-full">`;
 }
 
-// ---- Form akun murid (admin): pilih/hapus foto ----
+// ---- Form akun murid (admin): pilih / seret-hapus foto ----
 function pilihFotoMuridForm() {
   const inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*';
-  inp.onchange = () => {
-    const f = (inp.files && inp.files[0]) || null;
-    if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { showToast('error', 'Ukuran file maksimal 5 MB.'); return; }
-    const rd = new FileReader();
-    rd.onload = () => bukaCropperFoto(rd.result, (hasil) => {
-      formFotoMurid.dataUrl = hasil;
-      formFotoMurid.hapus = false;
-      const el = document.getElementById('foto-pratinjau-form');
-      if (el) el.innerHTML = fotoPratinjauHtml(hasil);
-    });
-    rd.readAsDataURL(f);
-  };
+  inp.onchange = () => prosesFileFotoSiswa((inp.files && inp.files[0]) || null);
   inp.click();
+}
+
+/** Proses file gambar dari pilih/seret pada form akun murid → Cropper → state formFotoMurid. [REQ 1] */
+function prosesFileFotoSiswa(f) {
+  if (!f) return;
+  if (!/^image\//i.test(String(f.type || '')) && !/\.(jpe?g|png|webp|gif)$/i.test(String(f.name || ''))) {
+    return showToast('error', 'File harus berupa gambar.');
+  }
+  if (f.size > 5 * 1024 * 1024) { showToast('error', 'Ukuran file maksimal 5 MB.'); return; }
+  cegahRingFotoEv();
+  const rd = new FileReader();
+  rd.onload = () => bukaCropperFoto(rd.result, (hasil) => {
+    formFotoMurid.dataUrl = hasil;
+    formFotoMurid.hapus = false;
+    const el = document.getElementById('foto-pratinjau-form');
+    if (el) { el.innerHTML = fotoPratinjauHtml(hasil); el.classList.remove('ring-2', 'ring-cyan-400'); }
+  });
+  rd.readAsDataURL(f);
+}
+
+/** Highlight kotak pratinjau foto selama drag-enter. [REQ 1] */
+function seretFotoFormEv(el, ev) {
+  ev.preventDefault(); ev.stopPropagation();
+  if (el) el.classList.add('ring-2', 'ring-cyan-400');
+}
+function keluarFotoFormEv(el, ev) {
+  ev.preventDefault(); ev.stopPropagation();
+  cegahRingFotoEv();
+}
+function cegahRingFotoEv() {
+  const el = document.getElementById('foto-pratinjau-form');
+  if (el) el.classList.remove('ring-2', 'ring-cyan-400');
+}
+function dropFotoMuridForm(el, ev) {
+  ev.preventDefault(); ev.stopPropagation();
+  cegahRingFotoEv();
+  const f = (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]) || null;
+  prosesFileFotoSiswa(f);
 }
 
 function hapusFotoMuridForm() {
@@ -10678,6 +11342,146 @@ function medsosTeks(medsosArr) {
   return (medsosArr || []).filter(m => m && (m.label || m.url))
     .map(m => `${m.label ? String(m.label) : 'Sosmed'}: ${String(m.url || '').replace(/^https?:\/\/(www\.)?/i, '')}`)
     .join('; ');
+}
+
+/** Registrasi wajah masal dari foto profil (murid ber-foto namun belum punya wajah).
+ *  Mengikuti filter tabel aktif; berjalan berurutan dengan progres; best-effort.
+ *  Hak akses: admin & guru (wali kelas/pembina) — sejalan dgn tombol Import (bisaImportMuridAktif). */
+let scanWajahMasalSedangProses = false;
+async function scanWajahMasal() {
+  // [HAK AKSES] Lapis kedua (pertahanan ekstra selain sembunyi tombol):
+  // hanya admin & guru (wali kelas/pembina) yg boleh; selain itu ditolak.
+  if (!bisaImportMuridAktif()) {
+    return showToast('error', 'Fitur Wajah Masal khusus admin, wali kelas, atau pembina ekskul.');
+  }
+  if (scanWajahMasalSedangProses) return showToast('info', 'Wajah masal sedang memproses…');
+  const fw = window.FaceWajah;
+  if (!fw || typeof fw.registrasiOtomatisDariFoto !== 'function') {
+    return showToast('error', 'Modul wajah (face.js) belum dimuat.');
+  }
+  let sumber;
+  try { sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid')); }
+  catch (e) { console.warn('scanWajahMasal fetch:', e); sumber = cacheAkunMurid || []; }
+  const rows = muridTersaring(sumber);
+  const nisList = rows.map(d => String(d.nis_nip || d.NIS || d.nis)).filter(Boolean);
+  let statusMap = {};
+  if (fw.ambilStatusWajah) { try { statusMap = await fw.ambilStatusWajah(nisList); } catch (e) { console.warn('scanWajahMasal status:', e); } }
+  const baruBelum = rows.filter(d => {
+    const nis = String(d.nis_nip || d.NIS || d.nis);
+    return d.url_foto && statusMap[nis] === 'belum';
+  });
+  const sudahWajah = rows.filter(d => {
+    const nis = String(d.nis_nip || d.NIS || d.nis);
+    return d.url_foto && (statusMap[nis] === 'nonaktif');
+  }).map(d => ({
+    nis: String(d.nis_nip || d.NIS || d.nis),
+    nama: d.nama_lengkap || 'Tanpa Nama',
+    kelas: kelasSiswaTahun(d) || '-'
+  }));
+  let kandidat = baruBelum;
+
+  // [C4] Murid ber-foto yang punya wajah NONAKTIF = "sudah punya data" → tanya Timpah/Lewati.
+  if (sudahWajah.length > 0) {
+    const keputusan = await pilihTimpahLewati(sudahWajah, 'Registrasi Wajah Masal — Wajah Nonaktif',
+      `Sebanyak ${sudahWajah.length} murid punya wajah nonaktif. Registrasi ulang wajahnya dari foto profil, atau pertahankan?`);
+    if (!keputusan) return;
+    if (keputusan.hasil === 'pilih') {
+      // Yang dicentang = LEWATI → dilepas dari daftar timpa; sisanya ikut daftar ulang.
+      kandidat = kandidat.concat(sudahWajah.filter(r => !keputusan.lewatiNis.has(r.nis)));
+    } else if (keputusan.hasil === 'timpah') {
+      kandidat = kandidat.concat(sudahWajah);
+    }
+    // hasil 'lewati' → sudahWajah dilewati seluruhnya (hanya kandidat baru).
+  }
+
+  if (!kandidat.length) {
+    showToast('info', 'Tidak ada murid ber-foto yang layak didaftarkan wajahnya pada filter aktif.');
+    return;
+  }
+  if (sudahWajah.length > 0) {
+    const { value } = await Swal.fire({
+      title: 'Registrasi Wajah Masal',
+      html: `<b>${kandidat.length}</b> murid akan didaftarkan ulang/dari foto profil (termasuk <b>${sudahWajah.filter(s => kandidat.some(k => String(k.nis_nip || k.NIS || k.nis) === s.nis)).length}</b> wajah nonaktif yang ditimpa).<br><span class="text-xs text-slate-400">Butuh koneksi & sekitar 1–3 dtk per murid. Kamu bisa membatalkan di tengah jalan.</span>`,
+      icon: 'question', showCancelButton: true, confirmButtonText: 'Ya, lanjut', cancelButtonText: 'Batal',
+      background: '#1e293b', color: '#fff'
+    });
+    if (!value) return;
+  } else {
+    const { value } = await Swal.fire({
+      title: 'Registrasi Wajah Masal',
+      html: `<b>${kandidat.length}</b> murid ber-foto tapi belum punya wajah akan didaftarkan otomatis dari foto profil.<br><span class="text-xs text-slate-400">Butuh koneksi & sekitar 1–3 dtk per murid. Kamu bisa membatalkan di tengah jalan.</span>`,
+      icon: 'question', showCancelButton: true, confirmButtonText: 'Ya, lanjut', cancelButtonText: 'Batal',
+      background: '#1e293b', color: '#fff'
+    });
+    if (!value) return;
+  }
+
+  scanWajahMasalSedangProses = true;
+  let ok = 0, gagal = 0; const errs = []; const logBaris = []; let berhenti = false;
+  let i = 0;
+  // Modal progres (DIBUKA tanpa await — JANGAN menunggu resolve karena bisa termakan selamanya
+  // bila user tidak menekan Batal; kita hanya memantau penutupan via promise untuk hentikan loop).
+  const promProgres = Swal.fire({
+    title: 'Memproses…',
+    html: `<div id="wajah-masal-progress" class="text-sm">0/${kandidat.length} · menyiapkan…</div>`,
+    allowOutsideClick: false, showCancelButton: true, cancelButtonText: 'Batal',
+    didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff'
+  });
+  promProgres.then(() => { berhenti = true; }).catch(() => { berhenti = true; });
+  const teksProgres = () =>
+    `${Math.min(i + 1, kandidat.length)}/${kandidat.length} · <span class="text-green-400">✓${ok}</span> <span class="text-red-400">✗${gagal}</span>${kandidat[i] ? ' — ' + escapeHtml(String(kandidat[i].nama_lengkap || kandidat[i].nas_murid || kandidat[i].NIS || '')) : ''}`;
+  for (i = 0; i < kandidat.length; i++) {
+    if (berhenti) break;
+    const d = kandidat[i];
+    const nis = String(d.nis_nip || d.NIS || d.nis);
+    const nama = String(d.nama_lengkap || nis);
+    try {
+      const r = await fw.registrasiOtomatisDariFoto(nis, d.url_foto, nama);
+      if (r && r.ok) { ok++; logBaris.push({ label: nama + ' (NIS ' + nis + ')', status: 'Berhasil' }); }
+      else {
+        gagal++;
+        const pesan = (r && r.pesan) ? r.pesan : 'Gagal';
+        if (r && r.pesan) errs.push(nama + ': ' + r.pesan);
+        logBaris.push({ label: nama + ' (NIS ' + nis + ')', status: 'Gagal — ' + pesan });
+      }
+    } catch (e) {
+      gagal++; errs.push(nama + ': ' + (e && e.message ? e.message : e));
+      logBaris.push({ label: nama + ' (NIS ' + nis + ')', status: 'Gagal — ' + ((e && e.message) ? e.message : e) });
+    }
+    const pb = document.getElementById('wajah-masal-progress');
+    if (pb) pb.innerHTML = teksProgres();
+  }
+  Swal.close();
+  const pesanHasil = `Berhasil: <b class="text-green-400">${ok}</b> · Gagal: <b class="text-red-400">${gagal}</b>` + (berhenti ? ' · <i>Dihentikan pengguna</i>' : '');
+
+  // [C3] Bangun isi log rincian (sukses/gagal per murid) + Export .txt.
+  const barisLogW = logBaris.map(b => {
+    const okC = b.status.startsWith('Berhasil');
+    return `<div class="text-[10px] leading-snug"><span class="${okC ? 'text-emerald-300' : 'text-red-300'} font-bold">[${b.status}]</span> <span class="text-slate-300">${escapeHtml(b.label)}</span></div>`;
+  }).join('');
+  const teksTxtW =
+    'LAPORAN REGISTRASI WAJAH MASAL\n' +
+    'Tanggal: ' + new Date().toLocaleString('id-ID') + '\n' +
+    `Berhasil: ${ok} · Gagal: ${gagal}${berhenti ? ' · Dihentikan pengguna' : ''}\n\n--- RINCIAN ---\n` +
+    rincianKeTeks(logBaris);
+
+  try { if (fw.muatPetaWajah) { await fw.muatPetaWajah(); } } catch (e) {}
+  try { if (typeof renderManajemenMurid === 'function') renderManajemenMurid(document.getElementById('main-content')); } catch (e) {}
+  scanWajahMasalSedangProses = false;
+  return Swal.fire({
+    icon: (gagal === 0 && !berhenti) ? 'success' : 'warning',
+    title: berhenti ? 'Wajah masal dihentikan' : (gagal === 0 ? 'Wajah masal selesai' : 'Sebagian gagal'),
+    html:
+      `<div class="text-left">` + pesanHasil +
+      `<div class="flex justify-end mt-2 mb-1"><button id="export-log-btn-w" class="h-7 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded text-[11px] font-bold transition">⬇ Export .txt</button></div>` +
+      `<div class="sisip-log-box custom-scrollbar" style="max-height:210px;overflow:auto;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.1);border-radius:.5rem;padding:.5rem .6rem">${barisLogW || '<div class="text-[10px] text-slate-500">Tanpa rincian.</div>'}</div>` +
+      `</div>`,
+    background: '#1e293b', color: '#fff',
+    didOpen: () => {
+      const btn = document.getElementById('export-log-btn-w');
+      if (btn) btn.onclick = () => unduhTeksSebagaiTxt('registrasi-wajah-masal-log.txt', teksTxtW);
+    }
+  });
 }
 
 /** Cetak lembar foto siswa (A4 portrait, 4 kolom × 6 baris per halaman) — ikut filter tabel aktif. */
@@ -10767,6 +11571,7 @@ async function simpanAkunMurid(formData, isNew) {
     try {
       const res = await unggahFotoMurid({
         nis: String(p_data.nis || ''),
+        nisn: String(p_data.nisn || ''),
         nama: String(p_data.nama_lengkap || ''),
         tahun: String(p_data.tahun_pelajaran || ''),
         kelas: String(p_data.tingkat_kelas || ''),
@@ -10815,6 +11620,18 @@ async function simpanAkunMurid(formData, isNew) {
   if (typeof renderManajemenMurid === 'function') {
     renderManajemenMurid(document.getElementById('main-content'));
   }
+  // [C2] Auto-registrasi wajah: setelah foto baru tersimpan, coba sisipkan descriptor
+  // dari foto itu (bila murid menambah/ganti foto profil, wajah otomatis ikut terdaftar).
+  // Berjalan best-effort di latar belakang — gagal tidak menggagalkan simpan data.
+  try {
+    const urlFotoTersimpan = String(p_data.url_foto || '');
+    if (window.FaceWajah && typeof window.FaceWajah.registrasiOtomatisDariFoto === 'function'
+        && urlFotoTersimpan && urlFotoTersimpan !== 'SEDANG_DIUPLOAD' && currentUser.role !== 'murid') {
+      window.FaceWajah.registrasiOtomatisDariFoto(String(formData.nis || ''), urlFotoTersimpan, String(formData.nama_lengkap || ''))
+        .then((r) => { if (r && !r.ok) console.warn('Auto-registrasi wajah:', r.pesan); })
+        .catch((e) => console.warn('Auto-registrasi wajah error:', e));
+    }
+  } catch (eC2) { console.warn('Auto-registrasi wajah (C2):', eC2); }
 }
 
 
@@ -15236,6 +16053,67 @@ function hakAksesEkskulUntuk(ekskul) {
 /** [REQ 1c] Cek cepat peran akses satu ekskul termasuk salah satu peran yang diberikan. */
 function ekskulAksesTermasukUntuk(ekskul, ...peran) { return peran.includes(hakAksesEkskulUntuk(ekskul)); }
 
+/**
+ * [REQ 1f/1g] "Manajer umum" ekskul: pengguna yang berhak melihat & mengelola SEMUA
+ * ekstrakurikuler. Admin selalu; guru WALI KELAS dianggap manajer umum (keputusan akses).
+ * Guru biasa (pembina tertentu / tanpa penugasan) TIDAK masuk sini.
+ */
+function ekskulManajerUmum() {
+  const role = (currentUser || {}).role || '';
+  if (role === 'admin') return true;
+  if (role === 'guru') return !!waliKelasAktif();
+  return false;
+}
+
+/** Guru/pembina mengampu ekskul tertentu (anggota kolom "ekstrakurikuler" miliknya). */
+function ekskulDiampuGuru(ekskul) {
+  return ekskulDiampuAktif().includes(String(ekskul || '').trim());
+}
+
+/**
+ * [REQ 1f] Boleh KELOLA ANGGOTA satu ekskul (Tambah/Import/Hapus/Export anggota).
+ * - Admin & guru wali kelas (manajer umum) → ya (semua ekskul).
+ * - Guru pembina → ya (hanya ekskul yang diampunya).
+ * - Murid yang MENJABAT (pengurus) pada ekskul tsb → ya.
+ * - Lainnya (guru tanpa penugasan, murid anggota) → tidak.
+ */
+function bolehKelolaAnggotaEkskul(ekskul) {
+  const role = (currentUser || {}).role || '';
+  if (role === 'admin') return true;
+  if (role === 'guru') return !!waliKelasAktif() || ekskulDiampuGuru(ekskul);
+  if (role === 'murid') return hakAksesEkskulUntuk(ekskul) === 'pengurus';
+  return false;
+}
+
+/**
+ * [REQ 1g] Boleh MEMBUAT ekskul BARU (form kosong). Hanya pengelola level manajer:
+ * admin & guru wali kelas. Pembina hanya boleh mengelola ekskul yang sudah ada.
+ */
+function bolehBuatEkskulBaru() {
+  return ekskulManajerUmum();
+}
+
+/**
+ * [REQ 1g] Daftar ekskul yang boleh terlihat pada dropdown "Ekskul-pilih" & daftar
+ * modul Ekstrakurikuler.
+ * - admin / guru wali kelas → semua ekskul.
+ * - guru pembina (non-wali-kelas) → hanya ekskul yang diampunya.
+ * - murid → hanya ekskul yang diikuti / dijabatnya (ekskulMilikMurid).
+ * - lainnya → semua (kosong / no-filter; menu tak seharusnya terbuka).
+ */
+function daftarEkskulTerlihat(daftar) {
+  const role = (currentUser || {}).role || '';
+  const semua = [...(daftar || [])];
+  if (role === 'admin' || role === 'guru') {
+    return ekskulManajerUmum() ? semua : semua.filter(e => ekskulDiampuGuru(e));
+  }
+  if (role === 'murid') {
+    const milik = ekskulMilikMurid();
+    return semua.filter(e => milik.includes(e));
+  }
+  return semua;
+}
+
 /** Deteksi apakah jabatan ekskul murid pada `ekskul` tsb adalah Bendahara (case-insensitive). */
 function apakahBendaharaEkskul(ekskul) {
   const jab = jabatanEkskulMapMurid();
@@ -15317,14 +16195,17 @@ async function renderEkstrakurikulerModule(container) {
     }
     const akses = hakAksesEkskul();
     let daftar = await ambilDaftarEkskul();
-    // [REQ 1c] Murid (pengurus/anggota) hanya melihat ekskul yang diikutinya / yang dijabatinya
-    if (akses === 'pengurus' || akses === 'anggota') {
-      const milik = ekskulMilikMurid();
-      daftar = daftar.filter(e => milik.includes(e));
-      if (daftar.length === 0) {
-        container.innerHTML = `<div class="glass-card p-8 rounded-2xl text-center text-slate-300"><i class="fa-solid fa-medal text-3xl text-yellow-400 mb-2"></i><p class="text-sm">Anda belum terdaftar sebagai anggota ekstrakurikuler manapun.</p></div>`;
-        return;
-      }
+    // [REQ 1g/1c] Saring daftar ekskul sesuai akses pengguna:
+    // murid → hanya ekskul yang diikuti/dijabatinya; guru pembina (non-wali-kelas) → hanya yang
+    // diampunya; admin & guru wali kelas (manajer umum) → semua.
+    daftar = daftarEkskulTerlihat(daftar);
+    if (daftar.length === 0 && (akses === 'pengurus' || akses === 'anggota')) {
+      container.innerHTML = `<div class="glass-card p-8 rounded-2xl text-center text-slate-300"><i class="fa-solid fa-medal text-3xl text-yellow-400 mb-2"></i><p class="text-sm">Anda belum terdaftar sebagai anggota ekstrakurikuler manapun.</p></div>`;
+      return;
+    }
+    if (daftar.length === 0) {
+      container.innerHTML = `<div class="glass-card p-8 rounded-2xl text-center text-slate-300"><i class="fa-solid fa-medal text-3xl text-slate-500 mb-2"></i><p class="text-sm">Tidak ada ekstrakurikuler yang dapat Anda akses.</p></div>`;
+      return;
     }
     window.__daftarEkskul = daftar;
     if (!window.__ekskulAktif || !daftar.includes(window.__ekskulAktif)) window.__ekskulAktif = daftar[0] || '';
@@ -15373,8 +16254,8 @@ function switchTabEkskul(tab) {
   renderEkstrakurikulerModule(document.getElementById('main-content'));
 }
 function pilihEkskulModul(ekskul) {
-  const akses = hakAksesEkskul();
-  if ((akses === 'pengurus' || akses === 'anggota') && !ekskulMilikMurid().includes(ekskul)) return showToast('error', 'Anda bukan anggota ekstrakurikuler tersebut.');
+  // [REQ 1g] Tolak pilihan di luar daftar ekskul yang dapat diakses pengguna (defense-in-depth).
+  if (!daftarEkskulTerlihat(window.__daftarEkskul || []).includes(ekskul)) return showToast('error', 'Anda tidak memiliki akses ke ekstrakurikuler tersebut.');
   window.__ekskulAktif = ekskul;
   const headerNama = document.getElementById('ekskul-header-nama');
   if (headerNama) headerNama.textContent = ekskul ? `- ${ekskul}` : '';
@@ -16552,7 +17433,13 @@ async function renderTabProfilEkskul() {
   const aktif = window.__ekskulAktif;
   const akses = hakAksesEkskulUntuk(aktif);
   const isAdminGuru = akses === 'admin' || akses === 'guru';
-  const bolehKelolaAnggota = isAdminGuru || akses === 'pengurus'; // Tambah Anggota (req 1f)
+  // [REQ 1g] Dropdown "Ekskul-pilih" hanya menampilkan ekskul yang dapat diakses (walikelas/admin
+  // → semua; pembina → yang diampu; murid → yang diikuti/dijabat).
+  const daftarTerlihat = daftarEkskulTerlihat(daftar);
+  // [REQ 1f] "Tambah/Ikut Anggota" (Tambah, Import, Hapus, Export): admin/walikelas selalu;
+  // pembina guru hanya utk ekskul yg diampunya; murid hanya bila MENJABAT (pengurus) ekskul tsb.
+  const bolehKelolaAnggota = bolehKelolaAnggotaEkskul(aktif);
+  // [REQ 1g] Buat ekskul baru hanya untuk admin & wali kelas (manajer umum).
   const row = (cacheEkstrakurikuler || []).find(e => e.nama_ekskul === aktif) || {};
   const guruRows = window.__cacheGuruEkskul || [];
   // [REQ B3] Sub-ekstrakurikuler + penandaan sub anggota
@@ -16576,11 +17463,12 @@ async function renderTabProfilEkskul() {
   box.innerHTML = `
     <div class="p-4 space-y-3">
       <div class="flex gap-2 items-center flex-wrap">
-        <select id="ekskul-pilih" onchange="pilihEkskulModul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none">${daftar.map(e => `<option value="${escJs(e)}" ${e === aktif ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}</select>
+        <select id="ekskul-pilih" onchange="pilihEkskulModul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none">${daftarTerlihat.map(e => `<option value="${escJs(e)}" ${e === aktif ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}</select>
         ${subs.length > 0 ? `<select id="filter-sub-profil" onchange="gantiFilterSubAnggotaProfil(this.value)" class="bg-indigo-900/40 border border-indigo-500/40 text-indigo-200 font-bold rounded-lg px-3 py-2 text-xs outline-none">${optFilterSub}</select>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formEkstrakurikuler('${escJs(aktif)}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-pen"></i> Edit Profil</button>` : ''}
-        ${isAdminGuru ? `<button onclick="formEkstrakurikuler('')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-plus"></i> Tambah Ekskul</button>` : ''}
+        ${bolehBuatEkskulBaru() ? `<button onclick="formEkstrakurikuler('')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-plus"></i> Tambah Ekskul</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formTambahAnggotaEkskul()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-user-plus"></i> Tambah Anggota</button>` : ''}
+        ${bolehKelolaAnggota ? `<button onclick="formImportAnggotaEkskul()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Import anggota massal — tempel daftar NIS / upload Excel/CSV"><i class="fa-solid fa-file-import"></i> Import Anggota</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formHapusAnggotaEkskul()" class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Hapus sementara — tidak tercetak di export, dapat diaktifkan kembali"><i class="fa-solid fa-user-minus"></i> Hapus Anggota</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="exportAnggotaEkskulExcel()" class="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Export ke Excel"><i class="fa-solid fa-file-excel"></i></button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="exportAnggotaEkskulPDF()" class="bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Cetak PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
@@ -16946,7 +17834,8 @@ function renderDaftarTambahAnggota() {
 
 /** Modal Tambah Anggota: daftar siswa + filter ID Tahun & Kelas + ceklis (req 1b). */
 async function formTambahAnggotaEkskul() {
-  if (!ekskulAksesTermasukUntuk(window.__ekskulAktif, 'admin', 'guru', 'pengurus')) return showToast('error', 'Akses tidak diizinkan.');
+  // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
+  if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
   const aktif = window.__ekskulAktif;
   if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
   const anggotaSaatIni = await ambilAnggotaEkskul(aktif);
@@ -17022,7 +17911,124 @@ async function formTambahAnggotaEkskul() {
     renderTabEkskul();
   });
 }
+// ---------- IMPORT ANGGOTA MASSAL (REQ 3) ----------
+/** Muat library SheetJS (xlsx) dari CDN secara lambat — hanya saat file .xlsx/.xls dipilih. [REQ 3] */
+function muatXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error('Gagal memuat library Excel. Ekspor berkas ke CSV atau tempel daftar NIS.'));
+    document.head.appendChild(s);
+  });
+}
 
+/** Baca file teks (CSV/TXT) → kumpulan NIS (dipisah koma/tab/titik koma per baris). [REQ 3] */
+function ekstrakNisDariTeks(teks) {
+  const out = [];
+  String(teks || '').split(/\r?\n/).forEach(b => {
+    String(b).split(/[,;\t]/).map(x => x.trim()).filter(Boolean).forEach(t => {
+      const bersih = t.replace(/[^0-9A-Za-z-]/g, '');
+      if (bersih && !out.includes(bersih)) out.push(bersih);
+    });
+  });
+  return out;
+}
+
+/** Ekstrak NIS dari file (Excel via SheetJS; CSV/TXT native). [REQ 3] */
+async function ekstrakNisDariFile(file) {
+  const nama = String((file && file.name) || '').toLowerCase();
+  if (/\.xlsx$/.test(nama) || /\.xls$/.test(nama)) {
+    const XLSX = await muatXLSX();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    let kolomNis = 0;
+    if (rows[0]) {
+      const idx = rows[0].findIndex(h => /^nis$/i.test(String(h).trim()));
+      if (idx >= 0) kolomNis = idx;
+    }
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const v = String(rows[i][kolomNis] ?? '').trim().replace(/[^0-9A-Za-z-]/g, '');
+      if (v && !out.includes(v)) out.push(v);
+    }
+    return out;
+  }
+  const teks = await file.text();
+  return ekstrakNisDariTeks(teks);
+}
+
+/** Modal "Import Anggota" (khusus admin/pembina): tempel daftar NIS ATAU upload Excel/CSV,
+ *  lalu tambahkan massal ke ekskul aktif (lewati yang sudah menjadi anggota). [REQ 3] */
+async function formImportAnggotaEkskul() {
+  // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
+  if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
+  const aktif = window.__ekskulAktif;
+  if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
+  const anggotaSaatIni = await ambilAnggotaEkskul(aktif);
+  const sekarang = new Set(anggotaSaatIni.map(a => String(a.nis_nip || a.NIS || a.nis)));
+  const nisSet = new Set();
+  const bacaFile = async () => {
+    const file = document.getElementById('imp_file')?.files?.[0];
+    if (file) { try { (await ekstrakNisDariFile(file)).forEach(n => nisSet.add(n)); } catch (e) { console.warn('import file:', e); } }
+  };
+  const { value, isConfirmed } = await Swal.fire({
+    title: `<i class="fa-solid fa-file-import text-purple-400"></i> Import Anggota ${escapeHtml(aktif)}`,
+    html: `
+      <div class="text-left text-[11px] text-slate-300 mt-2">
+        <p class="mb-1 text-slate-400">Cara 1 — Tempel daftar NIS (satu per baris, atau dipisah koma):</p>
+        <textarea id="imp_nis" rows="5" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white outline-none" placeholder="12045&#10;12046, 12047"></textarea>
+        <p class="mb-1 mt-3 text-slate-400">Cara 2 — Upload file Excel (.xlsx/.xls) atau CSV yang berisi daftar/kolom NIS:</p>
+        <input type="file" id="imp_file" accept=".xlsx,.xls,.csv,.txt,text/csv,text/plain" class="block w-full text-[10px] text-slate-300 file:mr-2 file:rounded file:border-0 file:bg-purple-600 file:hover:bg-purple-700 file:text-white file:px-3 file:py-1.5 file:cursor-pointer file:text-xs bg-slate-800/60 border border-white/10 rounded p-1.5">
+        <p class="mt-2 text-[10px] text-slate-500">Hanya siswa yang <b>belum</b> menjadi anggota yang akan ditambahkan. NIS tidak dikenali akan dilaporkan.</p>
+      </div>`,
+    background: '#1e293b', color: '#fff', width: '46rem',
+    showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-user-plus"></i> Tambahkan Semua',
+    preConfirm: async () => {
+      const area = String(document.getElementById('imp_nis')?.value || '');
+      ekstrakNisDariTeks(area).forEach(n => nisSet.add(n));
+      await bacaFile();
+      return { nisSet };
+    }
+  });
+  if (!isConfirmed || !value) return;
+  await bacaFile();
+  if (nisSet.size === 0) return showToast('info', 'Tidak ada NIS yang terisi.');
+  const semua = window.__cacheMuridTambah || (await supaAmbilSemua(
+    supaClient.from('akun').select('nis_nip, nama_lengkap, tahun_pelajaran, tingkat_kelas, ekstrakurikuler').eq('tipe', 'murid')
+  ).catch(() => []));
+  window.__cacheMuridTambah = semua;
+  const petaMurid = {};
+  (semua || []).forEach(m => { if (m.nis_nip) petaMurid[String(m.nis_nip)] = m; });
+  const tambah = [], takDikenali = [], sudahAnggota = [];
+  const kiniTA = String((currentUser || {}).user ? ((currentUser.user['ID Tahun Pelajaran'] || currentTahun) || '') : currentTahun || '');
+  nisSet.forEach(n => {
+    if (sekarang.has(n)) { sudahAnggota.push(n); return; }
+    const m = petaMurid[n];
+    if (!m) { takDikenali.push(n); return; }
+    if (kiniTA && m.tahun_pelajaran && String(m.tahun_pelajaran) !== kiniTA) { takDikenali.push(n + ' (TA lain)'); return; }
+    tambah.push(n);
+  });
+  if (tambah.length === 0) {
+    const info = nisSet.size === 1 ? (takDikenali.length ? `NIS ${takDikenali[0]} tidak dikenali / belum punya akun.` : 'Siswa sudah menjadi anggota.') : 'Tidak ada siswa baru yang bisa ditambahkan.';
+    return showToast('info', info);
+  }
+  Swal.fire({ title: 'Menambah anggota…', didOpen: () => Swal.showLoading(), allowOutsideClick: false, showConfirmButton: false, background: '#1e293b', color: '#fff' });
+  let sukses = 0, gagal = 0, pesanErr = '';
+  try { const ok = await terapkanKeanggotaanEkskul(tambah, aktif, true); if (ok) sukses += tambah.length; else gagal++; }
+  catch (e) { gagal += tambah.length; pesanErr = e.message || ''; }
+  Swal.close();
+  if (gagal > 0) showToast('error', `${sukses} anggota ditambahkan, ${gagal} gagal: ${pesanErr}`);
+  else showToast('success', `${sukses} anggota ditambahkan ke ${aktif}`);
+  const rinci = [];
+  if (sudahAnggota.length) rinci.push(`${sudahAnggota.length} sudah anggota`);
+  if (takDikenali.length) rinci.push(`${takDikenali.length} tidak dikenali: ${takDikenali.slice(0, 6).join(', ')}${takDikenali.length > 6 ? '…' : ''}`);
+  if (rinci.length) showToast('info', rinci.join(' · '));
+  renderTabEkskul();
+}
 /** [MULTI-SUB] Popup checklist untuk memilih Sub-Ekskul kandidat pada modal Tambah Anggota (di memori). */
 async function formPilihSubTambahAnggota(nis, namaLengkap) {
   const daftarSub = window.__taSubList || [];
@@ -17096,7 +18102,8 @@ function pilihSemuaHapusAnggota(pilih) {
 
 /** Modal Hapus Anggota: hapus sementara (tidak tercetak di export, bisa diaktifkan kembali) — req 1c. */
 async function formHapusAnggotaEkskul() {
-  if (!ekskulAksesTermasukUntuk(window.__ekskulAktif, 'admin', 'guru', 'pengurus')) return showToast('error', 'Akses tidak diizinkan.');
+  // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
+  if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
   const aktif = window.__ekskulAktif;
   if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
   const anggota = await ambilAnggotaEkskul(aktif);
@@ -17201,7 +18208,8 @@ function getExportHTMLAnggotaEkskul(anggota, subMap = {}, daftarSub = []) {
 }
 
 async function exportAnggotaEkskulExcel() {
-  if (!ekskulAksesTermasukUntuk(window.__ekskulAktif, 'admin', 'guru', 'pengurus')) return showToast('error', 'Akses tidak diizinkan.');
+  // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
+  if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
   const aktif = window.__ekskulAktif || '';
   const anggota = await ambilAnggotaEkskul(aktif);
   if (!anggota.length) return showToast('error', 'Belum ada anggota untuk diexport.');
@@ -17214,6 +18222,8 @@ async function exportAnggotaEkskulExcel() {
 }
 
 async function exportAnggotaEkskulPDF() {
+  // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
+  if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
   const aktif = window.__ekskulAktif || '';
   const anggota = await ambilAnggotaEkskul(aktif);
   if (!anggota.length) return showToast('error', 'Belum ada anggota untuk dicetak.');
@@ -17442,11 +18452,12 @@ async function cetakAnggotaPerSub() {
 }
 
 function formEkstrakurikuler(namaLama) {
-  // [REQ 1c] Edit profil ekskul miliknya boleh oleh pengurus; buat ekskul baru hanya admin/guru
+  // [REQ 1f/1g] Edit profil ekskul: admin/wali kelas/pembina ekskul tsb/pengurus (menjabat).
+  //             Buat ekskul BARU: hanya admin & guru wali kelas (manajer umum).
   if (namaLama) {
-    if (!ekskulAksesTermasukUntuk(namaLama, 'admin', 'guru', 'pengurus')) return showToast('error', 'Akses tidak diizinkan.');
-  } else if (!ekskulAksesTermasuk('admin', 'guru')) {
-    return showToast('error', 'Akses khusus pembina/guru.');
+    if (!bolehKelolaAnggotaEkskul(namaLama)) return showToast('error', 'Akses tidak diizinkan.');
+  } else if (!bolehBuatEkskulBaru()) {
+    return showToast('error', 'Akses khusus admin/wali kelas.');
   }
   const isEdit = !!namaLama;
   const row = (cacheEkstrakurikuler || []).find(e => e.nama_ekskul === namaLama) || { deskripsi: '', pembina_nip: '', jadwal: '', logo_url: '' };

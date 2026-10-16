@@ -1,48 +1,58 @@
 -- ============================================================
--- UPGRADE: WAJAH MULTI-SAMPEL (AKURASI FACE SCAN) — 2026-10-14e
+-- UPGRADE: IZINKAN GURU (WALI KELAS/PEMBINA) SIMPAN WAJAH MURID — 2026-12-11
 -- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
 --
--- Isi:
---   1) Migrasi data: `wajah_descriptor` yang lama berbentuk FLAT [128 angka]
---      dibungkus menjadi array-of-arrays [[128 angka], ...] — format multi-sampel.
---   2) RPC `simpan_wajah_murid` dibuat ulang dengan parameter baru `p_mode`:
---        'ganti'  → timpa SELURUH data wajah murid (terima 1 ATAU beberapa sampel)
---        'tambah' → sisipkan 1 sampel di belakang data yang ada
---      cap 6 sampel per murid (validasi ketat di sisi server).
---   3) Overload RPC v1 (5 parameter) di-drop; grant + reload cache.
+-- LATAR BELAKANG:
+--   Menu "Data Akun Murid" kini menampilkan tombol "Wajah Masal" & "Sinkron Foto"
+--   untuk admin & guru (wali kelas / pembina ekskul) — lihat bisaImportMuridAktif()
+--   di web/js/app.js. Namun RPC `simpan_wajah_murid` selama ini hanya mengizinkan
+--   admin atau murid pemilik NIS, sehingga guru yang menjalankan scan wajah masal
+--   selalu ditolak ("Tidak berhak mengubah data wajah murid ini").
 --
--- Catatan desain:
---   * Pencocokan tetap SEPENUHNYA di browser (face-api.js): jarak MINIMUM ke
---     semua sampel per murid (min-distance matching), terinspirasi repo referensi
---     ManageWithNoobItGuy/GAS-attendance-facescanner-with-gps-V2 — TANPA Google
---     Sheets/Apps Script/GPS; data wajah tetap 100% disimpan di Supabase.
---   * Data lama yang masih flat TIDAK perlu didaftarkan ulang (kompatibel mundur:
---     frontend membaca flat maupun array-of-arrays).
+-- ISI UPGRADE:
+--   1) Helper `akun_guru_ampu_murid` dibuat PASTI ada (create or replace,
+--      idempotent) — bisa berdiri sendiri meski dijalankan sebelum upgrade_20261015.
+--   2) `simpan_wajah_murid` diubah: selain admin & murid pemilik, guru DIIZINKAN
+--      bila ia WALI KELAS murid tsb ATAU PEMBINA ekskul murid.
 --
--- Idempotent — aman dijalankan berulang.
+-- Idempotent (create or replace) — aman dijalankan berulang.
 -- ============================================================
 
--- ========== 1. MIGRASI DATA: FLAT → ARRAY-OF-ARRAYS ==========
--- Baris berformat LAMA: wajah_descriptor = [a1..a128] (elemen pertama angka).
--- Baris berformat BARU: wajah_descriptor = [[a1..a128], ...] (elemen pertama array).
-update akun
-   set wajah_descriptor = jsonb_build_array(wajah_descriptor)
- where wajah_descriptor is not null
-   and jsonb_typeof(wajah_descriptor) = 'array'
-   and jsonb_array_length(wajah_descriptor) = 128
-   and jsonb_typeof(wajah_descriptor -> 0) = 'number';
+-- ========== 1. HELPER (PASTI ADA): GURU MENGAMPU MURID? ==========
+create or replace function akun_guru_ampu_murid(p_guru_nis text, p_murid_nis text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if trim(coalesce(p_guru_nis, '')) = '' or trim(coalesce(p_murid_nis, '')) = '' then
+    return false;
+  end if;
+  return exists (
+    select 1
+    from akun g
+    join akun m on m.nis_nip = p_murid_nis and m.tipe = 'murid'
+    where g.nis_nip = p_guru_nis and g.tipe = 'guru'
+      and (
+        (lower(trim(coalesce(g.wali_kelas, ''))) <> ''
+         and lower(trim(g.wali_kelas)) = lower(trim(coalesce(m.tingkat_kelas, ''))))
+        or exists (
+          select 1
+          from unnest(string_to_array(g.ekstrakurikuler, ',')) ge
+          cross join unnest(string_to_array(m.ekstrakurikuler, ',')) me
+          where trim(ge) <> '' and lower(trim(ge)) = lower(trim(me))
+        )
+      )
+  );
+end $$;
 
--- ========== 2. RPC: SIMPAN / HAPUS DATA WAJAH (MULTI-SAMPEL) ==========
--- p_mode:
---   'ganti'  → mengganti seluruh koleksi sampel murid (p_descriptor boleh satu
---              vektor 128 ATAU array-of-arrays; maks 6 sampel).
---   'tambah' → menyisipkan SATU sampel (p_descriptor array 128) di belakang data
---              yang ada (otomatis membungkus data lama yang masih flat; cap 6).
--- p_status:
---   'aktif'     → daftarkan/mutakhirkan wajah (p_descriptor wajib terisi)
---   'nonaktif'  → nonaktifkan tanpa menghapus (sampel lama tetap, tidak dipakai)
---   NULL/''     → hapus seluruh data wajah murid
--- Otorisasi: admin ATAU murid pemilik NIS (untuk keperluan kelola mandiri).
+-- ========== 2. RPC: SIMPAN / HAPUS DATA WAJAH (MULTI-SAMPEL) — +IZIN GURU ==========
+-- Otorisasi:
+--   - admin                       : boleh penuh (termasuk masal).
+--   - murid pemilik NIS           : kelola mandiri.
+--   - guru (wali kelas/pembina)   : boleh pada murid yang diampu.
 create or replace function simpan_wajah_murid(
   p_nis text,
   p_descriptor jsonb default null,
@@ -81,10 +91,13 @@ begin
     return json_build_object('status', 'error', 'message', 'Data murid tidak ditemukan.');
   end if;
 
+  -- Otorisasi: admin, murid pemilik, atau guru wali kelas/pembina ekskul murid tsb.
   if p_pemanggil_tipe <> 'admin'
-     and not (p_pemanggil_tipe = 'murid' and p_pemanggil_nis = p_nis) then
+     and not (p_pemanggil_tipe = 'murid' and p_pemanggil_nis = p_nis)
+     and not (p_pemanggil_tipe = 'guru' and akun_guru_ampu_murid(p_pemanggil_nis, p_nis)) then
     return json_build_object('status', 'error', 'message', 'Tidak berhak mengubah data wajah murid ini.');
   end if;
+
 
   -- ===== Normalisasi + validasi p_descriptor =====
   if p_descriptor is not null then
@@ -167,9 +180,12 @@ begin
   end if;
 end $$;
 
+
 -- ========== 3. DROP OVERLOAD LAMA + IZIN + RELOAD CACHE ==========
 drop function if exists simpan_wajah_murid(text, jsonb, text, text, text);
 
+grant execute on function akun_guru_ampu_murid(text, text) to anon, authenticated;
 grant execute on function simpan_wajah_murid(text, jsonb, text, text, text, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
+
