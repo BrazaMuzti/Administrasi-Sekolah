@@ -13373,6 +13373,13 @@ async function renderManajemenGuru(container) {
              <select id="wk-jurusan" onchange="renderTabWaliKelas()" class="bg-black/40 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none max-w-[160px]" title="Filter Jurusan">
                 <option value="ALL">Semua Jurusan</option>
                 ${[...new Set((masterDataCache || []).map(m => (m["Jurusan"] || '').trim()).filter(Boolean))].map(j => `<option value="${escJs(j)}">${escapeHtml(j)}</option>`).join('')}
+             </select>`
+          : `<select id="pk-tahun" onchange="renderTabPembimbingEkskul()" class="bg-black/40 border border-white/20 rounded-lg px-2 py-2 text-[11px] text-white outline-none max-w-[130px]" title="Tahun Ajaran">
+                ${(() => {
+                    const list = [...new Set((masterDataCache || []).map(m => m["Tahun Pelajaran"]).filter(Boolean))];
+                    if (!list.includes(currentTahun)) list.unshift(currentTahun);
+                    return list.map(t => `<option value="${escJs(t)}" ${t === currentTahun ? 'selected' : ''}>TA ${escapeHtml(t)}</option>`).join('');
+                })()}
              </select>`;
 
         container.innerHTML = `
@@ -13382,7 +13389,7 @@ async function renderManajemenGuru(container) {
                         <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-chalkboard-user text-green-400 mr-2"></i> Data Akun Guru</h2>
                         <div class="flex gap-2 w-full sm:w-auto flex-wrap justify-end">${headerControls}</div>
                     </div>
-                    ${isAdmin ? `<div class="flex gap-2">${tabBtn('guru', 'Daftar Guru', 'fa-users')}${tabBtn('wali', 'Daftar Wali Kelas', 'fa-user-tie')}</div>` : ''}
+                    ${isAdmin ? `<div class="flex gap-2 flex-wrap">${tabBtn('guru', 'Daftar Guru', 'fa-users')}${tabBtn('wali', 'Daftar Wali Kelas', 'fa-user-tie')}${tabBtn('pembimbing', 'Pembimbing Ekstrakurikuler', 'fa-futbol')}</div>` : ''}
                 </div>
                 <div class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
                     ${currentTabAkunGuru === 'guru' ? `
@@ -13400,7 +13407,9 @@ async function renderManajemenGuru(container) {
                         <tbody id="tbody-guru" class="text-xs text-slate-200">
                             ${generateTbodyGuru(cacheAkunGuru)}
                         </tbody>
-                    </table>` : `<div id="wali-kelas-box" class="p-4"></div>`}
+                    </table>` : currentTabAkunGuru === 'pembimbing'
+                        ? `<div id="pembimbing-ekskul-box" class="p-4"></div>`
+                        : `<div id="wali-kelas-box" class="p-4"></div>`}
                 </div>
                 <div class="bg-slate-800/60 px-4 py-2 border-t border-white/10 text-[10px] text-slate-400">
                     <i class="fa-solid fa-shield-halved"></i> Password disimpan terenkripsi di Supabase Auth. Gunakan <i class="fa-solid fa-key"></i> untuk reset password.
@@ -13408,6 +13417,7 @@ async function renderManajemenGuru(container) {
             </div>
         `;
         if (currentTabAkunGuru === 'wali') await renderTabWaliKelas();
+        else if (currentTabAkunGuru === 'pembimbing') await renderTabPembimbingEkskul();
     } catch(e) {
         console.error("renderManajemenGuru:", e);
         container.innerHTML = `<div class="p-6 text-center text-red-400">Gagal memuat data guru: ${escapeHtml(e.message || 'Server Error')}</div>`;
@@ -13467,6 +13477,68 @@ function renderTabWaliKelas() {
                 <p class="text-[10px] text-slate-400">Tahun Ajaran ${escapeHtml(tahun)} · Total ${daftarWali.length} wali kelas</p>
             </div>
             ${grupHTML || `<div class="p-6 text-center text-slate-500 text-xs italic">Belum ada guru yang ditetapkan sebagai wali kelas. Tetapkan lewat form akun guru → "Penugasan per Tahun Pelajaran".</div>`}
+        </div>`;
+}
+
+/** ===== TAB PEMBIMBING EKSTRAKURIKULER: dikelompokkan per ekskul, per Tahun Pelajaran ===== */
+function renderTabPembimbingEkskul() {
+    const box = document.getElementById('pembimbing-ekskul-box');
+    if (!box) return;
+    const tahunEl = document.getElementById('pk-tahun');
+    const tahun = (tahunEl && tahunEl.value) ? tahunEl.value : currentTahun;
+
+    // Daftar ekskul dari Master Data (kategori "Ekstrakurikuler"), urut alfabetis + akhiran Sto
+    const listEkskul = urutAz(denganSto([...new Set((masterDataCache || []).map(m => mdVal(m, "Ekstrakurikuler", "ekstrakurikuler")).filter(Boolean))]));
+
+    // Kumpulkan pembimbing per ekskul
+    const grup = {};
+    listEkskul.forEach(eks => {
+        (cacheAkunGuru || []).forEach(g => {
+            if (guruPunyaEkskulTahun(g, eks, tahun)) {
+                (grup[eks] = grup[eks] || []).push(g);
+            }
+        });
+    });
+
+    const warna = ['bg-blue-600/30 text-blue-200 border-blue-500/40', 'bg-emerald-600/30 text-emerald-200 border-emerald-500/40', 'bg-amber-600/30 text-amber-200 border-amber-500/40', 'bg-purple-600/30 text-purple-200 border-purple-500/40', 'bg-rose-600/30 text-rose-200 border-rose-500/40', 'bg-cyan-600/30 text-cyan-200 border-cyan-500/40', 'bg-lime-600/30 text-lime-200 border-lime-500/40'];
+    const listEks = Object.keys(grup).sort((a, b) => a.localeCompare(b, 'id'));
+
+    const grupHTML = listEks
+        .map((eks, i) => {
+            const rows = (grup[eks] || [])
+                .map(g => ({
+                    nama: namaDenganGelar(g.nama_lengkap || g["Nama Guru"] || 'Tanpa Nama', g.gelar_depan, g.gelar_belakang),
+                    nip: g.nis_nip || g.NIP || '-',
+                    noHp: g.no_telepon || g.NoTelepon || '-'
+                }))
+                .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+            return `<div class="mb-5">
+                <div class="inline-flex items-center gap-2 mb-1.5 px-3 py-1 rounded-lg border text-[11px] font-bold ${warna[i % warna.length]}" title="Ekskul dari Master Data">
+                    <i class="fa-solid fa-futbol"></i> ${escapeHtml(eks)} <span class="text-[9px] font-normal opacity-80">(${rows.length} pembimbing)</span>
+                </div>
+                <table class="w-full text-left whitespace-nowrap">
+                    <thead class="bg-slate-900 text-[10px] uppercase text-slate-400">
+                        <tr><th class="px-4 py-2.5 text-center w-12">No</th><th class="px-4 py-2.5">NIP</th><th class="px-4 py-2.5">Nama Pembimbing</th><th class="px-4 py-2.5">No. HP</th></tr>
+                    </thead>
+                    <tbody class="text-xs text-slate-200">
+                        ${rows.map((d, n) => `<tr class="hover:bg-white/5 border-b border-white/5 transition">
+                            <td class="px-4 py-2.5 text-center">${n + 1}</td>
+                            <td class="px-4 py-2.5 font-mono text-green-300">${escapeHtml(d.nip)}</td>
+                            <td class="px-4 py-2.5 font-bold text-white">${escapeHtml(d.nama)}</td>
+                            <td class="px-4 py-2.5 text-slate-300">${escapeHtml(d.noHp)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        }).join('');
+
+    box.innerHTML = `
+        <div class="p-4">
+            <div class="text-center mb-4">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-user-tie text-indigo-400 mr-2"></i> Daftar Pembimbing Ekstrakurikuler</h3>
+                <p class="text-[10px] text-slate-400">Tahun Ajaran ${escapeHtml(tahun)} · ${listEks.length} ekskul · ${listEks.reduce((a, e) => a + (grup[e] || []).length, 0)} pembimbing</p>
+            </div>
+            ${grupHTML || `<div class="p-6 text-center text-slate-500 text-xs italic">Belum ada guru yang ditetapkan sebagai pembina ekskul. Tetapkan lewat form akun guru → "Penugasan per Tahun Pelajaran" → centang "Pembina Ekstrakurikuler".</div>`}
         </div>`;
 }
 
@@ -16072,15 +16144,15 @@ function ekskulDiampuGuru(ekskul) {
 
 /**
  * [REQ 1f] Boleh KELOLA ANGGOTA satu ekskul (Tambah/Import/Hapus/Export anggota).
- * - Admin & guru wali kelas (manajer umum) → ya (semua ekskul).
- * - Guru pembina → ya (hanya ekskul yang diampunya).
+ * - Admin → ya (semua ekskul).
+ * - Guru (role 'guru' apa pun — pembina, wali kelas, guru biasa) → ya.
  * - Murid yang MENJABAT (pengurus) pada ekskul tsb → ya.
- * - Lainnya (guru tanpa penugasan, murid anggota) → tidak.
+ * - Lainnya (murid anggota) → tidak.
  */
 function bolehKelolaAnggotaEkskul(ekskul) {
   const role = (currentUser || {}).role || '';
   if (role === 'admin') return true;
-  if (role === 'guru') return !!waliKelasAktif() || ekskulDiampuGuru(ekskul);
+  if (role === 'guru') return true;
   if (role === 'murid') return hakAksesEkskulUntuk(ekskul) === 'pengurus';
   return false;
 }

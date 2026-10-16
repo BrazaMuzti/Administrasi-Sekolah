@@ -14,8 +14,8 @@
 -- ISI:
 --   RPC security definer ubah_anggota_ekskul(p_pemanggil, p_ekskul,
 --   p_nis_list, p_tambah):
---     - Verifikasi pemanggil: ADMIN selalu boleh; GURU (pembina) bila
---       kolom akun.ekstrakurikuler memuat p_ekskul; MURID bila
+--     - Verifikasi pemanggil: ADMIN selalu boleh; GURU (semua role guru,
+--       termasuk pembina & wali kelas) boleh; MURID bila
 --       jabatan_ekskul_map->>p_ekskul terisi (pengurus).
 --     - Setiap NIS pada p_nis_list: gabung/buang nama ekskul pada kolom
 --       ekstrakurikuler murid (anti-duplikat, sama persis dengan logika
@@ -36,7 +36,6 @@ set search_path = public, extensions
 as $$
 declare
   v_tipe text;
-  v_ekstra_guru text;
   v_jabatan_map jsonb;
   v_nis text;
   v_ekstra_siswa text;
@@ -44,8 +43,8 @@ declare
   v_total int := 0;
 begin
   -- 1) Identitas pemanggil
-  select tipe, ekstrakurikuler, jabatan_ekskul_map
-  into v_tipe, v_ekstra_guru, v_jabatan_map
+  select tipe, jabatan_ekskul_map
+  into v_tipe, v_jabatan_map
   from akun
   where nis_nip = p_pemanggil;
 
@@ -58,13 +57,9 @@ begin
     -- admin selalu boleh
     null;
   elsif v_tipe = 'guru' then
-    -- pembina: namanya tercantum di kolom ekstrakurikuler
-    perform 1
-    from unnest(string_to_array(v_ekstra_guru, ',')) as x
-    where trim(x) <> '' and lower(trim(x)) = lower(trim(p_ekskul));
-    if not found then
-      return json_build_object('status', 'error', 'message', 'Anda bukan pembina ' || p_ekskul || '.');
-    end if;
+    -- Semua guru (role 'guru' apa pun) boleh mengubah anggota ekskul
+    -- (termasuk guru pembina, wali kelas, maupun guru biasa).
+    null;
   elsif v_tipe = 'murid' then
     -- pengurus: punya jabatan (tidak kosong) pada ekskul ini
     if v_jabatan_map is null or coalesce(trim(coalesce(v_jabatan_map->>p_ekskul, '')), '') = '' then
