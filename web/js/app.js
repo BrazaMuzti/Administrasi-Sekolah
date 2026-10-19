@@ -18861,19 +18861,27 @@ async function terapkanKeanggotaanEkskul(nis, ekskul, tambah) {
       if ((rpc || {}).status === 'error') throw new Error(rpc.message || 'Gagal memperbarui anggota.');
       return (rpc || {}).total > 0;
     }
-    if (String(error.code || '').toUpperCase() !== 'PGRST202') throw error; // RPC tersedia tapi gagal → stop
-  } catch (e) { throw e; }
-  // RPC belum ada (PGRST202) → fallback lama
-  const { data, error } = await supaClient.from('akun')
-    .select('ekstrakurikuler').eq('nis_nip', nis[0]).eq('tipe', 'murid').maybeSingle();
-  if (error) throw error;
-  if (!data) return false;
-  const baru = tambah ? gabungEkskulSiswa(data.ekstrakurikuler, ekskul) : buangEkskulSiswa(data.ekstrakurikuler, ekskul);
-  if (baru === String(data.ekstrakurikuler || '')) return false;
-  const { error: errUp } = await supaClient.from('akun')
-    .update({ ekstrakurikuler: baru }).eq('nis_nip', nis[0]).eq('tipe', 'murid');
-  if (errUp) throw errUp;
-  return true;
+    // RPC ada tapi gagal (mis. error kolom akun.updated_at tidak ada) → lanjut ke jalur langsung
+    console.warn('ubah_anggota_ekskul RPC gagal → fallback langsung ke akun:', error.code, error.message);
+  } catch (e) {
+    // RPC belum ada (PGRST202) atau salah lain → pakai jalur SELECT+UPDATE langsung
+    console.warn('ubah_anggota_ekskul tidak tersedia/salah → fallback langsung ke akun:', (e && e.message) || e);
+  }
+  // Fallback lama: SELECT+UPDATE langsung per NIS (tidak menyentuh kolom updated_at)
+  let total = 0;
+  for (const satu of nis) {
+    const { data, error } = await supaClient.from('akun')
+      .select('ekstrakurikuler').eq('nis_nip', satu).eq('tipe', 'murid').maybeSingle();
+    if (error) throw error;
+    if (!data) continue;
+    const baru = tambah ? gabungEkskulSiswa(data.ekstrakurikuler, ekskul) : buangEkskulSiswa(data.ekstrakurikuler, ekskul);
+    if (baru === String(data.ekstrakurikuler || '')) continue;
+    const { error: errUp } = await supaClient.from('akun')
+      .update({ ekstrakurikuler: baru }).eq('nis_nip', satu).eq('tipe', 'murid');
+    if (errUp) throw errUp;
+    total++;
+  }
+  return total > 0;
 }
 
 // ---------- TAMBAH ANGGOTA (req 1b) ----------

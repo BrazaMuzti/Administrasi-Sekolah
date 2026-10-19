@@ -1,0 +1,124 @@
+-- ============================================================
+-- FIX 2026-10-19: ubah_anggota_ekskul — kolom akun.updated_at TIDAK ADA
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG:
+--   RPC ubah_anggota_ekskul melakukan "update akun set ekstrakurikuler = v_baru,
+--   updated_at = now()". Tabel akun TIDAK memiliki kolom updated_at, sehingga
+--   saat "Tambah Anggota" / "Import Anggota" Ekstrakurikuler dijalankan muncul:
+--     column "updated_at" of relation "akun" does not exist
+--
+--   Perbaikan: hapus "updated_at = now()" dari statement update.
+--   Idempotent (create or replace) — aman dijalankan berulang.
+--
+--   CATATAN: web/js/app.js juga sudah diperkuat agar otomatis fallback ke
+--   jalur SELECT+UPDATE langsung bila RPC ini gagal (mis. sebelum file ini
+--   dijalankan di DB online).
+-- ============================================================
+
+create or replace function ubah_anggota_ekskul(p_pemanggil text, p_ekskul text, p_nis_list text[], p_tambah boolean)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_tipe text;
+  v_jabatan_map jsonb;
+  v_wali_kelas text;
+  v_ekstra text;
+  v_nis text;
+  v_ekstra_siswa text;
+  v_baru text;
+  v_total int := 0;
+begin
+  -- 1) Identitas pemanggil
+  select tipe, jabatan_ekskul_map, wali_kelas, ekstrakurikuler
+  into v_tipe, v_jabatan_map, v_wali_kelas, v_ekstra
+  from akun
+  where nis_nip = p_pemanggil;
+
+  if not found then
+    return json_build_object('status', 'error', 'message', 'Akun pemanggil tidak ditemukan.');
+  end if;
+
+  -- 2) Verifikasi hak akses per tipe
+  if v_tipe = 'admin' then
+    -- admin selalu boleh
+    null;
+  elsif v_tipe = 'guru' then
+    -- Guru WALI KELAS (kolom wali_kelas terisi) atau PEMBINA ekskul ini
+    -- (p_ekskul termasuk kolom ekstrakurikuler guru) yang boleh mengubah
+    -- anggota. Guru biasa (bukan wali kelas / bukan pembina ekskul tsb)
+    -- TIDAK diizinkan — senada dengan bolehKelolaAnggotaEkskul() di app.js.
+    if coalesce(trim(coalesce(v_wali_kelas, '')), '') = ''
+       and not (lower(trim(p_ekskul)) = any (
+            select lower(trim(x))
+            from unnest(string_to_array(coalesce(v_ekstra, ''), ',')) as t(x)
+            where trim(x) <> ''
+          ))
+    then
+      return json_build_object('status', 'error', 'message',
+        'Hanya wali kelas atau pembina ' || p_ekskul || ' yang dapat mengubah anggota.');
+    end if;
+  elsif v_tipe = 'murid' then
+    -- pengurus: punya jabatan (tidak kosong) pada ekskul ini
+    if v_jabatan_map is null or coalesce(trim(coalesce(v_jabatan_map->>p_ekskul, '')), '') = '' then
+      return json_build_object('status', 'error', 'message', 'Hanya pengurus (menjabat) ' || p_ekskul || ' yang dapat mengubah anggota.');
+    end if;
+  else
+    return json_build_object('status', 'error', 'message', 'Tipe akun pemanggil tidak dikenal.');
+  end if;
+
+  -- 3) Terapkan per NIS (gabung/buang nama ekskul, anti-duplikat)
+  if p_nis_list is null then
+    p_nis_list := array[]::text[];
+  end if;
+
+  foreach v_nis in array p_nis_list loop
+    if trim(coalesce(v_nis, '')) = '' then continue; end if;
+
+    select ekstrakurikuler into v_ekstra_siswa
+    from akun
+    where nis_nip = v_nis and tipe = 'murid'
+    for update;
+
+    if not found then continue; end if;
+
+    if p_tambah then
+      if lower(trim(p_ekskul)) = any (
+        select lower(trim(x)) from unnest(string_to_array(v_ekstra_siswa, ',')) as x where trim(x) <> ''
+      ) then
+        v_baru := v_ekstra_siswa; -- sudah jadi anggota → tidak ada perubahan
+      else
+        v_baru := case
+          when coalesce(trim(v_ekstra_siswa), '') = '' then trim(p_ekskul)
+          else trim(v_ekstra_siswa) || ',' || trim(p_ekskul)
+        end;
+      end if;
+    else
+      select string_agg(x, ',') into v_baru
+      from (
+        select trim(x) as x
+        from unnest(string_to_array(v_ekstra_siswa, ',')) as t(x)
+        where trim(x) <> '' and lower(trim(x)) <> lower(trim(p_ekskul))
+      ) s;
+      v_baru := coalesce(v_baru, '');
+    end if;
+
+    if coalesce(v_baru, '') = coalesce(v_ekstra_siswa, '') then continue; end if;
+
+    update akun
+    set ekstrakurikuler = v_baru
+    where nis_nip = v_nis;
+
+    v_total := v_total + 1;
+  end loop;
+
+  return json_build_object('status', 'success', 'total', v_total);
+end $$;
+
+-- ========== IZIN EKSEKUSI + RELOAD CACHE ==========
+grant execute on function ubah_anggota_ekskul(text, text, text[], boolean) to anon, authenticated;
+
+notify pgrst, 'reload schema';

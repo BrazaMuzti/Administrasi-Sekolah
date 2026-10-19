@@ -126,7 +126,7 @@ begin
     if coalesce(v_baru, '') = coalesce(v_ekstra_siswa, '') then continue; end if;
 
     update akun
-    set ekstrakurikuler = v_baru, updated_at = now()
+    set ekstrakurikuler = v_baru
     where nis_nip = v_nis;
 
     v_total := v_total + 1;
