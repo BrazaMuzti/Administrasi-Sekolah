@@ -17158,8 +17158,9 @@ function bolehGantiKunciAbsenEkskul(ekskul) {
 async function gantiKunciAbsenEkskul(ekskul, captcha, kunci) {
   if (!bolehGantiKunciAbsenEkskul(ekskul)) return showToast('error', 'Akses tidak diizinkan.');
   const role = (currentUser || {}).role || '';
+  const sesi_ = (currentUser || {}).user || {};
   if (role === 'admin') {
-    const nip = String((currentUser || {}).nis_nip || (barisGuruSesi() || {}).nis_nip || '');
+    const nip = String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || '');
     if (!nip) return showToast('error', 'Data akun admin tidak ditemukan.');
     const { error: errUp } = await supaClient.from('akun')
       .update({ captcha: String(captcha || '').trim().toUpperCase(), kunci_absen: kunci === 'BUKA' ? 'BUKA' : 'TUTUP' })
@@ -17168,7 +17169,7 @@ async function gantiKunciAbsenEkskul(ekskul, captcha, kunci) {
     return true;
   }
   const { data: rpc, error } = await supaClient.rpc('ganti_kunci_absen_ekskul', {
-    p_pemanggil: String((currentUser || {}).nis_nip || (barisGuruSesi() || {}).nis_nip || ''),
+    p_pemanggil: String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || ''),
     p_ekskul: String(ekskul || ''),
     p_captcha: String(captcha || ''),
     p_kunci: String(kunci || '')
@@ -18846,8 +18847,10 @@ async function terapkanKeanggotaanEkskul(nis, ekskul, tambah) {
   if (!Array.isArray(nis)) nis = [nis]; // terima nis tunggal atau daftar
   nis = nis.filter(Boolean);
   if (!nis.length) return false;
+  const sesi_ = (currentUser || {}).user || {};
+  const idPemanggil = String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || '');
   const cmd = {
-    p_pemanggil: String((currentUser || {}).nis_nip || (barisGuruSesi() || {}).nis_nip || ''),
+    p_pemanggil: idPemanggil,
     p_ekskul: String(ekskul || ''),
     p_nis_list: nis,
     p_tambah: !!tambah
