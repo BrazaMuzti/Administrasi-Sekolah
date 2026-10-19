@@ -154,23 +154,68 @@ async function ambilDaftarEkskul() {
   return urutAz([...new Set([...dariTabel, ...dariMaster])]);
 }
 
-/** Anggota ekskul: murid (tabel akun) yang kolom Ekstrakurikuler-nya memuat ekskul terpilih. */
-async function ambilAnggotaEkskul(ekskul) {
+/** Anggota ekskul: murid (tabel akun) yang keanggotaannya memuat ekskul terpilih.
+ *  [SEMESTER] Bila `smt` diisi: hanya anggota yang ikut ekskul tsb pada semester itu
+ *  (dari riwayat_ekskul[TA].smt[ekskul]; ekskul tanpa kunci smt = ikut kedua semester). */
+async function ambilAnggotaEkskul(ekskul, ta, smt) {
   if (!ekskul) return [];
-  const kolom = 'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, jabatan_ekskul_map, tgl_lahir';
+  const kolom = 'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, jabatan_ekskul_map, tgl_lahir, riwayat_ekskul';
   let { data, error } = await supaClient.from('akun')
     .select(kolom)
     .eq('tipe', 'murid')
     .ilike('ekstrakurikuler', `%${ekskul}%`);
-  // Kolom jabatan_ekskul_map belum ada (migrasi 20260926 belum dijalankan) → coba tanpa kolom itu
-  if (error && /jabatan_ekskul_map/i.test(error.message || '')) {
+  // Kolom jabatan_ekskul_map / riwayat_ekskul belum ada (migrasi belum dijalankan) → coba tanpa kolom itu
+  if (error && /(jabatan_ekskul_map|riwayat_ekskul)/i.test(error.message || '')) {
     ({ data, error } = await supaClient.from('akun')
       .select('nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, tgl_lahir')
       .eq('tipe', 'murid')
       .ilike('ekstrakurikuler', `%${ekskul}%`));
   }
   if (error) { console.warn('ambilAnggotaEkskul:', error); return []; }
-  return data || [];
+  // [TA] Saring sesuai keanggotaan pada Tahun Pelajaran yang dipilih. Skenario:
+  //   ta tidak dipilih (null)        → pakai TA aktif modul (getCurrentTAEkskul).
+  //   akun belum punya riwayat       → pakai kolom ekstrakurikuler (live), kompatibilitas lama.
+  //   akun sudah punya riwayat       → hanya ekskul milik murid pada TA tsb
+  //     (TA tanpa entri = roster kosong; lihat ekskulMuridUntukTA).
+  const taFinal = ta || getCurrentTAEkskul();
+  return (data || []).filter(m => muridAnggotaEkskulPadaTA(m, ekskul, taFinal, smt));
+}
+
+/** [TA] Daftar ekskul milik murid untuk TA tertentu, dari akun.riwayat_ekskul[TA].
+ *  Kebijakan konsisten dengan roster Hadir Tatap Muka (get_dashboard_data):
+ *  - akun belum punya riwayat_ekskul sama sekali (migrasi belum dijalankan / kosong)
+ *    → fallback ke kolom ekstrakurikuler (live) untuk kompatibilitas data lama.
+ *  - akun sudah punya riwayat_ekskul (terisi, mis. hasil migrasi) → keanggotaan
+ *    ditentukan per TA; TA TANPA entri = bukan anggota TA tsb (roster kosong),
+ *    sehingga TA baru memang kosong sampai ada penambahan anggota lewat RPC.
+ *  [SEMESTER] Bila `smt` diisi: ekskul yang TIDAK termasuk dalam riwayat_ekskul[TA].smt[ekskul]
+ *  disaring. Ekskul yang tidak punya kunci smt dianggap aktif di SEMUA semester. */
+function ekskulMuridUntukTA(m, ta, smt) {
+  const live = String((m && (m.ekstrakurikuler || m["Ekstrakurikuler"])) || '').split(',').map(e => e.trim()).filter(Boolean);
+  const rw = (m && m.riwayat_ekskul && typeof m.riwayat_ekskul === 'object') ? m.riwayat_ekskul : null;
+  if (!rw || Object.keys(rw).length === 0) return live;
+  const e = ta ? rw[ta] : null;
+  if (!e || typeof e !== 'object') return [];
+  const st = String(e.status || 'Aktif').trim();
+  if (st && st.toLowerCase() !== 'aktif') return [];
+  let daftar = String(e.ekskul || '').split(',').map(x => x.trim()).filter(Boolean);
+  // Filter per semester bila diminta.
+  if (smt) {
+    const smtMap = (e.smt && typeof e.smt === 'object' && !Array.isArray(e.smt)) ? e.smt : null;
+    daftar = daftar.filter(x => {
+      // Tanpa kunci smt → ikut di semua semester (backward-compat).
+      if (!smtMap || !Array.isArray(smtMap[x])) return true;
+      return (smtMap[x] || []).some(s => String(s).toLowerCase() === String(smt).toLowerCase());
+    });
+  }
+  return daftar;
+}
+
+/** [TA] Apakah murid `m` anggota ekskul `ekskul` pada TA `ta` (opsional filter semester `smt`). */
+function muridAnggotaEkskulPadaTA(m, ekskul, ta, smt) {
+  const target = String(ekskul || '').toLowerCase();
+  if (!target) return false;
+  return ekskulMuridUntukTA(m, ta, smt).some(e => String(e).toLowerCase() === target);
 }
 
 /** [REQ 1a] Peta jabatan ekskul anggota: nis → jabatan (dari kolom akun.jabatan_ekskul_map[ekskul]). */
@@ -2515,11 +2560,26 @@ async function renderAbsensiModule(container) {
     } catch (e) { console.warn('jadwal_pelajaran (absensi):', e); }
   }
 
-  let listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))];
-  if (listTahun.length > 0 && !listTahun.includes(currentTahun)) currentTahun = listTahun[0];
+  // [A-Z] Filter "Pilih Tahun" opsi-nya diurutkan naik (A-Z = kronologis).
+  let listTahun = [...new Set(masterDataCache.map(m => m["Tahun Pelajaran"]).filter(Boolean))].sort();
+  // [FIX-HADIR-B] Default "Pilih Tahun" mengikuti Tahun Pendaftaran Ekstrakurikuler
+  // (getCurrentTAEkskul), bukan semata listTahun[0]/currentTahun global. Supaya bila anggota
+  // mendaftar pada TA "2026/2027" (tercatat di riwayat_ekskul), opsi pilihan pun tetap
+  // "2026/2027" dan roster Daftar Hadir Ekstrakurikuler menampilkan anggota yang sama.
+  const taDefaultEkskul = getCurrentTAEkskul();
+  if (listTahun.length > 0 && listTahun.includes(taDefaultEkskul)) currentTahun = taDefaultEkskul;
+  else if (listTahun.length > 0 && !listTahun.includes(currentTahun)) currentTahun = listTahun[0];
   let listKelas = urutAz([...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))]);
   let listMapel = urutAz([...new Set(masterDataCache.map(m => m["Mata Pelajaran"]).filter(Boolean))]);
-  let listEkskul = urutAz([...new Set(masterDataCache.map(m => m["Ekstrakurikuler"]).filter(Boolean))]);
+  // [FIX-HADIR] Kategori Ekstrakurikuler (di "Pilih Mapel / Ekskul") harus berisi SEMUA
+  // ekskul: gabungan tabel `ekstrakurikuler` (menu Ekstrakurikuler) + kolom "Ekstrakurikuler"
+  // Master Data. Sebelumnya hanya dari Master Data → ekskul yang terdaftar hanya di tabel
+  // ("Anggota Aktif") tidak muncul di kategori absensi.
+  let listEkskul = await ambilDaftarEkskul();
+  // [FIX-HADIR-A.1] Filter kategori Ekskul (Pilih Mapel / Ekskul) sesuai akses pengguna:
+  // pembina (guru non-manajer-umum) hanya melihat ekskul yang diampunya - konsisten dengan
+  // daftarEkskulTerlihat() pada modul Ekstrakurikuler. Admin dan wali kelas (manajer umum) = semua.
+  listEkskul = daftarEkskulTerlihat(listEkskul);
 
   if(role === 'murid') { 
     listKelas = [user["Tingkat/Kelas"]]; 
@@ -10368,6 +10428,16 @@ async function openFormAkunMurid(isNew, data = {}) {
                 </div>
             </div>
 
+            <div class="sm:col-span-2 grid grid-cols-2 gap-2">
+                <div><label class="${lbl} mb-1 block"><i class="fa-regular fa-calendar mr-1"></i>Tahun Pelajaran Keanggotaan <span class="font-normal text-slate-400">(riwayat_ekskul)</span></label>
+                    <select id="f_ekskul_ta" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500">${(daftarTAEkskul().length ? daftarTAEkskul() : listTahun).map(t => `<option value="${escJs(t)}" ${t === getCurrentTAEkskul() ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select>
+                </div>
+                <div><label class="${lbl} mb-1 block"><i class="fa-solid fa-leaf mr-1"></i>Semester Keanggotaan <span class="font-normal text-slate-400">(daftar hadir/nilai)</span></label>
+                    <select id="f_ekskul_smt" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500">${(['Ganjil','Genap']).map(s => `<option value="${s}" ${currentSemesterEkskul === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select>
+                </div>
+            </div>
+
+
             ${sec('Catatan & Keamanan')}
             <div class="sm:col-span-2 grid grid-cols-2 gap-2">
                 <div><label class="${lbl}">Catatan Khusus</label><input id="f_catatan" value="${escJs(catatanV)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 mt-0.5 text-white outline-none focus:border-blue-500"></div>
@@ -10426,6 +10496,10 @@ async function openFormAkunMurid(isNew, data = {}) {
                     : [];
             });
 
+            // [SEMESTER] TA & Semester Keanggotaan pilihan User (dipakai dual-write riwayat_ekskul[TA].smt)
+            const ekskulTa = (document.getElementById('f_ekskul_ta') || {}).value || getCurrentTAEkskul();
+            const ekskulSmt = (document.getElementById('f_ekskul_smt') || {}).value || currentSemesterEkskul;
+
             return {
                 nis: nisVal,
                 nama_lengkap: namaVal,
@@ -10455,6 +10529,8 @@ async function openFormAkunMurid(isNew, data = {}) {
                 url_foto: formFotoMurid.hapus ? '' : (formFotoMurid.dataUrl ? 'SEDANG_DIUPLOAD' : (data.url_foto || '')),
                 catatan_khusus: document.getElementById('f_catatan').value.trim(),
                 password: passVal,
+                _ekskulTa: ekskulTa,
+                _ekskulSmt: ekskulSmt,
                 _subEkskul: subEkskulTerpilih
             };
 
@@ -11890,6 +11966,35 @@ async function simpanAkunMurid(formData, isNew) {
     if (!rw[currentTahun] && kelasAktif) rw[currentTahun] = { kelas: kelasAktif, status: 'Aktif', ket: '' };
     await supaClient.from('akun').update({ riwayat_kelas: rw, tingkat_kelas: kelasAktif || String(formData.tingkat_kelas || '') }).eq('nis_nip', String(formData.nis || ''));
   } catch (eRw) { console.warn('Riwayat murid (dual-write):', eRw); }
+  // [SEMESTER] Dual-write riwayat_ekskul: catat Tahun Pelajaran & Semester Keanggotaan terpilih di
+  // form (riwayat_ekskul[TA].smt[ekskul]) agar dimensi per-TA/per-semester konsisten dengan
+  // daftar hadir/nilai modul Ekstrakurikuler. Konsisten dengan pola dual-write riwayat_kelas.
+  try {
+    const ekskulTa = formData._ekskulTa || getCurrentTAEkskul();
+    const ekskulSmt = formData._ekskulSmt || currentSemesterEkskul;
+    const liveEkskul = String(formData.ekstrakurikuler || '').split(',').map(e => e.trim()).filter(Boolean);
+    const nisStr = String(formData.nis || '');
+    const { data: eRow, error: eErr } = await supaClient.from('akun')
+      .select('riwayat_ekskul').eq('nis_nip', nisStr).eq('tipe', 'murid').maybeSingle();
+    if (!eErr && eRow) {
+      const riwayat = (eRow.riwayat_ekskul && typeof eRow.riwayat_ekskul === 'object') ? { ...eRow.riwayat_ekskul } : {};
+      const entri = (riwayat[ekskulTa] && typeof riwayat[ekskulTa] === 'object') ? { ...riwayat[ekskulTa] } : {};
+      const smtMap = (entri.smt && typeof entri.smt === 'object' && !Array.isArray(entri.smt)) ? { ...entri.smt } : {};
+      liveEkskul.forEach(ek => {
+        const lama = Array.isArray(smtMap[ek]) ? smtMap[ek] : [];
+        if (!lama.some(s => String(s).toLowerCase() === String(ekskulSmt).toLowerCase())) smtMap[ek] = [...lama, ekskulSmt];
+      });
+      riwayat[ekskulTa] = {
+        ...entri,
+        ekskul: liveEkskul.join(', '),
+        jabatan_map: entri.jabatan_map || formData.jabatan_ekskul_map || {},
+        smt: smtMap,
+        status: 'Aktif'
+      };
+      await supaClient.from('akun').update({ riwayat_ekskul: riwayat }).eq('nis_nip', nisStr).eq('tipe', 'murid');
+    }
+  } catch (eEks) { console.warn('Riwayat ekskul murid (dual-write):', eEks); }
+
   // Sinkronkan keanggotaan sub-ekstrakurikuler (tabel sub_ekstrakurikuler.anggota) sesuai pilihan form
   try {
     const subEkskul = formData._subEkskul || {};
@@ -17029,6 +17134,53 @@ async function renderDashboardUtama(container) {
 // ==========================================
 let currentTabEkskul = 'profil';
 
+// [TA] Tahun Pelajaran yang sedang dilihat pada Modul Ekstrakurikuler.
+// null = otomatis (TA berjalan dari Master Data / currentTahun saat modul dibuka).
+let currentTAEkskul = null;
+
+/** [TA] Daftar Tahun Pelajaran yang tersedia (dari Master Data), A-Z. */
+function daftarTAEkskul() {
+  return urutAz([...new Set((masterDataCache || []).map(m => m["Tahun Pelajaran"]).filter(Boolean))]);
+}
+
+/** [TA] Tahun Pelajaran aktif Modul Ekstrakurikuler (fallback ke currentTahun / TA pertama). */
+function getCurrentTAEkskul() {
+  if (currentTAEkskul && daftarTAEkskul().includes(currentTAEkskul)) return currentTAEkskul;
+  const daftar = daftarTAEkskul();
+  if (daftar.length) {
+    // [A.4] Default = Tahun Pelajaran yang memuat tahun kalender berjalan (waktu sekarang),
+    // mis. Oktober 2026 -> pilih 2026/2027. Jatuh ke TA pertama bila tak cocok.
+    const tahunSekarang = String(new Date().getFullYear());
+    const cocok = daftar.find(t => String(t).split('/')[0] === tahunSekarang);
+    if (cocok) return cocok;
+    return daftar[0];
+  }
+  return currentTahun || "";
+}
+
+/** [TA] Ganti Tahun Pelajaran pada Modul Ekstrakurikuler (dari dropdown header). */
+function gantiTAEkskul(ta) {
+  currentTAEkskul = ta || null;
+  renderEkstrakurikulerModule(document.getElementById('main-content'));
+}
+
+// [SEMESTER] Semester yang sedang dilihat pada Modul Ekstrakurikuler (default = semester berjalan).
+let currentSemesterEkskul = semesterEkskulDefault();
+
+/** [SEMESTER] Default semester berjalan: Juli–Des (bulan >= 6) = Ganjil, Jan–Jun = Genap. */
+function semesterEkskulDefault() {
+  const b = new Date().getMonth();
+  return (b >= 6) ? 'Ganjil' : 'Genap';
+}
+
+/** [SEMESTER] Ganti semester pada Modul Ekstrakurikuler (dari dropdown header). */
+function gantiSemesterEkskul(smt) {
+  const v = (smt === 'Genap' ? 'Genap' : (smt === 'Ganjil' ? 'Ganjil' : semesterEkskulDefault()));
+  currentSemesterEkskul = v;
+  renderTabEkskul();
+}
+
+
 /** Peran akses modul Ekstrakurikuler: 'admin' | 'guru' | 'pengurus' | 'anggota' (req 1f/1g). */
 function hakAksesEkskul() {
   const role = (currentUser || {}).role || '';
@@ -17248,15 +17400,28 @@ async function renderEkstrakurikulerModule(container) {
       <div class="glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[85vh]">
         <div class="bg-slate-800/80 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-3">
           <h2 class="text-sm sm:text-base font-bold text-white uppercase tracking-wider"><i class="fa-solid fa-medal text-yellow-400 mr-2"></i> Ekstrakurikuler <span id="ekskul-header-nama" class="text-yellow-300">${window.__ekskulAktif ? '- ' + escapeHtml(window.__ekskulAktif) : ''}</span></h2>
-          <div class="flex gap-2 w-full sm:w-auto p-1 bg-black/40 rounded-lg flex-wrap justify-center">
-            ${tabBtn('info', 'Info Ekskul', 'fa-circle-info', true)}
-            ${tabBtn('persuratan', 'Persuratan & Proposal', 'fa-file-signature', bolehKelolaPenuh)}
-            ${tabBtn('profil', 'Profil & Anggota', 'fa-users', true)}
-            ${tabBtn('keuangan', 'Keuangan & Kas', 'fa-wallet', true)}
-            ${tabBtn('jurnal', 'Jurnal & Program Kerja', 'fa-calendar-check', true)}
-            ${tabBtn('arsip', 'Arsip & Penilaian', 'fa-award', true)}
-            ${bolehKelolaPenuh ? `<button onclick="bukaAbsensiEkskul()" class="px-3 sm:px-4 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition" title="Absensi Ekskul terpilih"><i class="fa-solid fa-clipboard-user mr-1"></i> Hadir Tatap Muka</button>` : ''}
-            ${bolehKelolaPenuh ? `<button onclick="bukaNilaiEkskul()" class="px-3 sm:px-4 py-1.5 rounded text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition"><i class="fa-solid fa-star mr-1"></i> Nilai</button>` : ''}
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- [TA/SEMESTER REQ 2] Pemilih Tahun Pelajaran, Semester & pilih ekskul dipindah ke header
+                 agar berlaku lintas-tab, sebelum tombol "Hadir Tatap Muka". -->
+            <div class="flex items-center gap-1.5 flex-wrap justify-center" title="Tahun Pelajaran & Semester — keanggotaan disaring per tahun & semester ini">
+              <select id="ekskul-tahun" onchange="gantiTAEkskul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-2 py-1.5 text-xs text-white outline-none" title="Tahun Pelajaran Keanggotaan">
+                ${daftarTAEkskul().map(t => `<option value="${escJs(t)}" ${t === getCurrentTAEkskul() ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+              </select>
+              <select id="ekskul-semester" onchange="gantiSemesterEkskul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-2 py-1.5 text-xs text-white outline-none" title="Semester Keanggotaan (ekskul-Semester)">
+                <option value="Ganjil" ${currentSemesterEkskul === 'Ganjil' ? 'selected' : ''}>Ganjil</option>
+                <option value="Genap" ${currentSemesterEkskul === 'Genap' ? 'selected' : ''}>Genap</option>
+              </select>
+            </div>
+            <div class="flex gap-2 p-1 bg-black/40 rounded-lg flex-wrap justify-center">
+              ${tabBtn('info', 'Info Ekskul', 'fa-circle-info', true)}
+              ${tabBtn('persuratan', 'Persuratan & Proposal', 'fa-file-signature', bolehKelolaPenuh)}
+              ${tabBtn('profil', 'Profil & Anggota', 'fa-users', true)}
+              ${tabBtn('keuangan', 'Keuangan & Kas', 'fa-wallet', true)}
+              ${tabBtn('jurnal', 'Jurnal & Program Kerja', 'fa-calendar-check', true)}
+              ${tabBtn('arsip', 'Arsip & Penilaian', 'fa-award', true)}
+              ${bolehKelolaPenuh ? `<button onclick="bukaAbsensiEkskul()" class="px-3 sm:px-4 py-1.5 rounded text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition" title="Absensi Ekskul terpilih"><i class="fa-solid fa-clipboard-user mr-1"></i> Hadir Tatap Muka</button>` : ''}
+              ${bolehKelolaPenuh ? `<button onclick="bukaNilaiEkskul()" class="px-3 sm:px-4 py-1.5 rounded text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition"><i class="fa-solid fa-star mr-1"></i> Nilai</button>` : ''}
+            </div>
           </div>
         </div>
         <div id="content-ekskul" class="flex-1 overflow-auto custom-scrollbar bg-[#0f172a]">
@@ -17281,7 +17446,7 @@ function pilihEkskulModul(ekskul) {
   window.__ekskulAktif = ekskul;
   const headerNama = document.getElementById('ekskul-header-nama');
   if (headerNama) headerNama.textContent = ekskul ? `- ${ekskul}` : '';
-  renderTabEkskul();
+  renderTabEkskul(); // render tab ulang → select ekskul-pilih pada Info tab otomatis sinkron
 }
 async function renderTabEkskul() {
   if (currentTabEkskul === 'info') return renderTabInfoEkskul();
@@ -17425,7 +17590,11 @@ async function renderTabInfoEkskul() {
             <p class="text-xs"><span class="text-slate-400 font-bold">Pembina:</span><span class="align-middle"> ${htmlPembinaEkskul(row, guruRows, aktif)}</span></p>
             ${(Array.isArray(row.pelatih) && row.pelatih.length) ? `<p class="text-xs mt-1"><span class="text-slate-400 font-bold">Pelatih:</span> ${row.pelatih.map(p => `${escapeHtml(p.nama || '-')}${p.spesialisasi ? ` (${escapeHtml(p.spesialisasi)})` : ''}${p.no_telepon ? ` — ${linkWA(p.no_telepon, 'Assalamualaikum, terkait ekstrakurikuler ' + aktif + '.')}` : ''}`).join('<br>')}</p>` : ''}
           </div>
-          <select id="ekskul-pilih" onchange="pilihEkskulModul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none shrink-0">${daftar.map(e => `<option value="${escJs(e)}" ${e === aktif ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}</select>
+          <div class="flex flex-col items-end gap-1.5 shrink-0 text-right">
+            <select id="ekskul-pilih" onchange="pilihEkskulModul(this.value)" class="bg-slate-700 border border-white/20 rounded-lg px-3 py-2 text-xs text-white outline-none shrink-0">${daftar.map(e => `<option value="${escJs(e)}" ${e === aktif ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}</select>
+            <span class="text-[10px] text-sky-300 font-bold" title="Tahun Pelajaran & Semester keanggotaan aktif (atur lewat dropdown di header)"><i class="fa-regular fa-calendar text-blue-400"></i> ${escapeHtml(getCurrentTAEkskul())} — Smt ${escapeHtml(currentSemesterEkskul)}</span>
+            <span class="text-[9px] text-slate-500">Tahun &amp; Semester diatur di header modul</span>
+          </div>
         </div>
       </div>
       <div class="flex gap-2 items-center justify-end flex-wrap">
@@ -17478,7 +17647,7 @@ async function renderTabInfoEkskul() {
   // Kartu "Jadwal Piket" (read-only, default ringkas = hari ini & besok) — sebaris penuh di bawah grid Pengumuman+Agenda.
   muatInfoPiketEkskul(aktif);
 
-  const anggota = await ambilAnggotaEkskul(aktif);
+  const anggota = await ambilAnggotaEkskul(aktif, null, currentSemesterEkskul);
   const petaJab = petaJabatanAnggota(aktif, anggota);
 
   const subs = await ambilSubEkskul(aktif);
@@ -18570,6 +18739,9 @@ async function renderTabProfilEkskul() {
         ${bolehKelolaAnggota ? `<button onclick="formTambahAnggotaEkskul()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition"><i class="fa-solid fa-user-plus"></i> Tambah Anggota</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formImportAnggotaEkskul()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Import anggota massal — tempel daftar NIS / upload Excel/CSV"><i class="fa-solid fa-file-import"></i> Import Anggota</button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="formHapusAnggotaEkskul()" class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Hapus sementara — tidak tercetak di export, dapat diaktifkan kembali"><i class="fa-solid fa-user-minus"></i> Hapus Anggota</button>` : ''}
+        ${hakAksesEkskul() === 'admin' ? `<button onclick="formHapusPermanenAnggotaEkskul()" class="bg-red-800 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Hapus permanen (khusus admin) — benar-benar membuang keanggotaan &amp; sub-ekskul pada TA terpilih, tidak dapat dipulihkan"><i class="fa-solid fa-trash-can"></i> Hapus Permanen</button>` : ''}
+        ${hakAksesEkskul() === 'admin' ? `<button onclick="formMigrasiKeanggotaanEkskul()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Migrasi keanggotaan ke TA/semester berikutnya (khusus admin)"><i class="fa-solid fa-arrows-rotate"></i> Migrasi</button>` : ''}
+
         ${bolehKelolaAnggota ? `<button onclick="exportAnggotaEkskulExcel()" class="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Export ke Excel"><i class="fa-solid fa-file-excel"></i></button>` : ''}
         ${bolehKelolaAnggota ? `<button onclick="exportAnggotaEkskulPDF()" class="bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-bold transition" title="Cetak PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
       </div>
@@ -18586,7 +18758,7 @@ async function renderTabProfilEkskul() {
       <div id="anggota-ekskul" class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat anggota...</div>
       <div id="jabatan-ekskul" class="text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat daftar jabatan...</div>
     </div>`;
-  const anggota = (await ambilAnggotaEkskul(aktif))
+  const anggota = (await ambilAnggotaEkskul(aktif, null, currentSemesterEkskul))
     .slice()
     .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || '')));
   const petaJab = petaJabatanAnggota(aktif, anggota);
@@ -18842,42 +19014,80 @@ function buangEkskulSiswa(lama, ekskul) {
 /** Ubah keanggotaan satu siswa pada satu ekskul; return true bila ada perubahan.
  *  [ADMIN/PEMBINA] Pakai RPC security definer `ubah_anggota_ekskul` bila tersedia,
  *  sehingga sesi `authenticated` (admin & guru/pembina) ikut bisa menulis — hindari
- *  error "permission denied for table akun". Fallback ke jalur SELECT+UPDATE lama. */
-async function terapkanKeanggotaanEkskul(nis, ekskul, tambah) {
+ *  error "permission denied for table akun". Fallback ke jalur SELECT+UPDATE lama.
+ *  [SEMESTER] `smt` (Ganjil/Genap, default semester aktif modul) dicatat ke
+ *  riwayat_ekskul[TA].smt[ekskul] → keanggotaan dapat dibedakan per semester. */
+async function terapkanKeanggotaanEkskul(nis, ekskul, tambah, ta, smt, keluar) {
   if (!Array.isArray(nis)) nis = [nis]; // terima nis tunggal atau daftar
   nis = nis.filter(Boolean);
   if (!nis.length) return false;
   const sesi_ = (currentUser || {}).user || {};
   const idPemanggil = String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || '');
-  const cmd = {
-    p_pemanggil: idPemanggil,
-    p_ekskul: String(ekskul || ''),
-    p_nis_list: nis,
-    p_tambah: !!tambah
-  };
-  try {
-    const { data: rpc, error } = await supaClient.rpc('ubah_anggota_ekskul', cmd);
-    if (!error) {
-      if ((rpc || {}).status === 'error') throw new Error(rpc.message || 'Gagal memperbarui anggota.');
-      return (rpc || {}).total > 0;
+  // [TA] Tahun Pelajaran keanggotaan (param eksplisit atau TA aktif Modul Ekstrakurikuler).
+  const taFinal = (ta && daftarTAEkskul().includes(ta)) ? ta : getCurrentTAEkskul();
+  const smtFinal = (smt === 'Ganjil' || smt === 'Genap') ? smt : currentSemesterEkskul;
+  // [SOFT-DELETE] Hapus sementara (keluar=true) tidak memakai RPC ubah_anggota_ekskul,
+  // sebab RPC tsb menghapus nama ekskul dari string live. Soft-delete justru MEMPERTAHANKAN
+  // nama di string + riwayat, namun menandai status:'Keluar' pada entri riwayat_ekskul[TA]
+  // sehingga roster menyembunyikannya; reaktivasi via Tambah Anggota menyalakan status:'Aktif'.
+  if (!keluar) {
+    const cmd = {
+      p_pemanggil: idPemanggil,
+      p_ekskul: String(ekskul || ''),
+      p_nis_list: nis,
+      p_tambah: !!tambah,
+      p_ta: taFinal,
+      p_smt: [smtFinal]
+    };
+    try {
+      const { data: rpc, error } = await supaClient.rpc('ubah_anggota_ekskul', cmd);
+      if (!error) {
+        if ((rpc || {}).status === 'error') throw new Error(rpc.message || 'Gagal memperbarui anggota.');
+        return (rpc || {}).total > 0;
+      }
+      // RPC ada tapi gagal (mis. error kolom akun.updated_at tidak ada) → lanjut ke jalur langsung
+      console.warn('ubah_anggota_ekskul RPC gagal → fallback langsung ke akun:', error.code, error.message);
+    } catch (e) {
+      // RPC belum ada (PGRST202) atau salah lain → pakai jalur SELECT+UPDATE langsung
+      console.warn('ubah_anggota_ekskul tidak tersedia/salah → fallback langsung ke akun:', (e && e.message) || e);
     }
-    // RPC ada tapi gagal (mis. error kolom akun.updated_at tidak ada) → lanjut ke jalur langsung
-    console.warn('ubah_anggota_ekskul RPC gagal → fallback langsung ke akun:', error.code, error.message);
-  } catch (e) {
-    // RPC belum ada (PGRST202) atau salah lain → pakai jalur SELECT+UPDATE langsung
-    console.warn('ubah_anggota_ekskul tidak tersedia/salah → fallback langsung ke akun:', (e && e.message) || e);
   }
-  // Fallback lama: SELECT+UPDATE langsung per NIS (tidak menyentuh kolom updated_at)
+  // Fallback lama: SELECT+UPDATE langsung per NIS (tidak menyentuh kolom updated_at).
+  // Sekaligus dual-write ke riwayat_ekskul[TA] agar dimensi per-TA tetap konsisten.
   let total = 0;
   for (const satu of nis) {
     const { data, error } = await supaClient.from('akun')
-      .select('ekstrakurikuler').eq('nis_nip', satu).eq('tipe', 'murid').maybeSingle();
+      .select('ekstrakurikuler, riwayat_ekskul').eq('nis_nip', satu).eq('tipe', 'murid').maybeSingle();
     if (error) throw error;
     if (!data) continue;
-    const baru = tambah ? gabungEkskulSiswa(data.ekstrakurikuler, ekskul) : buangEkskulSiswa(data.ekstrakurikuler, ekskul);
-    if (baru === String(data.ekstrakurikuler || '')) continue;
+    // [SOFT-DELETE] keluar=true mempertahankan nama ekskul di string live (dimensi dikendalikan
+    // status:'Keluar' di riwayat_ekskul[TA], bukan dengan menghapus nama).
+    const baru = (keluar && !tambah) ? data.ekstrakurikuler
+      : (tambah ? gabungEkskulSiswa(data.ekstrakurikuler, ekskul) : buangEkskulSiswa(data.ekstrakurikuler, ekskul));
+    // update riwayat_ekskul[TA] (kalau kolom sudah ada; abaikan bila belum)
+    let riwayat = (data.riwayat_ekskul && typeof data.riwayat_ekskul === 'object') ? data.riwayat_ekskul : {};
+    const entri = (riwayat[taFinal] && typeof riwayat[taFinal] === 'object') ? { ...riwayat[taFinal] } : {};
+    const eksLive = ekskulMuridUntukTA(data, taFinal);
+    const eksRw = String(entri.ekskul || (eksLive.length ? eksLive.join(', ') : '')).split(',').map(e => e.trim()).filter(Boolean);
+    const eksN = tambah
+      ? (eksRw.map(e => String(e).toLowerCase()).includes(String(ekskul).toLowerCase()) ? eksRw : [...eksRw, String(ekskul).trim()].filter(Boolean))
+      : ((keluar && !tambah)
+          ? (eksRw.map(e => String(e).toLowerCase()).includes(String(ekskul).toLowerCase()) ? eksRw : [...eksRw, String(ekskul).trim()].filter(Boolean))
+          : eksRw.filter(e => String(e).toLowerCase() !== String(ekskul).toLowerCase()));
+    const riwayatBaru = { ...riwayat, [taFinal]: { ...entri, ekskul: eksN.join(', '), jabatan_map: entri.jabatan_map || data.jabatan_ekskul_map || {}, status: (keluar && !tambah) ? 'Keluar' : 'Aktif' } };
+    // [SEMESTER] Gabungkan semester ke smt[ekskul] pada entri TA (union; tanpa kunci smt = keduanya).
+    if (tambah && smtFinal) {
+      const smtMap = (entri.smt && typeof entri.smt === 'object' && !Array.isArray(entri.smt)) ? { ...entri.smt } : {};
+      const lama = Array.isArray(smtMap[ekskul]) ? smtMap[ekskul] : [];
+      if (!lama.some(s => String(s).toLowerCase() === smtFinal.toLowerCase())) {
+        smtMap[ekskul] = [...lama, smtFinal];
+        riwayatBaru[taFinal] = { ...riwayatBaru[taFinal], smt: smtMap };
+      }
+    }
+    const upd = { ekstrakurikuler: baru };
+    if (Object.prototype.hasOwnProperty.call(data, 'riwayat_ekskul')) upd.riwayat_ekskul = riwayatBaru;
     const { error: errUp } = await supaClient.from('akun')
-      .update({ ekstrakurikuler: baru }).eq('nis_nip', satu).eq('tipe', 'murid');
+      .update(upd).eq('nis_nip', satu).eq('tipe', 'murid');
     if (errUp) throw errUp;
     total++;
   }
@@ -18891,6 +19101,24 @@ function toggleTambahAnggota(nis, checked) {
   if (checked) window.__taTerpilih.add(nis); else window.__taTerpilih.delete(nis);
   hitungTerpilihTambahAnggota();
 }
+
+/** [SEMESTER] Perbarui daftar kandidat & pre-check anggota saat User ganti TA/Semester
+ *  pada modal Tambah Anggota. Anggota yang sudah terdaftar pada TA/semester itu
+ *  ditandai (checked) sebagai pembanding; pilihan User yang sudah ada tetap dipertahankan. */
+async function gantiSemesterTambahAnggota() {
+  const taSel = (document.getElementById('ta_anggota_ta') || {}).value || getCurrentTAEkskul();
+  const smtSel = (document.getElementById('ta_anggota_smt') || {}).value || currentSemesterEkskul;
+  try {
+    const anggota = await ambilAnggotaEkskul(window.__ekskulAktif, taSel, smtSel);
+    const setLama = window.__taTerpilih || new Set();
+    const terbaru = new Set(anggota.map(a => String(a.nis_nip)));
+    // Pertahankan pilihan User yang sudah ada, gabung dengan anggota semester terpilih.
+    const gabungan = new Set([...setLama, ...terbaru]);
+    window.__taTerpilih = gabungan;
+  } catch (e) { console.warn('gantiSemesterTambahAnggota:', e); }
+  renderDaftarTambahAnggota();
+}
+
 
 /** Render ulang tabel kandidat sesuai filter ID Tahun / Kelas / Sub-Ekskul / pencarian. */
 function renderDaftarTambahAnggota() {
@@ -18971,6 +19199,12 @@ async function formTambahAnggotaEkskul() {
     title: `<i class="fa-solid fa-user-plus text-teal-400"></i> Tambah Anggota ${escapeHtml(aktif)}`,
     html: `
       <div class="text-left text-[11px] text-slate-300 mt-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+          <div><label class="font-bold text-sky-300"><i class="fa-regular fa-calendar mr-1"></i>Tahun Pelajaran Keanggotaan</label>
+            <select id="ta_anggota_ta" onchange="gantiSemesterTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none" title="TA tempat siswa dijadikan anggota">${daftarTAEkskul().map(t => `<option value="${escJs(t)}" ${t === getCurrentTAEkskul() ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-sky-300"><i class="fa-solid fa-leaf mr-1"></i>Semester Keanggotaan</label>
+            <select id="ta_anggota_smt" onchange="gantiSemesterTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none" title="Semester tempat siswa dijadikan anggota">${(['Ganjil','Genap']).map(s => `<option value="${s}" ${(currentSemesterEkskul === s) ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
           <div><label class="font-bold text-yellow-300">ID Tahun</label>
             <select id="ta_tahun" onchange="renderDaftarTambahAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Tahun --</option>${listTahun.map(t => `<option value="${escJs(t)}">${escapeHtml(t)}</option>`).join('')}</select></div>
@@ -18994,10 +19228,14 @@ async function formTambahAnggotaEkskul() {
     background: '#1e293b', color: '#fff', showCancelButton: true, cancelButtonText: 'Batal',
     confirmButtonText: '<i class="fa-solid fa-user-plus"></i> Jadikan Anggota',
     didOpen: () => renderDaftarTambahAnggota(),
-    preConfirm: () => ({ nisList: [...(window.__taTerpilih || new Set())], subMap: { ...(window.__taSub || {}) } })
+    preConfirm: () => {
+      const taSel = (document.getElementById('ta_anggota_ta') || {}).value || getCurrentTAEkskul();
+      const smtSel = (document.getElementById('ta_anggota_smt') || {}).value || currentSemesterEkskul;
+      return { nisList: [...(window.__taTerpilih || new Set())], subMap: { ...(window.__taSub || {}) }, taAnggota: taSel, smt: smtSel };
+    }
   }).then(async (res) => {
     if (!res.isConfirmed) return;
-    const { nisList = [], subMap = {} } = res.value || {};
+    const { nisList = [], subMap = {}, taAnggota = getCurrentTAEkskul(), smt = currentSemesterEkskul } = res.value || {};
     // Anti duplikat: hanya tambahkan yang belum menjadi anggota aktif.
     const terpilih = [...new Set(nisList)].filter(n =>
       !anggotaSaatIni.some(a => String(a.nis_nip) === String(n))
@@ -19007,7 +19245,7 @@ async function formTambahAnggotaEkskul() {
     Swal.fire({ title: 'Menyimpan anggota...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, showConfirmButton: false, background: '#1e293b', color: '#fff' });
     // Batch ke-1: pemanggilan tunggal RPC untuk seluruh NIS baru.
     try {
-      const ok = await terapkanKeanggotaanEkskul(terpilih, aktif, true);
+      const ok = await terapkanKeanggotaanEkskul(terpilih, aktif, true, taAnggota, smt);
       if (ok) sukses += terpilih.length; else gagal++;
     }
     catch (e) { gagal += terpilih.length; pesanErr = e.message || ''; }
@@ -19113,13 +19351,21 @@ async function formImportAnggotaEkskul() {
   window.__cacheMuridTambah = semua;
   const petaMurid = {};
   (semua || []).forEach(m => { if (m.nis_nip) petaMurid[String(m.nis_nip)] = m; });
-  const tambah = [], takDikenali = [], sudahAnggota = [];
-  const kiniTA = String((currentUser || {}).user ? ((currentUser.user['ID Tahun Pelajaran'] || currentTahun) || '') : currentTahun || '');
+  const tambah = [], takDikenali = [], sudahAnggota = [], taLain = [];
+  // TA berjalan yang andal: ambil dari Master Data sekolah (kolom \"Tahun Pelajaran\")
+  // yang dikonfigurasi — lebih stabil daripada global `currentTahun` yang dibagi &
+  // di-overwrite lintas modul (Absensi/Nilai). Fallback ke sesi → `currentTahun`.
+  const idn = (typeof barisIdentitasMaster === 'function') ? barisIdentitasMaster() : {};
+  const taMaster = String(idn["Tahun Pelajaran"] || '').trim();
+  const kiniTA = taMaster
+    || String((currentUser || {}).user ? ((currentUser.user['ID Tahun Pelajaran'] || currentTahun) || '') : currentTahun || '');
   nisSet.forEach(n => {
     if (sekarang.has(n)) { sudahAnggota.push(n); return; }
     const m = petaMurid[n];
     if (!m) { takDikenali.push(n); return; }
-    if (kiniTA && m.tahun_pelajaran && String(m.tahun_pelajaran) !== kiniTA) { takDikenali.push(n + ' (TA lain)'); return; }
+    // [KONSISTEN dengan Tambah Anggota] Siswa dari TA berbeda tetap bisa ditambahkan
+    // (keanggotaan ekskul tidak bergantung TA di backend), tetapi dicatat untuk laporan.
+    if (kiniTA && m.tahun_pelajaran && String(m.tahun_pelajaran) !== kiniTA) { taLain.push(n + ' (TA ' + m.tahun_pelajaran + ')'); }
     tambah.push(n);
   });
   if (tambah.length === 0) {
@@ -19135,6 +19381,7 @@ async function formImportAnggotaEkskul() {
   else showToast('success', `${sukses} anggota ditambahkan ke ${aktif}`);
   const rinci = [];
   if (sudahAnggota.length) rinci.push(`${sudahAnggota.length} sudah anggota`);
+  if (taLain.length) rinci.push(`${taLain.length} dari TA lain (tetap ditambahkan): ${taLain.slice(0, 6).join(', ')}${taLain.length > 6 ? '…' : ''}`);
   if (takDikenali.length) rinci.push(`${takDikenali.length} tidak dikenali: ${takDikenali.slice(0, 6).join(', ')}${takDikenali.length > 6 ? '…' : ''}`);
   if (rinci.length) showToast('info', rinci.join(' · '));
   renderTabEkskul();
@@ -19210,6 +19457,65 @@ function pilihSemuaHapusAnggota(pilih) {
   hitungTerpilihHapusAnggota();
 }
 
+/** Tangani perubahan TA/semester pada modal Hapus Anggota: muat ulang kandidat & bersihkan pilihan. */
+async function gantiHapusAnggotaDimensi() {
+  const taSel = (document.getElementById('ha_anggota_ta') || {}).value || getCurrentTAEkskul();
+  const smtSel = (document.getElementById('ha_anggota_smt') || {}).value || currentSemesterEkskul;
+  const ekskul = window.__ekskulAktif || '';
+  try {
+    const anggota = await ambilAnggotaEkskul(ekskul, taSel, smtSel);
+    window.__haCandidates = anggota;
+  } catch (e) {
+    window.__haCandidates = [];
+  }
+  window.__haTerpilih = new Set();
+  renderDaftarHapusAnggota();
+}
+
+/** Render roster kandidat hapus (sudah difilter TA+semester) dengan filter ID Tahun/Kelas/Sub/Cari. */
+function renderDaftarHapusAnggota() {
+  const wrap = document.getElementById('daftar-hapus-anggota');
+  if (!wrap) return;
+  const thn = document.getElementById('ha_tahun')?.value || '';
+  const kls = document.getElementById('ha_kelas')?.value || '';
+  const subF = document.getElementById('ha_sub')?.value || '';
+  const cari = (document.getElementById('ha_cari')?.value || '').toLowerCase();
+  const semua = window.__haCandidates || [];
+  const terpilih = window.__haTerpilih || new Set();
+  const petaSub = window.__haSub || {};
+  const filtered = semua.filter(m => {
+    if (thn && (m.tahun_pelajaran || '') !== thn) return false;
+    if (kls && (m.tingkat_kelas || '') !== kls) return false;
+    if (subF === '__tanpa__') { if ((petaSub[m.nis_nip] || []).length) return false; }
+    else if (subF && !(petaSub[m.nis_nip] || []).includes(subF)) return false;
+    if (cari && !String(m.nama_lengkap || '').toLowerCase().includes(cari) && !String(m.nis_nip || '').includes(cari)) return false;
+    return true;
+  });
+  filtered.sort((a, b) => {
+    const aa = terpilih.has(a.nis_nip) ? 0 : 1, bb = terpilih.has(b.nis_nip) ? 0 : 1;
+    return aa !== bb ? aa - bb : String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''));
+  });
+  wrap.innerHTML = filtered.length === 0
+    ? `<p class="italic text-slate-400 p-3 text-center">Tidak ada anggota cocok dengan filter.</p>`
+    : `<table class="w-full text-left"><thead><tr class="text-[10px] uppercase text-orange-300">
+        <th class="p-2 border-b border-white/10 w-8">✔</th><th class="p-2 border-b border-white/10">NIS</th><th class="p-2 border-b border-white/10">Nama Lengkap</th><th class="p-2 border-b border-white/10">Kelas</th><th class="p-2 border-b border-white/10">Sub-Ekskul</th></tr></thead>
+      <tbody>${filtered.map(m => {
+        const cek = terpilih.has(m.nis_nip);
+        const subSaya = (window.__haSub || {})[m.nis_nip] || [];
+        return `<tr class="text-[11px] hover:bg-white/5 bg-orange-900/10">
+          <td class="p-2 border-b border-white/5 text-center"><input type="checkbox" data-ha-nis="${escJs(m.nis_nip)}" ${cek ? 'checked' : ''} onchange="toggleHapusAnggota('${escJs(m.nis_nip)}', this.checked)" class="w-4 h-4 accent-red-500 cursor-pointer"></td>
+          <td class="p-2 border-b border-white/5 text-slate-300">${escapeHtml(m.nis_nip || '-')}</td>
+          <td class="p-2 border-b border-white/5 text-white font-bold">${escapeHtml(m.nama_lengkap || '-')}</td>
+          <td class="p-2 border-b border-white/5 text-indigo-300">${escapeHtml(m.tingkat_kelas || '-')}</td>
+          <td class="p-2 border-b border-white/5 text-slate-400">${escapeHtml(subSaya.join(', ') || '-')}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  const lbl = document.getElementById('ha_jumlah');
+  if (lbl) lbl.textContent = filtered.length;
+  hitungTerpilihHapusAnggota();
+}
+
+
 /** Modal Hapus Anggota: hapus sementara (tidak tercetak di export, bisa diaktifkan kembali) — req 1c. */
 async function formHapusAnggotaEkskul() {
   // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
@@ -19218,20 +19524,100 @@ async function formHapusAnggotaEkskul() {
   if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
   const anggota = await ambilAnggotaEkskul(aktif);
   if (anggota.length === 0) return showToast('info', 'Belum ada anggota untuk dihapus.');
+  window.__haCandidates = anggota;
   window.__haTerpilih = new Set();
+  window.__haSub = await ambilSubAnggota(aktif);
+  window.__haSubList = namaSubEkskul(aktif);
+  const listTahun = urutAz([...new Set((window.__haCandidates || []).map(m => m.tahun_pelajaran).filter(Boolean))]);
+  const listKelas = urutAz([...new Set((window.__haCandidates || []).map(m => m.tingkat_kelas).filter(Boolean))]);
   Swal.fire({
     title: `<i class="fa-solid fa-user-minus text-orange-400"></i> Hapus Anggota ${escapeHtml(aktif)}`,
     html: `
       <div class="text-left text-[11px] text-slate-300 mt-2">
-        <p class="mb-2 bg-orange-900/20 border border-orange-500/30 rounded px-2 py-1.5 text-[10px]"><i class="fa-solid fa-circle-info text-orange-400"></i> Anggota dihapus <b>sementara</b>: tidak tercetak di export Excel/PDF & tidak muncul di absensi/nilai. Bisa diaktifkan kembali lewat tombol "Tambah Anggota".</p>
+        <p class="mb-2 bg-orange-900/20 border border-orange-500/30 rounded px-2 py-1.5 text-[10px]"><i class="fa-solid fa-circle-info text-orange-400"></i> Anggota dihapus <b>sementara</b> (ditandai status <code>Keluar</code> pada Tahun Pelajaran &amp; Semester terpilih): tidak tercetak di export &amp; tidak muncul di absensi/nilai pada dimensi itu. Bisa diaktifkan kembali lewat tombol "Tambah Anggota".</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+          <div><label class="font-bold text-sky-300"><i class="fa-regular fa-calendar mr-1"></i>Tahun Pelajaran Keanggotaan</label>
+            <select id="ha_anggota_ta" onchange="gantiHapusAnggotaDimensi()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${daftarTAEkskul().map(t => `<option value="${escJs(t)}" ${t === getCurrentTAEkskul() ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-sky-300"><i class="fa-solid fa-leaf mr-1"></i>Semester Keanggotaan</label>
+            <select id="ha_anggota_smt" onchange="gantiHapusAnggotaDimensi()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${(['Ganjil','Genap']).map(s => `<option value="${s}" ${(currentSemesterEkskul === s) ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
+          <div><label class="font-bold text-yellow-300">ID Tahun</label>
+            <select id="ha_tahun" onchange="renderDaftarHapusAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Tahun --</option>${listTahun.map(t => `<option value="${escJs(t)}">${escapeHtml(t)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-yellow-300">Kelas</label>
+            <select id="ha_kelas" onchange="renderDaftarHapusAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Kelas --</option>${listKelas.map(k => `<option value="${escJs(k)}">${escapeHtml(k)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-yellow-300">Sub-Ekskul</label>
+            <select id="ha_sub" onchange="renderDaftarHapusAnggota()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Semua Sub --</option><option value="__tanpa__">— Tanpa Sub —</option>${(window.__haSubList || []).map(n => `<option value="${escJs(n)}">${escapeHtml(n)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-yellow-300">Cari Nama / NIS</label>
+            <input id="ha_cari" oninput="renderDaftarHapusAnggota()" placeholder="Ketik nama..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
+        </div>
+        <div class="flex items-center justify-between mb-1 flex-wrap gap-1">
+          <div class="flex gap-1">
+            <button type="button" onclick="pilihSemuaHapusAnggota(true)" class="bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white px-2 py-1 rounded text-[10px] font-bold transition">Pilih Semua</button>
+            <button type="button" onclick="pilihSemuaHapusAnggota(false)" class="bg-slate-600/30 hover:bg-slate-600 text-slate-300 hover:text-white px-2 py-1 rounded text-[10px] font-bold">Kosongkan</button>
+          </div>
+          <span class="text-[10px] text-slate-400">Tampil: <b id="ha_jumlah">0</b> anggota • Terpilih: <b id="ha_pilih" class="text-red-300">0</b></span>
+        </div>
+        <div id="daftar-hapus-anggota" class="max-h-64 overflow-y-auto custom-scrollbar border border-white/10 rounded"></div>
+      </div>`,
+    width: '60rem',
+    background: '#1e293b', color: '#fff', showCancelButton: true, cancelButtonText: 'Batal',
+    confirmButtonColor: '#ef4444',
+    confirmButtonText: '<i class="fa-solid fa-user-minus"></i> Hapus Terpilih',
+    didOpen: () => renderDaftarHapusAnggota(),
+    preConfirm: () => {
+      const taSel = (document.getElementById('ha_anggota_ta') || {}).value || getCurrentTAEkskul();
+      const smtSel = (document.getElementById('ha_anggota_smt') || {}).value || currentSemesterEkskul;
+      return { nisList: [...(window.__haTerpilih || new Set())], taHapus: taSel, smt: smtSel };
+    }
+  }).then(async (res) => {
+    if (!res.isConfirmed) return;
+    const { nisList = [], taHapus = getCurrentTAEkskul(), smt = currentSemesterEkskul } = res.value || {};
+    const terpilih = [...new Set(nisList)];
+    if (terpilih.length === 0) return showToast('info', 'Tidak ada anggota yang dipilih.');
+    let sukses = 0, gagal = 0, pesanErr = '';
+    Swal.fire({ title: 'Menghapus anggota...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, showConfirmButton: false, background: '#1e293b', color: '#fff' });
+    // [SOFT-DELETE] keluar=true → pertahankan nama, tandai status:'Keluar' pada entri TA/semester tsb.
+    try {
+      const ok = await terapkanKeanggotaanEkskul(terpilih, aktif, false, taHapus, smt, true);
+      if (ok) sukses += terpilih.length; else gagal++;
+    }
+    catch (e) { gagal += terpilih.length; pesanErr = e.message || ''; }
+    Swal.close();
+    if (gagal > 0) showToast('error', `${sukses} dihapus, ${gagal} gagal: ${pesanErr}`);
+    else showToast('success', `${sukses} anggota dihapus sementara dari ${aktif} (${taHapus} — ${smt})`);
+    renderTabEkskul();
+  });
+}
+
+/** [C2] Hapus PERMANEN anggota ekskul pada dimensi TA terpilih — KHUSUS ADMIN.
+ *  Benar-benar membuang keanggotaan: nama ekskul dihilangkan dari string akun.ekstrakurikuler,
+ *  dari riwayat_ekskul[TA] (beserta smt & jabatan_map), dan NIS dibersihkan dari
+ *  sub_ekstrakurikuler.anggota. Tidak dapat dipulihkan. */
+async function formHapusPermanenAnggotaEkskul() {
+  if (hakAksesEkskul() !== 'admin') return showToast('error', 'Fitur ini hanya untuk ADMIN.');
+  const aktif = window.__ekskulAktif;
+  if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
+  const anggota = await ambilAnggotaEkskul(aktif);
+  if (anggota.length === 0) return showToast('info', 'Belum ada anggota untuk dihapus.');
+  window.__hpTerpilih = new Set();
+  Swal.fire({
+    title: `<i class="fa-solid fa-trash-can text-red-500"></i> Hapus Permanen ${escapeHtml(aktif)}`,
+    html: `
+      <div class="text-left text-[11px] text-slate-300 mt-2">
+        <p class="mb-2 bg-red-900/30 border border-red-500/40 rounded px-2 py-1.5 text-[10px]"><i class="fa-solid fa-triangle-exclamation text-red-400"></i> <b>PERMANEN</b> (khusus admin): keanggotaan benar-benar dibuang dari string, riwayat TA, jabatan, &amp; sub-ekskul — <b>tidak dapat dipulihkan</b>. Gunakan "Hapus Anggota" (sementara) untuk kasus biasa.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+          <div><label class="font-bold text-sky-300"><i class="fa-regular fa-calendar mr-1"></i>Tahun Pelajaran</label>
+            <select id="hp_ta" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${daftarTAEkskul().map(t => `<option value="${escJs(t)}" ${t === getCurrentTAEkskul() ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+        </div>
         <div class="flex items-center justify-between mb-1">
-          <button type="button" onclick="pilihSemuaHapusAnggota(true)" class="bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white px-2 py-1 rounded text-[10px] font-bold">Pilih Semua</button>
-          <span class="text-[10px]">Terpilih: <b id="ha_pilih" class="text-red-300">0</b> / ${anggota.length}</span>
+          <button type="button" onclick="pilihSemuaHapusPermanen(true)" class="bg-red-700/40 hover:bg-red-700 text-red-200 hover:text-white px-2 py-1 rounded text-[10px] font-bold">Pilih Semua</button>
+          <span class="text-[10px]">Terpilih: <b id="hp_pilih" class="text-red-300">0</b> / ${anggota.length}</span>
         </div>
         <div class="max-h-64 overflow-y-auto custom-scrollbar border border-white/10 rounded">
         ${anggota.slice().sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''))).map(a => `
           <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 border-b border-white/5 cursor-pointer">
-            <input type="checkbox" data-ha-nis="${escJs(a.nis_nip)}" onchange="toggleHapusAnggota('${escJs(a.nis_nip)}', this.checked)" class="w-4 h-4 accent-red-500 cursor-pointer">
+            <input type="checkbox" data-hp-nis="${escJs(a.nis_nip)}" onchange="toggleHapusPermanen('${escJs(a.nis_nip)}', this.checked)" class="w-4 h-4 accent-red-500 cursor-pointer">
             <span class="text-[11px] text-white">${escapeHtml(a.nama_lengkap || '-')}</span>
             <span class="text-[9px] text-indigo-300">(${escapeHtml(a.tingkat_kelas || '-')})</span>
             <span class="text-[10px] text-slate-500 ml-auto">${escapeHtml(a.nis_nip || '')}</span>
@@ -19240,24 +19626,180 @@ async function formHapusAnggotaEkskul() {
       </div>`,
     width: '34rem',
     background: '#1e293b', color: '#fff', showCancelButton: true, cancelButtonText: 'Batal',
-    confirmButtonColor: '#ef4444',
-    confirmButtonText: '<i class="fa-solid fa-user-minus"></i> Hapus Terpilih',
-    preConfirm: () => [...(window.__haTerpilih || new Set())]
+    confirmButtonColor: '#b91c1c',
+    confirmButtonText: '<i class="fa-solid fa-trash-can"></i> Hapus Permanen',
+    preConfirm: () => ({
+      nisList: [...(window.__hpTerpilih || new Set())],
+      ta: (document.getElementById('hp_ta') || {}).value || getCurrentTAEkskul()
+    })
   }).then(async (res) => {
     if (!res.isConfirmed) return;
-    const terpilih = res.value || [];
+    const { nisList = [], ta = getCurrentTAEkskul() } = res.value || {};
+    const terpilih = [...new Set(nisList)];
     if (terpilih.length === 0) return showToast('info', 'Tidak ada anggota yang dipilih.');
+    Swal.fire({ title: 'Menghapus permanen...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, showConfirmButton: false, background: '#1e293b', color: '#fff' });
     let sukses = 0, gagal = 0, pesanErr = '';
-    Swal.fire({ title: 'Menghapus anggota...', didOpen: () => Swal.showLoading(), showConfirmButton: false, background: '#1e293b', color: '#fff' });
-    // Batch: satu pemanggilan RPC untuk seluruh NIS terpilih.
-    try {
-      const ok = await terapkanKeanggotaanEkskul(terpilih, aktif, false);
-      if (ok) sukses += terpilih.length; else gagal++;
+    for (const satu of terpilih) {
+      try {
+        await hapusPermanenSatuAnggota(satu, aktif, ta);
+        sukses++;
+      } catch (e) { gagal++; pesanErr = e.message || ''; }
     }
-    catch (e) { gagal += terpilih.length; pesanErr = e.message || ''; }
     Swal.close();
-    if (gagal > 0) showToast('error', `${sukses} dihapus, ${gagal} gagal: ${pesanErr}`);
-    else showToast('success', `${sukses} anggota dihapus sementara dari ${aktif}`);
+    if (gagal > 0) showToast('error', `${sukses} dihapus permanen, ${gagal} gagal: ${pesanErr}`);
+    else showToast('success', `${sukses} anggota dihapus permanen dari ${aktif} (${ta})`);
+    renderTabEkskul();
+  });
+}
+
+/** Toggle pilihan hapus permanen. */
+function toggleHapusPermanen(nis, checked) {
+  window.__hpTerpilih = window.__hpTerpilih || new Set();
+  if (checked) window.__hpTerpilih.add(nis); else window.__hpTerpilih.delete(nis);
+  const el = document.getElementById('hp_pilih');
+  if (el) el.textContent = (window.__hpTerpilih || new Set()).size;
+}
+function pilihSemuaHapusPermanen(pilih) {
+  window.__hpTerpilih = window.__hpTerpilih || new Set();
+  document.querySelectorAll('#swal2-html-container input[data-hp-nis]').forEach(cb => {
+    const nis = cb.getAttribute('data-hp-nis') || '';
+    if (pilih) window.__hpTerpilih.add(nis); else window.__hpTerpilih.delete(nis);
+    cb.checked = !!pilih;
+  });
+  const el = document.getElementById('hp_pilih');
+  if (el) el.textContent = (window.__hpTerpilih || new Set()).size;
+}
+
+/** Hapus permanen satu anggota: buang ekskul dari string akun.ekstrakurikuler, dari
+ *  riwayat_ekskul[TA] (ekskul+smt[ekskul]+jabatan_map[ekskul]), jabatan_ekskul_map global,
+ *  dan NIS dari sub_ekstrakurikuler.anggota. */
+async function hapusPermanenSatuAnggota(nis, ekskul, ta) {
+  const { data: akun, error } = await supaClient.from('akun')
+    .select('ekstrakurikuler, riwayat_ekskul, jabatan_ekskul_map').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
+  if (error) throw error;
+  if (!akun) return;
+  const upd = { ekstrakurikuler: buangEkskulSiswa(akun.ekstrakurikuler || '', ekskul) };
+  // riwayat_ekskul[TA]
+  const riwayat = (akun.riwayat_ekskul && typeof akun.riwayat_ekskul === 'object') ? { ...akun.riwayat_ekskul } : {};
+  if (riwayat[ta] && typeof riwayat[ta] === 'object') {
+    const entri = { ...riwayat[ta] };
+    const eksList = String(entri.ekskul || '').split(',').map(e => e.trim()).filter(Boolean)
+      .filter(e => String(e).toLowerCase() !== String(ekskul).toLowerCase());
+    if (entri.smt && typeof entri.smt === 'object' && !Array.isArray(entri.smt)) {
+      const smtMap = { ...entri.smt };
+      delete smtMap[ekskul];
+      if (Object.keys(smtMap).length) entri.smt = smtMap; else delete entri.smt;
+    }
+    if (entri.jabatan_map && typeof entri.jabatan_map === 'object') {
+      const jm = { ...entri.jabatan_map };
+      delete jm[ekskul];
+      if (Object.keys(jm).length) entri.jabatan_map = jm; else delete entri.jabatan_map;
+    }
+    if (eksList.length) { entri.ekskul = eksList.join(', '); riwayat[ta] = entri; }
+    else delete riwayat[ta];
+  }
+  upd.riwayat_ekskul = riwayat;
+  // jabatan_ekskul_map global: hapus kunci ekskul
+  const jmG = (akun.jabatan_ekskul_map && typeof akun.jabatan_ekskul_map === 'object') ? { ...akun.jabatan_ekskul_map } : {};
+  if (jmG[ekskul] !== undefined) {
+    delete jmG[ekskul];
+    upd.jabatan_ekskul_map = jmG;
+  }
+  const { error: errUp } = await supaClient.from('akun').update(upd).eq('nis_nip', nis).eq('tipe', 'murid');
+  if (errUp) throw errUp;
+  // Bersihkan NIS dari sub_ekstrakurikuler.anggota (ekskul ini)
+  const { data: subs, error: errSub } = await supaClient.from('sub_ekstrakurikuler')
+    .select('id, anggota').eq('nama_ekskul', ekskul);
+  if (!errSub && subs && subs.length) {
+    for (const s of subs) {
+      const arr = Array.isArray(s.anggota) ? s.anggota.filter(x => String(x) !== String(nis)) : [];
+      await supaClient.from('sub_ekstrakurikuler').update({ anggota: arr }).eq('id', s.id);
+    }
+  }
+}
+
+/** [C5] Migrasi keanggotaan ekskul dari satu TA+semester ke TA+semester berikutnya — KHUSUS
+ *  ADMIN. Menyalin rekap anggota aktif (ekskul + semester + jabatan) pada riwayat_ekskul[TA]
+ *  asal ke entri TA tujuan (union, tidak menimpa keanggotaan yang sudah ada). */
+async function formMigrasiKeanggotaanEkskul() {
+  if (hakAksesEkskul() !== 'admin') return showToast('error', 'Fitur ini hanya untuk ADMIN.');
+  const daftarTA = daftarTAEkskul();
+  const taSekarang = getCurrentTAEkskul();
+  const idx = daftarTA.indexOf(taSekarang);
+  const taBerikut = daftarTA[idx + 1] || taSekarang;
+  Swal.fire({
+    title: `<i class="fa-solid fa-arrows-rotate text-cyan-400"></i> Migrasi Keanggotaan (${escapeHtml(window.__ekskulAktif || '-')})`,
+    html: `
+      <div class="text-left text-[11px] text-slate-300 mt-2">
+        <p class="mb-2 bg-cyan-900/20 border border-cyan-500/30 rounded px-2 py-1.5 text-[10px]"><i class="fa-solid fa-circle-info text-cyan-400"></i> Salin keanggotaan <b>aktif</b> pada <b>Asal TA + Semester</b> ke <b>Tujuan TA + Semester</b> (union — anggota yang sudah ada di tujuan tidak digandakan). Hanya menyalin rekap riwayat; tidak menghapus data asal.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div><label class="font-bold text-yellow-300">Asal TA</label>
+            <select id="mig_ta_asal" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${daftarTA.map(t => `<option value="${escJs(t)}" ${t === taSekarang ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-yellow-300">Asal Semester</label>
+            <select id="mig_smt_asal" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${(['Ganjil','Genap']).map(s => `<option value="${s}" ${(currentSemesterEkskul === s) ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-emerald-300">Tujuan TA</label>
+            <select id="mig_ta_tujuan" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${daftarTA.map(t => `<option value="${escJs(t)}" ${t === taBerikut ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}</select></div>
+          <div><label class="font-bold text-emerald-300">Tujuan Semester</label>
+            <select id="mig_smt_tujuan" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${(['Ganjil','Genap']).map(s => `<option value="${s}" ${(currentSemesterEkskul === s) ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+        </div>
+      </div>`,
+    width: '36rem',
+    background: '#1e293b', color: '#fff', showCancelButton: true, cancelButtonText: 'Batal',
+    confirmButtonColor: '#0891b2',
+    confirmButtonText: '<i class="fa-solid fa-arrows-rotate"></i> Migrasi',
+    preConfirm: () => ({
+      taAsal: (document.getElementById('mig_ta_asal') || {}).value || '',
+      smtAsal: (document.getElementById('mig_smt_asal') || {}).value || 'Ganjil',
+      taTujuan: (document.getElementById('mig_ta_tujuan') || {}).value || '',
+      smtTujuan: (document.getElementById('mig_smt_tujuan') || {}).value || 'Genap'
+    })
+  }).then(async (res) => {
+    if (!res.isConfirmed) return;
+    const { taAsal, smtAsal, taTujuan, smtTujuan } = res.value || {};
+    if (!taAsal || !taTujuan || taAsal === taTujuan) return showToast('info', 'Asal dan Tujuan TA harus berbeda.');
+    Swal.fire({ title: 'Memigrasi keanggotaan...', didOpen: () => Swal.showLoading(), allowOutsideClick: false, showConfirmButton: false, background: '#1e293b', color: '#fff' });
+    let nSiswa = 0, nEkskul = 0, gagal = 0, pesanErr = '';
+
+    try {
+      const list = await supaAmbilSemua(
+        supaClient.from('akun').select('nis_nip, ekstrakurikuler, riwayat_ekskul, jabatan_ekskul_map').eq('tipe', 'murid')
+      );
+      for (const m of (list || [])) {
+        const riwayat = (m.riwayat_ekskul && typeof m.riwayat_ekskul === 'object') ? { ...m.riwayat_ekskul } : {};
+        const sumber = (riwayat[taAsal] && typeof riwayat[taAsal] === 'object' && String(riwayat[taAsal].status || 'Aktif') === 'Aktif') ? { ...riwayat[taAsal] } : null;
+        if (!sumber) continue;
+        const asalEks = String(sumber.ekskul || '').split(',').map(e => e.trim()).filter(Boolean);
+        if (!asalEks.length) continue;
+        const asalSmtMap = (sumber.smt && typeof sumber.smt === 'object' && !Array.isArray(sumber.smt)) ? { ...sumber.smt } : null;
+        const cocok = asalEks.filter(e => !asalSmtMap
+          ? true
+          : (Array.isArray(asalSmtMap[e]) ? asalSmtMap[e].some(s => String(s).toLowerCase() === String(smtAsal).toLowerCase()) : true));
+        if (!cocok.length) continue;
+        const tujuan = (riwayat[taTujuan] && typeof riwayat[taTujuan] === 'object') ? { ...riwayat[taTujuan] } : {};
+        const tujEks = new Set(String(tujuan.ekskul || '').split(',').map(e => e.trim()).filter(Boolean));
+        cocok.forEach(e => tujEks.add(String(e).trim()));
+        const tujSmt = (tujuan.smt && typeof tujuan.smt === 'object' && !Array.isArray(tujuan.smt)) ? { ...tujuan.smt } : {};
+        cocok.forEach(e => {
+          const arr = Array.isArray(tujSmt[e]) ? tujSmt[e] : [];
+          if (!arr.some(s => String(s).toLowerCase() === String(smtTujuan).toLowerCase())) arr.push(smtTujuan);
+          if (arr.length) tujSmt[e] = arr;
+        });
+        const jabSumber = (sumber.jabatan_map && typeof sumber.jabatan_map === 'object') ? sumber.jabatan_map
+          : (m.jabatan_ekskul_map && typeof m.jabatan_ekskul_map === 'object') ? m.jabatan_ekskul_map : {};
+        const jabTuj = (tujuan.jabatan_map && typeof tujuan.jabatan_map === 'object') ? { ...tujuan.jabatan_map } : {};
+        const jabMap = { ...jabTuj, ...jabSumber };
+        const entriT = { ekskul: [...tujEks].join(', '), status: 'Aktif' };
+        if (Object.keys(tujSmt).length) entriT.smt = tujSmt;
+        if (Object.keys(jabMap).length) entriT.jabatan_map = jabMap;
+        riwayat[taTujuan] = entriT;
+        const { error: errUp } = await supaClient.from('akun').update({ riwayat_ekskul: riwayat }).eq('nis_nip', m.nis_nip).eq('tipe', 'murid');
+        if (errUp) { if (!gagal) pesanErr = errUp.message || ''; gagal++; continue; }
+        nSiswa++; nEkskul += cocok.length;
+      }
+    } catch (e) { gagal++; pesanErr = (e && e.message) || ''; }
+    Swal.close();
+    if (gagal > 0) showToast('error', `Migrasi: ${nSiswa} siswa / ${nEkskul} keanggotaan tersalin ke ${taTujuan} (${smtTujuan}), ${gagal} gagal: ${pesanErr}`);
+    else showToast('success', `Migrasi selesai: ${nSiswa} siswa / ${nEkskul} keanggotaan tersalin ke ${taTujuan} (${smtTujuan}).`);
     renderTabEkskul();
   });
 }

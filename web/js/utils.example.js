@@ -154,7 +154,7 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Jabatan Ekstrakurikuler": (prof && prof.jabatan_ekskul) || "",
     "Jabatan Ekstrakurikuler Map": (prof && prof.jabatan_ekskul_map && typeof prof.jabatan_ekskul_map === 'object') ? prof.jabatan_ekskul_map : {},
     "Penugasan": (prof && prof.penugasan) || {},
-    "ID Tahun Pelajaran": ""
+    "ID Tahun Pelajaran": (prof && prof.tahun_pelajaran) || (typeof currentTahun !== 'undefined' ? currentTahun : "") || ""
   };
   return { status: 'success', role: tipe, user: mappedUser, token };
 }
@@ -488,22 +488,28 @@ async function supabaseFetch(action, payload = {}) {
          //    Kelas efektif TA = riwayat_kelas[tahun].kelas (fallback tingkat_kelas statis); siswa non-Aktif disembunyikan.
          //    Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan semua halaman.
          let muridSemua;
-         try {
-           muridSemua = await supaAmbilSemua(
-             supaClient
-              .from('akun')
-              .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, tahun_pelajaran, semester, no_telepon')
-              .eq('tipe', 'murid')
-           );
-         } catch (eKolom) {
-           // Kolom jabatan_ekskul_map belum ada (migrasi 20260926 belum dijalankan) → ulangi tanpa kolom itu
-           muridSemua = await supaAmbilSemua(
-             supaClient
-              .from('akun')
-              .select('nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon')
-              .eq('tipe', 'murid')
-           );
-         }
+          // Kolom opsional (dari migrasi lebih baru): jabatan_ekskul_map & riwayat_ekskul belum tentu ada.
+          // Coba bertahap dari kolom terlengkap → palin ringkas, pakai yang berhasil.
+          const kandidatSelect = [
+            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, riwayat_ekskul, tahun_pelajaran, semester, no_telepon',
+            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, riwayat_ekskul, tahun_pelajaran, semester, no_telepon',
+            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, tahun_pelajaran, semester, no_telepon',
+            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon'
+          ];
+          let errTerakhir = null;
+          for (const kolSel of kandidatSelect) {
+            try {
+              muridSemua = await supaAmbilSemua(
+                supaClient
+                 .from('akun')
+                 .select(kolSel)
+                 .eq('tipe', 'murid')
+              );
+              errTerakhir = null;
+              break;
+            } catch (eKolom) { errTerakhir = eKolom; }
+          }
+          if (errTerakhir) throw errTerakhir;
          const tahunDbRw = String(payload.tahun || '');
          const murid = muridSemua.filter(m => {
             const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
@@ -517,7 +523,27 @@ async function supabaseFetch(action, payload = {}) {
             // sebagai anggota (mis. kapital/substring/format berbeda) TIDAK muncul di
             // Daftar Hadir Ekstrakurikuler. Samakan semantiknya agar roster konsisten
             // dengan daftar anggota di menu Kelola/Tambah Anggota.
-            if (isEkskulDb) return String(m.ekstrakurikuler || '').toLowerCase().includes(String(payload.mapel || '').toLowerCase());
+            // [TA] Keanggotaan ekskul per Tahun Pelajaran — konsisten dengan
+            // ambilAnggotaEkskul()/ekskulMuridUntukTA() di app.js:
+            //  - akun belum punya riwayat_ekskul (kosong / migrasi belum jalan) → pakai
+            //    kolom ekstrakurikuler (live), kompatibilitas data lama.
+            //  - akun sudah punya riwayat_ekskul → keanggotaan per TA; TA tanpa entri
+            //    = bukan anggota TA tsb (roster kosong); status non-Aktif = bukan anggota.
+            if (isEkskulDb) {
+              const rwPenuh = (m.riwayat_ekskul && typeof m.riwayat_ekskul === 'object') ? m.riwayat_ekskul : null;
+              const adaRiwayat = rwPenuh && Object.keys(rwPenuh).length > 0;
+              let eksCek;
+              if (adaRiwayat) {
+                const rwE = rwPenuh[tahunDbRw];
+                if (!rwE || typeof rwE !== 'object') return false; // TA tanpa entri → kosong
+                const stRw = String(rwE.status || 'Aktif').trim();
+                if (stRw.toLowerCase() !== 'aktif') return false;
+                eksCek = String(rwE.ekskul || '').split(',').map(e => e.trim()).filter(Boolean);
+              } else {
+                eksCek = String(m.ekstrakurikuler || '').split(',').map(e => e.trim()).filter(Boolean);
+              }
+              return eksCek.some(e => String(e || '').toLowerCase().includes(String(payload.mapel || '').toLowerCase()));
+            }
             return kelasEfektif === payload.kelas;
          });
 
