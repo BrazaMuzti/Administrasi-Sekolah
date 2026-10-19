@@ -48,7 +48,28 @@ function initSupaClient(url, key) {
   }
   SUPABASE_URL = url;
   SUPABASE_ANON_KEY = key;
-  supaClient = window.supabase.createClient(url, key);
+  supaClient = window.supabase.createClient(url, key, {
+    auth: {
+      // Key storage unik per project agar tidak bentrok bila URL server berganti
+      // dan mudah dibedakan dari data localStorage aplikasi sendiri (sisip_*).
+      // Sesi Auth Supabase dipakai hanya untuk akses anon/OAuth ringan — login
+      // SISIP sendiri memakai sisip_token/sisip_user di localStorage.
+      storageKey: 'sisip-supabase-auth-token',
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // Aspal Navigator Web Locks API (navigator.locks) dengan lock no-op.
+      // GoTrue memakai Web Locks untuk mengunci storageKey antar-tab/instance;
+      // saat beberapa tab terbuka, lock sering GAGAL seketika (NavigatorLock-
+      // AcquireTimeoutError) dan memunculkan unhandled rejection yang mengganggu.
+      // Aplikasi tidak bergantung pada sesi Auth Supabase, jadi aman dilewati.
+      lock: async (_name, _acquireTimeout, fn) => await fn()
+    }
+  });
+  // Turunkan sesi Auth Supabase yang basi tanpa eksekusi tambahan.
+  supaClient.auth.onAuthStateChange((event, session) => {
+    if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT') return;
+  });
 }
 (() => {
   const cfg = ambilKonfigurasiServer();
@@ -66,6 +87,22 @@ function initSupaClient(url, key) {
   }
 })();
 
+// Refresh token basi (kedaluwarsa/dicabut server) memicu AuthApiError saat
+// auto-refresh berjalan di background (mis. tab kembali fokus). Bersihkan
+// token Auth Supabase yang rusak itu agar tidak mengulang error terus-menerus.
+// Sesi login aplikasi sendiri (sisip_token/sisip_user) TIDAK terpengaruh.
+window.addEventListener('unhandledrejection', (ev) => {
+  const msg = (ev && ev.reason && ev.reason.message) || '';
+  if (/refresh token/i.test(msg) && supaClient) {
+    ev.preventDefault();
+    console.warn('Sesi Supabase Auth basi terdeteksi, membersihkan token lokal:', msg);
+    try { localStorage.removeItem('sisip-supabase-auth-token'); } catch (e) { /* abaikan */ }
+  } else if (/navigator lockmanager|acquiring an exclusive/i.test(msg)) {
+    ev.preventDefault();
+    console.warn('Kontensi lock Supabase Auth (biasanya karena tab lain terbuka), diabaikan:', msg);
+  }
+});
+
 
 // Manajemen Sesi Lokal (Harus ada di utils.js)
 function getToken() { 
@@ -82,7 +119,6 @@ function clearSession() {
   localStorage.removeItem('sisip_user');
 }
 
-// INI FUNGSI YANG ERROR KARENA HILANG:
 function getCurrentUser() {
   try { 
     return JSON.parse(localStorage.getItem('sisip_user') || 'null'); 

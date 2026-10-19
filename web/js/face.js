@@ -1492,6 +1492,10 @@
       scanAktif = null;
     }
   }
+  /** [B2] Kamera/scan wajah sedang berjalan? Dipakai utk toggle stop + henti ui. */
+  function isWajahMandiriAktif() {
+    return !!(scanAktif && scanAktif.stream);
+  }
 
   /**
    * Mulai pemindaian wajah live.
@@ -2055,10 +2059,17 @@
           await tungguSiapMandiri(video);
           if (scanAktif) { scanAktif.stream = baru; scanAktif.video = video; }
           if (lama) lama.getTracks().forEach(t => t.stop());
-          facingMandiri = facing;
+          // [B3] Jangan percaya permintaan "facing" — baca facingMode ASLI dari kamera
+          // yang benar-benar terbuka (perangkat kamera-tunggal bisa fallback ke depan
+          // walau diminta 'environment'). Ini menjaga mirror & label tetap benar.
+          facingMandiri = (() => {
+            const tr = baru.getVideoTracks && baru.getVideoTracks()[0];
+            const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
+            return (st && (st.facingMode === 'user' || st.facingMode === 'environment')) ? st.facingMode : facing;
+          })();
           setTransformMandiri();
           tandaiMukaMandiri();
-          setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facing === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah lurus ke kamera ±40–80 cm.', 'text-cyan-100');
+          setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facingMandiri === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah lurus ke kamera ±40–80 cm.', 'text-cyan-100');
         } catch (e2) {
           console.error('gantiMukaMandiri:', e2);
           setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e2 && e2.message ? e2.message : e2), 'text-amber-200');
@@ -2165,6 +2176,7 @@
     ikonStatusWajah,
     mulaiPindaiWajahAbsen,
     berhentiPindaiWajah,
+    isWajahMandiriAktif,
     pindaiWajahMandiri,
     registrasiOtomatisDariFoto,
     urlFotoUntukCanvas

@@ -14,8 +14,9 @@
 -- ISI:
 --   RPC security definer ubah_anggota_ekskul(p_pemanggil, p_ekskul,
 --   p_nis_list, p_tambah):
---     - Verifikasi pemanggil: ADMIN selalu boleh; GURU (semua role guru,
---       termasuk pembina & wali kelas) boleh; MURID bila
+--     - Verifikasi pemanggil: ADMIN selalu boleh; GURU bila WALI KELAS
+--       (kolom wali_kelas terisi) atau PEMBINA ekskul tsb (p_ekskul ada di
+--       kolom ekstrakurikuler guru); MURID bila
 --       jabatan_ekskul_map->>p_ekskul terisi (pengurus).
 --     - Setiap NIS pada p_nis_list: gabung/buang nama ekskul pada kolom
 --       ekstrakurikuler murid (anti-duplikat, sama persis dengan logika
@@ -24,6 +25,10 @@
 --       authenticated (admin/pembina) mendapat hak yang sama.
 --   Frontend memanggil RPC ini lebih dulu; bila RPC belum ada (PGRST202)
 --   otomatis fallback ke jalur lama SELECT+UPDATE.
+--
+--  PEMBARUAN akses (deadline akses "Tambah Anggota"): akses guru DIPERSEMPIT
+--  hanya untuk Wali kelas & Pembina ekskul tsb — tidak lagi "semua guru".
+--  Senada dengan bolehKelolaAnggotaEkskul() di web/js/app.js.
 --
 -- Idempotent (create or replace) — aman dijalankan berulang.
 -- ============================================================
@@ -37,14 +42,16 @@ as $$
 declare
   v_tipe text;
   v_jabatan_map jsonb;
+  v_wali_kelas text;
+  v_ekstra text;
   v_nis text;
   v_ekstra_siswa text;
   v_baru text;
   v_total int := 0;
 begin
   -- 1) Identitas pemanggil
-  select tipe, jabatan_ekskul_map
-  into v_tipe, v_jabatan_map
+  select tipe, jabatan_ekskul_map, wali_kelas, ekstrakurikuler
+  into v_tipe, v_jabatan_map, v_wali_kelas, v_ekstra
   from akun
   where nis_nip = p_pemanggil;
 
@@ -57,9 +64,20 @@ begin
     -- admin selalu boleh
     null;
   elsif v_tipe = 'guru' then
-    -- Semua guru (role 'guru' apa pun) boleh mengubah anggota ekskul
-    -- (termasuk guru pembina, wali kelas, maupun guru biasa).
-    null;
+    -- Guru WALI KELAS (kolom wali_kelas terisi) atau PEMBINA ekskul ini
+    -- (p_ekskul termasuk kolom ekstrakurikuler guru) yang boleh mengubah
+    -- anggota. Guru biasa (bukan wali kelas / bukan pembina ekskul tsb)
+    -- TIDAK diizinkan — senada dengan bolehKelolaAnggotaEkskul() di app.js.
+    if coalesce(trim(coalesce(v_wali_kelas, '')), '') = ''
+       and not (lower(trim(p_ekskul)) = any (
+            select lower(trim(x))
+            from unnest(string_to_array(coalesce(v_ekstra, ''), ',')) as t(x)
+            where trim(x) <> ''
+          ))
+    then
+      return json_build_object('status', 'error', 'message',
+        'Hanya wali kelas atau pembina ' || p_ekskul || ' yang dapat mengubah anggota.');
+    end if;
   elsif v_tipe = 'murid' then
     -- pengurus: punya jabatan (tidak kosong) pada ekskul ini
     if v_jabatan_map is null or coalesce(trim(coalesce(v_jabatan_map->>p_ekskul, '')), '') = '' then

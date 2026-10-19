@@ -217,16 +217,27 @@ agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lem
    `simpan_foto_murid`).
 2. **Service Account Google** — ikuti panduan `supabase/functions/unggah-foto-murid/README.md`:
    buat service account di project GCP `sisip-510803` (kunci JSON), **pindahkan folder**
-   **"Foto Siswa"** (`1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_`) ke **Google Shared Drive** dan
+   **"Foto Siswa"** ke **Google Shared Drive** (gunakan ID folder Anda sendiri — potongan
+   33 karakter di URL Drive setelah `/folders/`, **jangan commit nilai asli** ke repo) dan
    bagikan shared drive ke email SA sebagai **Content manager**, pastikan **Google Drive API**
    enabled. ⚠️ SA **tidak punya kuota My Drive** — folder tujuan wajib di Shared Drive,
    kalau tidak Google menolak upload dengan `403 Service Accounts do not have storage quota`.
 3. **Secret & deploy Edge Function**:
    ```bash
    supabase secrets set GOOGLE_SA_JSON='<isi lengkap file JSON kunci service account>'
-   supabase secrets set DRIVE_FOLDER_ID='1jDdMHiMJI_eCmj4pxxL0E0yRw5jqtNb_'
+   supabase secrets set DRIVE_FOLDER_ID='<ID_FOLDER_DRIVE>'
    npx supabase functions deploy unggah-foto-murid --project-ref <PROJECT_REF>
    ```
+   > Ganti `<ID_FOLDER_DRIVE>` dengan ID folder asli (potongan 33 karakter di URL Drive).
+   > **Jangan commit nilai ID folder asli ke repo.**
+   >
+   > **Cara membuat `GOOGLE_SA_JSON` (service account):** buka Google Cloud Console →
+   > [IAM & Admin → Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts) →
+   > **Create service account** → beri nama (mis. `supabase-drive-upload`) → pada baris SA
+   > pilih **⋯ → Manage keys → ADD KEY → Create new key → JSON → Create** → file `.json`
+   > terunduh. **Isi file itulah `GOOGLE_SA_JSON`.** Ikuti langkah lengkap (termasuk berbagi
+   > folder/shared drive ke email SA sebagai *Content manager*) di
+   > `supabase/functions/unggah-foto-murid/README.md`. File JSON **jangan di-commit** ke repo.
    > Untuk `GOOGLE_SA_JSON` lebih aman tempel utuh lewat Dashboard → *Edge Functions → Secrets*
    > (menghindari masalah quoting JSON bertingkat di shell).
 

@@ -123,6 +123,44 @@ Akun uji:
 ### S14 — Regression ringan menu lama
 - [ ] **Absen Mandiri** & **Laporan Saya** tetap berfungsi; dashboard tidak error di console.
 
+### S14b — Admin "Edit data siswa" (Data Akun Murid) akses penuh (Req A)
+- [ ] Login **admin** → menu **Data Akun Murid** tampil.
+- [ ] Tombol **Edit** (pencil) & **Hapus** tampil pada baris akun murid; klik bisa jalan.
+- [ ] Tombol **Tambah** Akun Murid jalan (add & edit via RPC `buat_akun_murid`).
+- [ ] (console) `bisaEditAkunMurid()` → `true` utk admin.
+
+### S14c — Absen Mandiri: hadir auto-tercatat saat face scan (Req B1)
+- [ ] Login murid `UJI999` → **Absen Mandiri** → guru telah membuka sesi + kode captcha diberikan.
+- [ ] Ketik **kode captcha** di input **Kode Captcha**, pilih mapel → klik **Pindai Wajah**.
+- [ ] Hadapkan wajah lurus ke kamera → saat cocok, **hadir langsung tercatat** di tabel `absensi` (status `'H'` & `wajah_cocok=true`) **tanpa** klik "Saya Hadir Hari Ini".
+- [ ] UI tampil "Hadir Tercatat"; kamera berhenti.
+- [ ] Ha kode captcha kosong → pesan amber "ketik kode captcha" tampil; kamera tetap (bisa ulang).
+
+### S14d — Kamera berhenti di aksi lain saat face scan (Req B2)
+- [ ] Mulai pemindaian wajah → **fokus/ketik kode captcha** → kamera berhenti & status "Pemindaian dihentikan".
+- [ ] Mulai pemindaian wajah → **ganti mapel** (dropdown) → kamera berhenti.
+- [ ] Mulai pemindaian wajah → tombol **Berhenti** → kamera berhenti.
+- [ ] Kamera berjalan saat klik **Pindai Wajah** (toggle) ulang → berhenti.
+
+### S14e — Switching kamera depan/belakang tidak flip/mirror lagi (Req B3)
+- [ ] Mulai pemindaian wajah → klik **Belakang** (ha perangkat kamera-singleton, kamu tetap depan) → pratinjau **tidak** terflip/mirrored.
+- [ ] Klik **Depan** → mirror normal (selfie); switch idem ganti label & ring pada tombol aktif.
+
+### S14f — Header dashboard tampil penuh di Firefox Android / layar sempit (Req A)
+- [ ] Login (admin/guru/murid) → **Firefox Android** (atau jendela browser sempit <640px) → header menampilkan: **logo sekolah, nama sekolah, waktu sekarang (jam berjalan), tanggal sekarang (hari, tgl, bulan, tahun)**.
+- [ ] **Tentang Aplikasi** (tombol ⓘ) tampil & klik → popup Tentang terbuka.
+- [ ] **Profil Akun** (avatar) tampil & klik → popup Profil terbuka.
+- [ ] Nama sekolah panjang → menyingkat (truncate) tanpa mendorong tombol Tentang/Profil keluar layar; jam & tanggal tetap terlihat.
+- [ ] Date berjalan setiap detik bersama jam (tidak lagi `hidden sm:inline`).
+
+### S14g — Akses \"Tambah Anggota\" Ekstrakurikuler: Admin, Wali kelas, Pembina, Jabatan Anggota (Req B)
+- [ ] Login **Admin** → menu Ekstrakurikuler → tombol **Tambah Anggota** tampil & bisa dipakai.
+- [ ] Login **guru Wali Kelas** → Tambah Anggota tampil & bisa dipakai (semua ekskul).
+- [ ] Login **guru Pembina** ekskul X → Tambah Anggota tampil untuk ekskul X (yang diampu) & bekerja; untuk ekskul yang TIDAK diampu → tombol tidak tampil.
+- [ ] Login **guru biasa** (bukan wali kelas / bukan pembina) → Tambah Anggota **tidak** tampil.
+- [ ] Login **murid pengurus** (menjabat) ekskul X → Tambah Anggota tampil untuk ekskul X & bekerja.
+- [ ] (backend) Panggil langsung RPC `ubah_anggota_ekskul` sebagai guru biasa → ditolak pesan \"Hanya wali kelas atau pembina …\".
+
 ---
 
 ## D. SELESAI UJI

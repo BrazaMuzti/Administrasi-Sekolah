@@ -3,7 +3,7 @@
 -- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
 --
 -- LATAR BELAKANG:
---   Menu "Data Akun Murid" kini menampilkan tombol "Wajah Masal" & "Sinkron Foto"
+--   Menu "Data Akun Murid" kini menampilkan tombol "Wajah Masal" (dan "Upload Foto")
 --   untuk admin & guru (wali kelas / pembina ekskul) — lihat bisaImportMuridAktif()
 --   di web/js/app.js. Namun RPC `simpan_wajah_murid` selama ini hanya mengizinkan
 --   admin atau murid pemilik NIS, sehingga guru yang menjalankan scan wajah masal

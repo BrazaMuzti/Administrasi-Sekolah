@@ -57,7 +57,9 @@ alter table master_data
   add column if not exists "Mata Pelajaran" text,
   add column if not exists "Ekstrakurikuler" text,
   add column if not exists "Jabatan Kelas" text,
-  add column if not exists "Jabatan Guru" text;
+  add column if not exists "Jabatan Guru" text,
+  add column if not exists "Jurusan Lengkap" text,
+  add column if not exists "NIP Kepala Sekolah" text;
 
 -- ========== 3 & 4: RPC MURID & PRIVILEGE KREDENSIAL ==========
 -- Dipindah ke fix_20260903_kredensial.sql — jalankan file itu.
