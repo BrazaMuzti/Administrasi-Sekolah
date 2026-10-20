@@ -379,15 +379,25 @@ async function apiCall(action, data = {}) {
       }
 
       // ---- Fallback lama (RPC `absen_mandiri` belum dibuat di database) ----
-      // Validasi captcha terhadap sesi yang dibuka guru pengampu (mapel/ekskul)
+      // Validasi plichtig ook hier consistent met RPC v3:
+      //   * Metode 1 (kode): kode MOET matchen met BUKA-guru die mapel diampu;
+      //   * Metode 2 (wajah): kode leeg mag ALLEEN bila wajahCocok=true;
+      //   * beide: sessie BUKA blijft verplicht (zonder open sessie geen hadir).
       const { data: guruRows, error: gErr } = await supaClient
         .from('akun')
         .select('captcha, kunci_absen')
         .in('tipe', ['guru', 'admin'])
         .or(`mapel.ilike.%${data.mapel}%,ekstrakurikuler.ilike.%${data.mapel}%`);
       if (gErr) throw gErr;
-      const sesiOk = (guruRows || []).some(g => g.kunci_absen === 'BUKA' && String(g.captcha || '').toUpperCase() === String(data.captcha || '').toUpperCase());
-      if (!sesiOk) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
+      const sesiBuka = (guruRows || []).some(g => g.kunci_absen === 'BUKA');
+      if (!sesiBuka) return { status: 'error', message: 'Sesi absen belum dibuka guru voor ' + String(data.mapel || '') + '.' };
+      const captchaTekst = String(data.captcha || '').trim();
+      if (captchaTekst !== '') {
+        const captchaOk = (guruRows || []).some(g => g.kunci_absen === 'BUKA' && String(g.captcha || '').toUpperCase() === captchaTekst.toUpperCase());
+        if (!captchaOk) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
+      } else if (!data.wajahCocok) {
+        return { status: 'error', message: 'Kode captcha wajib diisi.' };
+      }
 
       const { error } = await supaClient.from('absensi').upsert({
         nis: String(data.nis || ''),

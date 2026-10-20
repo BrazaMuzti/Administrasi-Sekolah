@@ -1408,6 +1408,7 @@ function startRealtimeClock() {
 
 
 let wajahMandiriCocok = false; // true setelah face scan (opsional) berhasil memverifikasi identitas
+let metodaAbsenMandiri = 'captcha'; // metode aktif absen mandiri murid: 'captcha' (Kode Captcha dari Guru) | 'wajah' (Face Scan NIS)
 
 /** Hentikan pemindaian wajah Absen Mandiri (face.js) + reset UI label/status.
  *  Dipakai bila pengguna melakukan aksi lain (ketik captcha, ganti mapel, dsb.).
@@ -1431,6 +1432,31 @@ function berhentiPindaiWajahMandiri() {
   const wrap = document.getElementById('wajah-mandiri-wrap');
   if (wrap && aktif) { wrap.classList.add('hidden'); wrap.innerHTML = ''; }
   return aktif;
+}
+
+/** Ganti metode absen mandiri murid via selector Metode 1/Metode 2.
+ *  - 'captcha': blok kode captcha + tombol "Saya Hadir Hari Ini" aktief.
+ *  - 'wajah'  : blok face scan (Pindai Wajah Saya) aktief — captcha niet nodig.
+ *  Wissel stopt de camera & reset de wajah-verificatie (metode 1 kan dus niet
+ *  profiteren van een wajah-scan van metode 2). */
+function gantiMetodaAbsen(m) {
+  metodaAbsenMandiri = (m === 'wajah') ? 'wajah' : 'captcha';
+  wajahMandiriCocok = false;
+  berhentiPindaiWajahMandiri();
+  const kloofKlas = (on) => on
+    ? ['bg-cyan-600/30', 'text-cyan-300', 'border-cyan-500/40']
+    : ['bg-slate-800', 'text-slate-400', 'border-white/10'];
+  const pasKlas = (el, on) => {
+    if (!el) return;
+    kloofKlas(true).forEach(c => el.classList.toggle(c, on));
+    kloofKlas(false).forEach(c => el.classList.toggle(c, !on));
+  };
+  pasKlas(document.getElementById('metoda-captcha'), metodaAbsenMandiri === 'captcha');
+  pasKlas(document.getElementById('metoda-wajah'), metodaAbsenMandiri === 'wajah');
+  const blkC = document.getElementById('blok-metoda-captcha');
+  const blkW = document.getElementById('blok-metoda-wajah');
+  if (blkC) blkC.classList.toggle('hidden', metodaAbsenMandiri !== 'captcha');
+  if (blkW) blkW.classList.toggle('hidden', metodaAbsenMandiri !== 'wajah');
 }
 
 /** Baca koordinat GPS (pakai izin menu lokasi HP/Laptop). */
@@ -1500,16 +1526,24 @@ async function cekGeofenceGPS(gpsLokasi) {
 async function jalankanAbsenMandiri(o) {
   const mapelRaw = document.getElementById('murid-mapel').value.split('|');
   const btn = document.getElementById('btn-absen-mandiri');
-  const captcha = String((o && o.captcha) || document.getElementById('murid-captcha').value || '').trim();
+  // Metode 1 (Kode Captcha): kode diisi murid. Metode 2 (Face Scan NIS): kode
+  // captcha TIDAK diperlukan — identitas diverifikasi via wajah cocok sesuai NIS.
+  const captcha = String(((o && typeof o.captcha === 'string') ? o.captcha : ((document.getElementById('murid-captcha') || {}).value || ''))).trim();
   const gpsLokasi = (o && o.gps) || '';
   const sumber = (o && o.sumber) || 'manual';
+  const wajahCocokMandiri = (o && o.wajahCocok) || wajahMandiriCocok;
   if(!captcha) {
     if (sumber === 'wajah') {
-      const stW = document.getElementById('wajah-mandiri-status');
-      if (stW) stW.innerHTML = '<span class="text-amber-300 font-bold"><i class="fa-solid fa-keyboard mr-1"></i>Wajah cocok — ketik <b>kode captcha</b> dari guru, lalu hadir auto tercatat.</span>';
-      return { status: 'error', message: 'Kode captcha wajib diisi.' };
+      // Metode 2: captcha leeg → wajah MOET al gecocok zijn (anders geen hadir).
+      if (!wajahCocokMandiri) {
+        const stW = document.getElementById('wajah-mandiri-status');
+        if (stW) stW.innerHTML = '<span class="text-amber-300 font-bold"><i class="fa-solid fa-face-smile mr-1"></i>Wajah belum terverifikasi — hadapkan wajah ke kamera lalu scan ulang.</span>';
+        return { status: 'error', message: 'Wajah belum terverifikasi.' };
+      }
+      // wajah cocok → ga verder ZONDER captcha (RPC v3 voert sessie BUKA-check uit).
+    } else {
+      return Swal.fire({toast: true, position: 'top-end', icon: 'warning', title: 'Captcha kosong!', showConfirmButton: false, timer: 2000});
     }
-    return Swal.fire({toast: true, position: 'top-end', icon: 'warning', title: 'Captcha kosong!', showConfirmButton: false, timer: 2000});
   }
 
   // [Geofence] Verifieer lokasi GPS murid tegenover koordinat school
@@ -1532,7 +1566,7 @@ async function jalankanAbsenMandiri(o) {
 
   try {
     const smtMandiri = ['Juli','Agustus','September','Oktober','November','Desember'].includes(currentBulan) ? 'Ganjil' : 'Genap';
-    const res = await apiCall('absen_mandiri', { tahun: currentTahun, semester: smtMandiri, bulan: currentBulan, tanggal: new Date().getDate(), kelas: currentUser.user["Tingkat/Kelas"], jenis: mapelRaw[0], mapel: mapelRaw[1], nis: currentUser.user["NIS"], nama: currentUser.user["Nama Lengkap"], captcha: captcha, gps: gpsLokasi, wajahCocok: (o && o.wajahCocok) || wajahMandiriCocok });
+    const res = await apiCall('absen_mandiri', { tahun: currentTahun, semester: smtMandiri, bulan: currentBulan, tanggal: new Date().getDate(), kelas: currentUser.user["Tingkat/Kelas"], jenis: mapelRaw[0], mapel: mapelRaw[1], nis: currentUser.user["NIS"], nama: currentUser.user["Nama Lengkap"], captcha: captcha, gps: gpsLokasi, wajahCocok: wajahCocokMandiri });
 
     if(res.status === 'success') {
       const rbMandiri = (res.data && typeof res.data === 'object') ? res.data : {};
@@ -1543,7 +1577,8 @@ async function jalankanAbsenMandiri(o) {
         : `Kehadiran tercatat.<br><span class="text-xs text-slate-400">Lokasi: ${gpsLokasi}</span>`;
       Swal.fire({ icon: 'success', title: 'Berhasil Absen!', html: detailMandiri, background: '#1e293b', color: '#fff' });
       cacheDashboardKosongkan(); // data absen berubah → sesi cache dashboard usang
-      document.getElementById('murid-captcha').value = '';
+      const inpCaptchaMurid = document.getElementById('murid-captcha');
+      if (inpCaptchaMurid) inpCaptchaMurid.value = '';
       wajahMandiriCocok = false;
       const stMandiri = document.getElementById('wajah-mandiri-status');
       if (stMandiri) { stMandiri.innerHTML = ''; stMandiri.className = 'text-[10px] text-slate-500 flex-1'; }
@@ -1569,11 +1604,12 @@ async function submitAbsenMandiri() {
   await jalankanAbsenMandiri({ captcha, gps: gpsLokasi, wajahCocok: wajahMandiriCocok, sumber: 'manual' });
 }
 
-/** Verifikasi wajah pada Absen Mandiri: mencocokkan wajah murid dengan
- *  descriptor terdaftar miliknya (face.js → pindaiWajahMandiri).
+/** Metode 2 — Verifikasi wajah pada Absen Mandiri: mencocokkan wajah murid met
+ *  zijn EIGEN descriptor (face.js → pindaiWajahMandiri, NIS ingelogd).
  *  [B1] Saat wajah cocok → HADIR langsung ter-catat di tabel absensi (daftar
- *  hadir) lewat jalankanAbsenMandiri — tanpa perlu tekan tombol manual lagi.
- *  Gagal/tidak tersedia → absen tetap bisa jalan (tanpa penanda wajah). */
+ *  hadir) lewat jalankanAbsenMandiri — ZONDER kode captcha & zonder tombol
+ *  manual aan te raken. Gagal/tidak tersedia → geen hadir (metode 1 captcha
+ *  blijft beschikbaar in de andere tab). */
 async function pindaiWajahMandiriSaya() {
   const btn = document.getElementById('btn-pindai-wajah-mandiri');
   const st = document.getElementById('wajah-mandiri-status');
@@ -1600,12 +1636,14 @@ async function pindaiWajahMandiriSaya() {
       wrap,
       onHasil: () => {
         wajahMandiriCocok = true;
-        if (st) st.innerHTML = `<span class="text-green-400 font-bold"><i class="fa-solid fa-circle-check mr-1"></i>Wajah terverifikasi — ${escapeHtml(nama)}</span>`;
+        if (st) st.innerHTML = `<span class="text-green-400 font-bold"><i class="fa-solid fa-circle-check mr-1"></i>Wajah terverifikasi — ${escapeHtml(nama)} — hadir langsung tercatat</span>`;
         if (btn) btn.innerHTML = '<i class="fa-solid fa-face-grin-beam mr-1"></i> Terverifikasi';
         // [B1] HADIR langsung ter-catat (daftar hadir) — otomatis, tanpa klik extra.
         (async () => {
           const gps = await bacaGpsMandiri();
-          const r = await jalankanAbsenMandiri({ captcha: (document.getElementById('murid-captcha') || {}).value, gps, wajahCocok: true, sumber: 'wajah' });
+          // Metode 2: captcha NIET meegestuurd ('' expliciet) — RPC v3 staat
+          // wajah-cocok zonder captcha toe zolang de sessie BUKA is.
+          const r = await jalankanAbsenMandiri({ captcha: '', gps, wajahCocok: true, sumber: 'wajah' });
           if (r && r.status === 'success' && btn) { btn.innerHTML = '<i class="fa-solid fa-face-grin-beam mr-1"></i> Hadir Tercatat'; }
         })();
       }
@@ -2092,7 +2130,7 @@ async function renderAbsenMandiriMurid(container) {
     ? `<div class="bg-red-600/20 border border-red-500/40 rounded-xl p-4 text-center">
         <i class="fa-solid fa-lock text-3xl text-red-400 mb-2"></i>
         <p class="text-sm font-bold text-red-300">Tidak Ada Sesi Absen Terbuka</p>
-        <p class="text-[10px] text-slate-400 mt-1">Minta guru pengampu membuka sesi absen (Kunci Absen → BUKA) dan bagikan kode captcha.</p>
+        <p class="text-[10px] text-slate-400 mt-1">Minta guru pengampu membuka sesi absen (Kunci Absen → BUKA) dan bagikan kode captcha (Metode 1). Metode wajah (Face Scan NIS) tetap memerlukan sesi terbuka.</p>
       </div>`
     : `<div class="bg-green-600/20 border border-green-500/40 rounded-xl p-3">
         <p class="text-[10px] font-bold text-green-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-circle-check mr-1"></i> Sesi Absen Terbuka (${sesiGuru.length})</p>
@@ -2109,13 +2147,32 @@ async function renderAbsenMandiriMurid(container) {
           </select>
         </div>
         <div>
-          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Kode Captcha dari Guru <span class="text-red-400">*</span></label>
-          <input type="text" id="murid-captcha" placeholder="Ketik kode dari guru pengampu" autocomplete="off"
-            onfocus="berhentiPindaiWajahMandiri()" oninput="if(this.value.trim()) berhentiPindaiWajahMandiri();"
-            class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white uppercase tracking-widest font-mono">
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Metode Absen <span class="text-red-400">*</span> <span class="text-slate-500 normal-case font-normal">(pilih salah satu)</span></label>
+          <div class="mt-1 grid grid-cols-2 gap-2">
+            <button type="button" id="metoda-captcha" onclick="gantiMetodaAbsen('captcha')"
+              class="w-full bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/40 px-2 py-2 rounded-lg text-[10px] font-bold transition text-left">
+              <i class="fa-solid fa-keyboard mr-1"></i> Kode Captcha<br><span class="text-[9px] opacity-70 normal-case">dari Guru Pengampu</span>
+            </button>
+            <button type="button" id="metoda-wajah" onclick="gantiMetodaAbsen('wajah')"
+              class="w-full bg-slate-800 hover:bg-cyan-600 text-slate-400 hover:text-white border border-white/10 px-2 py-2 rounded-lg text-[10px] font-bold transition text-left">
+              <i class="fa-solid fa-face-smile mr-1"></i> Face Scan<br><span class="text-[9px] opacity-70 normal-case">sesuai akun NIS Anda</span>
+            </button>
+          </div>
         </div>
-        <div>
-          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-id-card mr-1"></i> Pindai Wajah <span class="text-slate-500 normal-case font-normal">(opsional — penguat identitas)</span></label>
+        <div id="blok-metoda-captcha">
+          <div>
+            <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Kode Captcha dari Guru <span class="text-red-400">*</span></label>
+            <input type="text" id="murid-captcha" placeholder="Ketik kode dari guru pengampu" autocomplete="off"
+              onfocus="berhentiPindaiWajahMandiri()" oninput="if(this.value.trim()) berhentiPindaiWajahMandiri();"
+              class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white uppercase tracking-widest font-mono">
+          </div>
+          <button id="btn-absen-mandiri" onclick="submitAbsenMandiri()" ${opsiAktif.length === 0 ? 'disabled' : ''}
+            class="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition text-sm">
+            <i class="fa-solid fa-check-circle"></i> Saya Hadir Hari Ini
+          </button>
+        </div>
+        <div id="blok-metoda-wajah" class="hidden">
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-id-card mr-1"></i> Pindai Wajah <span class="text-slate-500 normal-case font-normal">(metode 2 — zonder kode captcha)</span></label>
           <div class="mt-1 flex items-center gap-2">
             <button type="button" id="btn-pindai-wajah-mandiri" onclick="pindaiWajahMandiriSaya()"
               class="bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white px-3 py-2 rounded-lg text-[11px] font-bold transition whitespace-nowrap">
@@ -2124,11 +2181,8 @@ async function renderAbsenMandiriMurid(container) {
             <div id="wajah-mandiri-status" class="text-[10px] text-slate-500 flex-1"></div>
           </div>
           <div id="wajah-mandiri-wrap" class="hidden mt-2"></div>
+          <p class="text-[9px] text-emerald-300/80 mt-1"><i class="fa-solid fa-circle-check mr-1"></i>Wajah cocok dengan akun NIS Anda → <b>hadir langsung tercatat</b> (kode captcha tidak diperlukan).</p>
         </div>
-        <button id="btn-absen-mandiri" onclick="submitAbsenMandiri()" ${opsiAktif.length === 0 ? 'disabled' : ''}
-          class="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition text-sm">
-          <i class="fa-solid fa-check-circle"></i> Saya Hadir Hari Ini
-        </button>
         <p class="text-[9px] text-slate-500 text-center"><i class="fa-solid fa-location-dot mr-1"></i>Lokasi GPS (koordinat) akan dilampirkan pada absensi untuk verifikasi kehadiran.</p>
       </div>`;
 

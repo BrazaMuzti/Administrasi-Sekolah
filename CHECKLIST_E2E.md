@@ -129,16 +129,20 @@ Akun uji:
 - [ ] Tombol **Tambah** Akun Murid jalan (add & edit via RPC `buat_akun_murid`).
 - [ ] (console) `bisaEditAkunMurid()` → `true` utk admin.
 
-### S14c — Absen Mandiri: hadir auto-tercatat saat face scan (Req B1)
-- [ ] Login murid `UJI999` → **Absen Mandiri** → guru telah membuka sesi + kode captcha diberikan.
-- [ ] Ketik **kode captcha** di input **Kode Captcha**, pilih mapel → klik **Pindai Wajah**.
-- [ ] Hadapkan wajah lurus ke kamera → saat cocok, **hadir langsung tercatat** di tabel `absensi` (status `'H'` & `wajah_cocok=true`) **tanpa** klik "Saya Hadir Hari Ini".
-- [ ] UI tampil "Hadir Tercatat"; kamera berhenti.
-- [ ] Ha kode captcha kosong → pesan amber "ketik kode captcha" tampil; kamera tetap (bisa ulang).
+### S14c — Absen Mandiri: dua metode — Kode Captcha / Face Scan NIS (Req B1)
+- [ ] Login murid `UJI999` → **Absen Mandiri** → guru telah membuka sesi (Kunci Absen → BUKA) voor mapel/ekskul.
+- [ ] Selector **Metode Absen** tampil met 2 puns: **Kode Captcha** (actief standaard) en **Face Scan**.
+- [ ] **Metode 1 — Kode Captcha**: kies mapel, ketik kode captcha → klik **Saya Hadir Hari Ini** → baris `absensi` status `'H'` (wajah_cocok=false). Kode kosong → toast "Captcha kosong!" zonder API-request.
+- [ ] **Metode 2 — Face Scan (NIS)**: klik pun **Face Scan** → alleen blok kamera tampil (input kode captcha niet zichtbaar/aktief).
+- [ ] Hadapkan wajah lurus ke kamera → saat cocok (descriptor eigen NIS), **hadir langsung tercatat** in tabel `absensi` (status `'H'` & `wajah_cocok=true`) **zonder kode captcha** en zonder klik "Saya Hadir Hari Ini".
+- [ ] UI tampil "Wajah terverifikasi — … — hadir langsung tercatat"; kamera berhenti; tombol reset "Pindai Wajah Saya".
+- [ ] Metode 2 zonder wajah geregistreerd/actief → geen hadir (face.js melding amber).
+- [ ] Metode 2 terwijl kamera loopt → klik pun **Kode Captcha** → kamera stopt ("Pemindaian wajah dihentikan omdat aksi lain").
 
 ### S14d — Kamera berhenti di aksi lain saat face scan (Req B2)
 - [ ] Mulai pemindaian wajah → **fokus/ketik kode captcha** → kamera berhenti & status "Pemindaian dihentikan".
 - [ ] Mulai pemindaian wajah → **ganti mapel** (dropdown) → kamera berhenti.
+- [ ] Mulai pemindaian wajah → **ganti metode** (pun Kode Captcha) → kamera berhenti.
 - [ ] Mulai pemindaian wajah → tombol **Berhenti** → kamera berhenti.
 - [ ] Kamera berjalan saat klik **Pindai Wajah** (toggle) ulang → berhenti.
 
