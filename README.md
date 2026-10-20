@@ -283,3 +283,26 @@ Supabase** (bukan Google Sheets / Apps Script seperti repo aslinya).
   — `wajah_descriptor` flat `[128 angka]` → array-of-arrays (maks 6 sampel/murid), RPC
   `simpan_wajah_murid` + `p_mode 'ganti'/'tambah'`; frontend: registrasi multi-pose + min-distance
   matching + kamera fallback & pre-warm model.
+
+### 7a. Motor wajah: `face-api` (baku) ATAU `mediapipe` (MobileFaceNet + ONNX)
+
+`face.js` ondersteunt **twee engines** teruggabelen aan dezelfde interface (`window.FaceWajah`).
+De keuze is per-browser (per apparaat), niet per database — gezet via:
+
+```js
+localStorage.setItem('sbg_wajah_motor', 'mediapipe'); // ATAU 'faceapi' (baku)
+```
+
+| Motor                                      | Deteksi + landmarks             | Descriptor           | Feature space |
+| -------------------------------------------| ------------------------------- | ---------------------| --------------|
+| `faceapi` (BAKU, ongewijzid)               | face-api / TFJS (lokal)         | FaceRecognitionNet    | 128           |
+| `mediapipe` (nieuw)                        | MediaPipe Face Landmarker (wasm)| MobileFaceNet (ONNX)  | 512           |
+
+- **Zet om**: in de browser-console van het schoolapparaat `localStorage.setItem('sbg_wajah_motor','mediapipe')` → ververs de pagina. Terug: waarde `'faceapi'` of `localStorage.removeItem('sbg_wajah_motor')`.
+- **Lokale bestanden** (geen CDN, offline na eerste cache):
+  - `web/vendor/mediapipe/vision_bundle.js` + `wasm/vision_wasm_internal.{js,wasm}` (MediaPipe Tasks Vision)
+  - `web/vendor/onnx/ort.min.js` + `ort-wasm-simd-threaded.{mjs,wasm}` (ONNX Runtime Web)
+  - `web/models/face_landmarker.task` (MediaPipe) en `web/models/mobilefacenet.onnx` (MobileFaceNet, **512-d**)
+- **Belangrijk — re-enrollment**: 128-d (face-api) en 512-d (MobileFaceNet) zijn **verschillende feature-ruimten**. Na de switch moeten murids opnieuw geregistreerd worden (modal wajah → "Simpan Data Wajah" met mode `ganti`; de multi-pose pipeline en de 6-sampel cap blijven hetzelfde). Oude 128-rijen blijven in de DB en werken onder motor `faceapi`.
+- **Deploy-eis**: draai één keer `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` in de Supabase SQL Editor (geen data-migratie; RPC accepteert 128 & 512). Zie ook `CHECKLIST_E2E.md` → **S14h**.
+- **Kwaliteit (offline validatie van dit model)**: identical-face cos≈0.85 (d≈0.54), cross-person cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; waterscheiding ruim, maar E2E op de zwakste schoolapparaat blijft verplicht (eerste-scan latentie meten).

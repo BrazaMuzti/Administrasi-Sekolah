@@ -164,6 +164,18 @@ Akun uji:
 - [ ] Login **guru biasa** (bukan wali kelas / bukan pembina) → Tambah Anggota **tidak** tampil.
 - [ ] Login **murid pengurus** (menjabat) ekskul X → Tambah Anggota tampil untuk ekskul X & bekerja.
 - [ ] (backend) Panggil langsung RPC `ubah_anggota_ekskul` sebagai guru biasa → ditolak pesan \"Hanya wali kelas atau pembina …\".
+### S14h — Motor wajah mediapipe (MediaPipe + MobileFaceNet/ONNX)
+Vereiste: migratie `upgrade_20261023_wajah_motor_mediapipe.sql` al gedraaid in SQL Editor; de bestanden
+`web/vendor/mediapipe/*`, `web/vendor/onnx/*`, `web/models/face_landmarker.task`,
+`web/models/mobilefacenet.onnx` aanwezig.
+- [ ] **Activatie**: browser-console `localStorage.setItem('sbg_wajah_motor','mediapipe')` → hard refresh → console geen `FaceLandmarker`/`ort`-fouten; Network tab toont `vision_wasm_internal.wasm` + `ort-wasm-simd-threaded.{mjs,wasm}` + `face_landmarker.task` + `mobilefacenet.onnx` (200 / cache 200).
+- [ ] **Fallback/uit**: `localStorage.setItem('sbg_wajah_motor','faceapi')` (of `removeItem`) → refresh → `face-api` motor weer normaal (S14 blijft groen).
+- [ ] **Registrasi (re-enrollment)**: modal wajah van een murid → model laadt (landmarker ±3,7MB + wasm) → "Gunakan Foto" of "Gunakan Kamera" werkt; **Simpan Data Wajah** → in SQL: `wajah_descriptor` voor die NIS heeft nu array(s) met **512** getallen (voorheen 128); RPC accepteert het (geen "array 128 angka" error).
+- [ ] **Oude data**: rij die nog 128-cijferig is blijft gewoon in DB; status-kolom toont "Aktif" maar matcht niet onder mediapipe (descriptor-ruimte verschilt) — zie README §7a voor re-enrollment.
+- [ ] **Face Scan absenti (S14c herhaling)**: tombol "Pindai Wajah Saya" → kamera → bij cocok (eigen NIS) hadir 'H' + wajah_cocok=true **zonder captcha**; bij niet-cocok (ander gezicht / murid zonder geldige 512-d registratie) geen hadir + status melding.
+- [ ] **Eerste-scan latentie meten op ZWAKSTE apparaat**: eerste `detectForVideo` na model-load respondeert (warm) en per-frame embed ≤ 300 ms; noteer de gemeten getallen hier: ____________.
+- [ ] **iOS Safari / toestellen zonder WASM-SIMD** (indien in parool): `vision_wasm_nosimd_internal.*` niet gevend → duidelijke MediaPipe-foutmelding in de modal (geen hang/modal-stil); fallback: `sbg_wajah_motor='faceapi'` of vendor de `_nosimd`-paren (README §7a).
+- [ ] **Ambang**: twee selfies van dezelfde leerling (licht toch anders) → cocok; leerling met zonnebril/masker → "tidak dikenal" (geen valse hadir). Bij twijfel pas `JARAK_COCOK_MP`/`JARAK_KENAL_MP` aan in `face.js` (regio 0a).
 
 ---
 
