@@ -1439,6 +1439,61 @@ async function bacaGpsMandiri() {
   catch (e) { console.warn('bacaGpsMandiri:', e); return ''; }
 }
 
+/** Afstand grootcirkel (haversine) tussen twee koordinat WGS-84. @returns {number} meter. */
+function jarakHaversineM(aLat, aLng, bLat, bLng) {
+  const R = 6371000; // meter
+  const toRad = (d) => (d * Math.PI) / 180.0;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const sa = Math.sin(dLat / 2);
+  const sb = Math.sin(dLng / 2);
+  const a = sa * sa + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * sb * sb;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Geofence sekolah uit baris identitas master_data (kolom "Latitude Sekolah",
+ *  "Longitude Sekolah" + "Radius Geofence (m)"). Altijd FRESH lezen (niet cache)
+ *  → admin-wijzigingen (SISIP → Konfigurasi) werken direct, zonder reload.
+ *  @returns {Promise<null|{lat:number,lng:number,radiusM:number}>} null bila
+ *  niet geconfigureerd / koordinat ongeldig / radius <= 0. */
+async function ambilGeofenceSekolah() {
+  try {
+    const { data, error } = await supaClient
+      .from('master_data')
+      .select('"Nama Sekolah","Latitude Sekolah","Longitude Sekolah","Radius Geofence (m)"');
+    if (error) { console.warn('ambilGeofenceSekolah:', error); return null; }
+    const idn = (data || []).find(r => r["Nama Sekolah"]) || {};
+    const lat = parseFloat(String(idn['Latitude Sekolah'] || '').trim().replace(',', '.'));
+    const lng = parseFloat(String(idn['Longitude Sekolah'] || '').trim().replace(',', '.'));
+    const radiusTxt = String(idn['Radius Geofence (m)'] || '').trim().replace(',', '.');
+    const radiusM = radiusTxt === '' ? 0 : parseFloat(radiusTxt);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    if (!Number.isFinite(radiusM) || radiusM <= 0) return null; // radius 0/kosong → geofence UIT
+    return { lat, lng, radiusM };
+  } catch (e) { console.warn('ambilGeofenceSekolah:', e); return null; }
+}
+
+/** Cek lokasi GPS murid tegenover geofence sekolah (bila geconfigureerd).
+ *  @param {string} gpsLokasi format getDeviceGPS: "lat, lng" (of pesan GPS).
+ *  @returns {Promise<{ok:boolean, distM?:number, pesan?:string}>} ok=true → laten
+ *  lopen (geofence uit / niet geconfigureerd, of binnen radius). */
+async function cekGeofenceGPS(gpsLokasi) {
+  const gf = await ambilGeofenceSekolah();
+  if (!gf) return { ok: true }; // geofence uit → geen blokkade
+  const gpsTxt = String(gpsLokasi || '').trim();
+  const m = gpsTxt.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)\s*$/);
+  if (!m) {
+    return { ok: false, pesan: 'Geofence sekolah aktief, maar lokasi GPS niet verkregen (' + gpsTxt + '). Schakel lokasi in en probeer opnieuw.' };
+  }
+  const lat = parseFloat(m[1].replace(',', '.'));
+  const lng = parseFloat(m[2].replace(',', '.'));
+  const distM = jarakHaversineM(lat, lng, gf.lat, gf.lng);
+  if (distM > gf.radiusM) {
+    return { ok: false, distM, pesan: `Di luar radius geofence sekolah: ${Math.round(distM)} m (maksimum ${Math.round(gf.radiusM)} m).` };
+  }
+  return { ok: true, distM };
+}
+
 /** Jalankan absen mandiri (RPC `absen_mandiri` → tabel absensi, status 'H').
  *  Dipanggil sia dari tombol "Saya Hadir Hari Ini" sia otomatis dari face scan.
  *  @param {Object} o { captcha, gps, wajahCocok, sumber } */
@@ -1455,6 +1510,21 @@ async function jalankanAbsenMandiri(o) {
       return { status: 'error', message: 'Kode captcha wajib diisi.' };
     }
     return Swal.fire({toast: true, position: 'top-end', icon: 'warning', title: 'Captcha kosong!', showConfirmButton: false, timer: 2000});
+  }
+
+  // [Geofence] Verifieer lokasi GPS murid tegenover koordinat school
+  // (beheerd via SISIP → Master Data → Konfigurasi → Geofence Lokasi Sekolah).
+  // Blokkeerd alleen bila admin radius geconfigureerd (>0); anders geen blokkade.
+  const cekLoc = await cekGeofenceGPS(gpsLokasi);
+  if (!cekLoc.ok) {
+    const pesanLoc = cekLoc.pesan || 'Di luar radius geofence sekolah.';
+    if (sumber === 'wajah') {
+      const stW = document.getElementById('wajah-mandiri-status');
+      if (stW) stW.innerHTML = '<span class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark mr-1"></i>' + escapeHtml(pesanLoc) + '</span>';
+      return { status: 'error', message: pesanLoc };
+    }
+    Swal.fire({ icon: 'error', title: 'Geofence Blokkeerd', text: pesanLoc, background: '#1e293b', color: '#fff' });
+    return { status: 'error', message: pesanLoc };
   }
 
   const btnBusy = btn ? btn.disabled : false;
@@ -1957,6 +2027,13 @@ async function renderAbsenMandiriMurid(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Sesi Absen...</div>`;
   const user = (currentUser || {}).user || {};
   wajahMandiriCocok = false; // verifikasi wajah di-reset setiap panel dibuka
+  // [Geofence] Koordinat + radius sekolah (baris identitas master_data) → chip info.
+  // Beheerd door admin via SISIP → Master Data → Konfigurasi → Geofence Lokasi Sekolah.
+  let gfSekolah = null;
+  try { gfSekolah = await ambilGeofenceSekolah(); } catch (e) { console.warn('geofence:', e); }
+  const gfChip = gfSekolah
+    ? `<div class="bg-cyan-600/10 border border-cyan-500/30 rounded-lg px-3 py-1.5 text-[9px] text-cyan-300"><i class="fa-solid fa-location-dot mr-1"></i>Geofence sekolah <b>${String(gfSekolah.lat)}, ${String(gfSekolah.lng)}</b> · radius <b>${Math.round(gfSekolah.radiusM)} m</b></div>`
+    : '';
   const kelas = user["Tingkat/Kelas"] || '';
   const ekskulSaya = String(user["Ekstrakurikuler"] || '').split(',').map(e => e.trim()).filter(Boolean);
 
@@ -2061,6 +2138,7 @@ async function renderAbsenMandiriMurid(container) {
         <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-user-check text-green-400 mr-2"></i> Absen Mandiri Siswa</h2>
         <p class="text-[10px] text-slate-400">${HARI_INDO[now.getDay()]}, ${fmtTglKalender(isoHariIni)} · ${jamSekarang} WIB</p>
       </div>
+      ${gfChip}
       ${sesiHTML}
       ${formHTML}
     </div>`;
@@ -13412,6 +13490,21 @@ async function renderTabKonfigurasi() {
                         <input id="mi_warna_aksen" type="color" value="${hexWarnaValid(idn['Warna Aksen']) || '#3b82f6'}" class="w-full h-9 mt-1 bg-black/40 border border-white/20 rounded cursor-pointer"></div>
                 </div>
                 <div class="pt-2"><button onclick="simpanIdentitasMaster('${idn.id ?? ''}')" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-save"></i> Simpan Konfigurasi Kartu</button></div>
+
+                <div class="pt-3 border-t border-white/10 mt-4">
+                    <h3 class="text-sm font-bold text-cyan-300 uppercase tracking-wide"><i class="fa-solid fa-location-dot mr-1"></i> Geofence Lokasi Sekolah <span class="text-[9px] text-slate-400 normal-case font-normal">(Absen Mandiri — wajah + GPS)</span></h3>
+                    <p class="text-[10px] text-slate-400">Koordinat GPS sekolah + radius geofence. Murid alleen kan absen mandiri di dalam radius ini (GPS ditolak → absen diblock). Buka <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-cyan-300 underline">Google Maps</a>, klik rechten pada lokasi sekolah → kopi koordinat.</p>
+                    <div class="grid grid-cols-2 gap-3 mt-1">
+                        <div><label class="font-bold text-cyan-300">Latitude Sekolah</label>
+                            <input id="mi_lat_sekolah" value="${escJs(idn['Latitude Sekolah'] || '')}" placeholder="-7.2382" inputmode="decimal" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-cyan-500"></div>
+                        <div><label class="font-bold text-cyan-300">Longitude Sekolah</label>
+                            <input id="mi_lng_sekolah" value="${escJs(idn['Longitude Sekolah'] || '')}" placeholder="106.9932" inputmode="decimal" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-cyan-500"></div>
+                    </div>
+                    <div class="mt-2"><label class="font-bold text-cyan-300">Radius Geofence (m)</label>
+                        <input id="mi_radius_geofence" value="${escJs(idn['Radius Geofence (m)'] || '150')}" placeholder="150" inputmode="numeric" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-cyan-500"></div>
+                    <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i> Radius 0 / kosong → geofence ditutup (semua lokasi diizinkan, kompatibilitas lama). Kolom nog niet gezet → default '150'.</p>
+                    <div class="pt-2"><button onclick="simpanIdentitasMaster('${idn.id ?? ''}')" class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-location-dot"></i> Simpan Lokasi / Geofence</button></div>
+                </div>
             </div>
         `;
     } catch (e) {
@@ -13436,7 +13529,9 @@ async function simpanIdentitasMaster(rowId) {
         "Drive Administrasi Sekolah": 'drive_adm',
         "Tahun Pelajaran": 'tahun', "Semester": 'semester',
         "URL TTD Kepsek": 'ttd_kepsek', "URL Background Kartu": 'bg_kartu',
-        "URL Logo Belakang": 'logo_blk', "Konten Belakang": 'konten_blk'
+        "URL Logo Belakang": 'logo_blk', "Konten Belakang": 'konten_blk',
+        "Latitude Sekolah": 'lat_sekolah', "Longitude Sekolah": 'lng_sekolah',
+        "Radius Geofence (m)": 'radius_geofence'
     };
     const payload = {};
     // Basis: baris identitas existing (bila edit) supaya kolom yg tak dirender tetap utuh.
