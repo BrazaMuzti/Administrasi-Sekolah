@@ -177,6 +177,30 @@ Vereiste: migratie `upgrade_20261023_wajah_motor_mediapipe.sql` al gedraaid in S
 - [ ] **iOS Safari / toestellen zonder WASM-SIMD** (indien in parool): `vision_wasm_nosimd_internal.*` niet gevend → duidelijke MediaPipe-foutmelding in de modal (geen hang/modal-stil); fallback: `sbg_wajah_motor='faceapi'` of vendor de `_nosimd`-paren (README §7a).
 - [ ] **Ambang**: twee selfies van dezelfde leerling (licht toch anders) → cocok; leerling met zonnebril/masker → "tidak dikenal" (geen valse hadir). Bij twijfel pas `JARAK_COCOK_MP`/`JARAK_KENAL_MP` aan in `face.js` (regio 0a).
 
+### S14i — Jadwal Piket v3: kartu per hari + popup pemilih + filter (Req B)
+Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di SQL Editor.
+- [ ] Login **admin/guru pembina** → Ekstrakurikuler → Jurnal & Program Kerja → **Jadwal Piket** → tombol **Buka Jadwal** (tirai kunci) → tampil **kartu per hari** mulai dari HARI INI (badge "Hari ini"/"Berikutnya"), bukan lagi tabel matrik.
+- [ ] Klik kepala kartu → daftar petugas muncul/sembunyi (panah ↑/↓ ikut berubah); kartu "Hari Ini" otomatis di-scroll **sekali** saat halaman dibuka dan **tidak** melompat lagi saat menggulir.
+- [ ] Tombol **Lihat semua hari (n hari lain)** → semua hari aktif tampil; **Ringkas (Hari Ini & Berikutnya)** → kembali 2 kartu; status bertahan setelah refresh (per ekskul+tabel).
+- [ ] Chip nama di **Antrian Siswa** → popup **Pilih Hari Piket**: centang 2 hari → Simpan → siswa muncul di kedua kartu hari tersebut; buka lagi, hapus semua centang → siswa kembali ke Antrian. **Tidak ada drag & drop** (menggeser layar tidak memindahkan chip).
+- [ ] Tombol **Tambah** pada kartu hari → popup daftar siswa + filter **ID Tahun / Kelas / Sub-Ekskul / Cari Nama-NIS** (hasil urut A–Z); siswa yang sudah terjadwal hari itu bertanda "sudah" & tidak terceklis ulang; Simpan → semua yang dicentang masuk hari itu dalam **satu kali** tulis.
+- [ ] (opsional, DB) `select nama, hari, piket from tabel_piket_ekskul where ekskul='…'` → berubah tepat sekali saat menekan Simpan (tidak ada penulisan berulang saat membuka popup).
+- [ ] Ceklis hadir: klik ○/✓ pada chip petugas → `cek=true` + `cek_by`/`cek_at` terisi (progres kartu ikut naik); tombol ✕ mengeluarkan petugas dari hari itu (kembali ke Antrian); saat tabel **di-lock**, tombol Tambah/✕/popup penyusun tidak tersedia tetapi ceklis tetap boleh.
+- [ ] **Info Ekskul** (murid) → kartu Jadwal Piket: tombol Lihat/Ringkas/Lihat Lengkap tetap bekerja, kartu hari tampil **read-only** (tanpa tombol kelola) & klik kartu tetap membuka daftar petugas.
+- [ ] **Ekspor cetak/PDF** jadwal piket → tabel Hari × Petugas tampil rapi (memakai renderer cetak terpisah, bukan kartu).
+- [ ] **Persuratan → Surat Dispensasi → Pilih Siswa**: popup kini berfilter ID Tahun/Kelas/Sub-Ekskul/Cari; centang beberapa siswa → ubah lalu kosongkan filter → **ceklis tidak hilang** (penghitung "n siswa tercentang" tetap sama); "Ceklis Semua (tampak)" hanya mencentang baris yang tampil (baris tersembunyi tetap utuh); Simpan → label jumlah siswa terpilih benar dan pada isi surat, `sub` terisi nama sub (bukan daftar berkoma).
+- [ ] **Profil → daftar anggota** (ikon kartu) & daftar jabatan → modal **Profil Anggota**: nama, NIS/NISN, kelas, ID Tahun, TTL, agama, gol. darah, jabatan & sub. Sebagai admin/guru/pengurus → blok kontak & keluarga tampil; sebagai **murid anggota** → tertutup pesan kunci.
+- [ ] Sebagai admin/guru wali-pembina: **Edit Data** → ubah No HP/WA + Alamat (lainnya dikosongkan) → Simpan → toast sukses & modal menampilkan nilai baru, kolom lain **tidak** ikut kosong. Sebagai guru, tidak ada permintaan/penulisan password.
+- [ ] (backend) Sebagai guru, panggil RPC `buat_akun_murid` dengan `password` terisi → ditolak "Guru tidak berhak mengubah password murid. Minta admin untuk reset password."
+
+### S14j — Profil Ekskul mobile: daftar anggota 2 kolom + WA klik-chat
+- [ ] Login **admin/guru pembina/pengurus** → Ekstrakurikuler → **Profil**: daftar **Anggota Aktif** kini **2 kartu per baris** di HP (tiap kartu: nomor + nama (terpotong `…`), kelas, badge jabatan kecil, rekap ringkas `H… S… I… A… · n%`; bila belum ada absensi → "tanpa absensi").
+- [ ] Kartu anggota **tidak lagi** memuat chip/tombol **Sub-Ekskul** maupun ikon **WA**; klik di bagian mana pun dari kartu → modal **Profil Anggota** terbuka (nama panjang tetap terbaca utuh lewat tooltip/`title`).
+- [ ] Modal Profil Anggota: baris **No HP/WA** & **HP Orang Tua** tampil sebagai tombol hijau WhatsApp → diklik membuka aplikasi/web WA + chat ke nomor tersebut (nomor `0…` otomatis jadi `62…`) dengan pesan awal sudah terisi "… terkait kegiatan <Ekskul>."; baris **Email** bisa diklik (mailto); nomor kosong tetap tampil "-" tanpa tombol.
+- [ ] Footer modal: tombol **Atur Sub** muncul hanya bila ekskul punya Sub-Ekstrakurikuler **dan** pengguna berhak kelola anggota (`admin`/`guru`/`pengurus`); ubah centang → Simpan → baris **Sub-Ekskul** di modal langsung berubah dan daftar anggota di belakang ikut ter-render ulang.
+- [ ] **Filter & reset**: chip `Filter: … (Sub: …)` beserta tombol "Reset Filter" tetap bekerja setelah daftar jadi 2 kolom; ekskul **tanpa** Sub-Ekskurikuler tidak menampilkan tombol Atur Sub.
+- [ ] Sebagai **murid anggota biasa**: blok kontak tetap terkunci (pesan kunci) dan tidak ada tombol Atur Sub.
+
 ---
 
 ## D. SELESAI UJI
