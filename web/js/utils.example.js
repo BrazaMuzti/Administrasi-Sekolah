@@ -298,7 +298,9 @@ async function apiCall(action, data = {}) {
         semester: data.semester || '',
         bulan: data.bulan || '',
         id_guru: data.id_guru || '',
-        metode: data.metode || 'Manual / QR'
+        metode: data.metode || 'Manual / QR',
+        // Kolom gps (upgrade_20261024_absensi_gps.sql): "lat, lng" perangkat perekam / GPS lama yang dipertahankan
+        gps: String(absen.gps || '').trim()
       }));
       if (rows.length === 0) return { status: 'success', message: 'Tidak ada data absensi.' };
 
@@ -559,14 +561,19 @@ async function supabaseFetch(action, payload = {}) {
 
          // 2) Absensi dalam rentang tanggal bulan+tahun terpilih (kelas = kelas; ekskul = "Semua Kelas")
          // Trim kolom: mapping hanya memakai nis/tanggal/status/keterangan (hemat ±70% payload)
-         let qAbsen = supaClient
-            .from('absensi')
-            .select('nis, tanggal, status, keterangan')
-            .eq('mapel', payload.mapel)
-            .gte('tanggal', tglAwalDb)
-            .lte('tanggal', tglAkhirDb);
-         qAbsen = isEkskulDb ? qAbsen.eq('kelas', 'Semua Kelas') : qAbsen.eq('kelas', payload.kelas);
-         const { data: absen, error: errAbsen } = await qAbsen;
+         // Kolom `gps` (migrasi upgrade_20261024_absensi_gps.sql): coba dengan gps dulu;
+         // bila kolom belum ada di DB (migrasi belum dijalankan) → ulangi tanpa gps.
+         const bangunQAbsen = (kolom) => {
+           const q = supaClient
+              .from('absensi')
+              .select(kolom)
+              .eq('mapel', payload.mapel)
+              .gte('tanggal', tglAwalDb)
+              .lte('tanggal', tglAkhirDb);
+           return isEkskulDb ? q.eq('kelas', 'Semua Kelas') : q.eq('kelas', payload.kelas);
+         };
+         let { data: absen, error: errAbsen } = await bangunQAbsen('nis, tanggal, status, keterangan, gps');
+         if (errAbsen) ({ data: absen, error: errAbsen } = await bangunQAbsen('nis, tanggal, status, keterangan'));
 
           // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji)
           const { data: guru, error: errGuru } = await supaClient
@@ -599,7 +606,7 @@ async function supabaseFetch(action, payload = {}) {
                     "Semester": m.semester || ""
                   };
               }),
-             absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan })),
+             absen: absen.map(a => ({ "NIS": a.nis, "Tanggal": a.tanggal, "Status": a.status, "Keterangan": a.keterangan, "GPS": a.gps || "" })),
               status_guru: (guru || []).map(g => ({
                   "ID Akun Guru": g.nis_nip,
                   "Nama Guru": g.nama_lengkap,

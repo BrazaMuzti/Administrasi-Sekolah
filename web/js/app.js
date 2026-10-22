@@ -1508,8 +1508,10 @@ async function ambilGeofenceSekolah() {
  *  @param {string} gpsLokasi format getDeviceGPS: "lat, lng" (of pesan GPS).
  *  @returns {Promise<{ok:boolean, distM?:number, pesan?:string}>} ok=true → laten
  *  lopen (geofence uit / niet geconfigureerd, of binnen radius). */
-async function cekGeofenceGPS(gpsLokasi) {
-  const gf = await ambilGeofenceSekolah();
+async function cekGeofenceGPS(gpsLokasi, kategori, namaMapel) {
+  // [B2] Setting lokasi GPS khusus mapel/ekskul (menu Hadir Tatap Muka → Setting) didahulukan;
+  // bila tidak ada / nonaktif → geofence sekolah (Master Data → Konfigurasi).
+  const gf = (await ambilGeofenceMapel(kategori, namaMapel)) || await ambilGeofenceSekolah();
   if (!gf) return { ok: true }; // geofence uit → geen blokkade
   const gpsTxt = String(gpsLokasi || '').trim();
   const m = gpsTxt.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)\s*$/);
@@ -1520,7 +1522,7 @@ async function cekGeofenceGPS(gpsLokasi) {
   const lng = parseFloat(m[2].replace(',', '.'));
   const distM = jarakHaversineM(lat, lng, gf.lat, gf.lng);
   if (distM > gf.radiusM) {
-    return { ok: false, distM, pesan: `Di luar radius geofence sekolah: ${Math.round(distM)} m (maksimum ${Math.round(gf.radiusM)} m).` };
+    return { ok: false, distM, pesan: `Di luar radius ${gf.sumber === 'mapel' ? 'lokasi ' + namaMapel : 'geofence sekolah'}: ${Math.round(distM)} m (maksimum ${Math.round(gf.radiusM)} m).` };
   }
   return { ok: true, distM };
 }
@@ -1554,7 +1556,7 @@ async function jalankanAbsenMandiri(o) {
   // [Geofence] Verifieer lokasi GPS murid tegenover koordinat school
   // (beheerd via SISIP → Master Data → Konfigurasi → Geofence Lokasi Sekolah).
   // Blokkeerd alleen bila admin radius geconfigureerd (>0); anders geen blokkade.
-  const cekLoc = await cekGeofenceGPS(gpsLokasi);
+  const cekLoc = await cekGeofenceGPS(gpsLokasi, mapelRaw[0], mapelRaw[1]);
   if (!cekLoc.ok) {
     const pesanLoc = cekLoc.pesan || 'Di luar radius geofence sekolah.';
     if (sumber === 'wajah') {
@@ -2739,7 +2741,7 @@ async function renderAbsensiModule(container) {
       <div class="flex items-center justify-between gap-1 w-full">
         <div class="flex gap-1 sm:gap-2 flex-wrap items-center">
 
-          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Tahun">
+          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Tahun" id="wrap-select-tahun">
              <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition shadow-sm"><i class="fa-regular fa-calendar text-[10px] sm:text-xs"></i></div>
              <select id="select-tahun" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataMuridDanAbsen()">
                ${listTahun.map(t => `<option value="${t}" class="bg-slate-800 text-white" ${t === currentTahun ? 'selected' : ''}>${t}</option>`).join('')}
@@ -2784,6 +2786,7 @@ async function renderAbsensiModule(container) {
           <button id="btn-undo-absen" onclick="undoAbsen()" class="w-6 h-6 sm:w-7 sm:h-7 bg-slate-700 hover:bg-slate-600 text-slate-400 rounded transition disabled:opacity-30" disabled title="Undo"><i class="fa-solid fa-rotate-left text-[9px]"></i></button>
           <button id="btn-redo-absen" onclick="redoAbsen()" class="w-6 h-6 sm:w-7 sm:h-7 bg-slate-700 hover:bg-slate-600 text-slate-400 rounded transition disabled:opacity-30" disabled title="Redo"><i class="fa-solid fa-rotate-right text-[9px]"></i></button>
           <span class="text-slate-600 px-0.5">|</span>
+          ${role !== 'murid' ? `<button onclick="bukaSettingGpsAbsen()" class="bg-slate-600 hover:bg-slate-500 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Setting Lokasi GPS"><i class="fa-solid fa-gear"></i></button>` : ''}
           <button onclick="showInfoKelasAbsen()" class="bg-blue-600 hover:bg-blue-700 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition" title="Info Kelas & Pengurus"><i class="fa-solid fa-info-circle"></i></button>
           <button onclick="shareKehadiranWA()" class="bg-green-600 hover:bg-green-700 text-white text-[9px] sm:text-[10px] px-1.5 py-1.5 rounded transition shadow-sm" title="Broadcast WhatsApp Kehadiran"><i class="fa-brands fa-whatsapp"></i></button>
           <span class="text-slate-600 px-0.5">|</span>
@@ -2852,6 +2855,7 @@ async function handleMapelChange() {
   if (isEkskul || isSemuaMapel) { optSemua.classList.remove('hidden'); selKelas.value = "Semua Kelas"; document.getElementById('lbl-judul-utama').innerText = isSemuaMapel ? `Laporan Hadir Semua Mapel` : `Daftar Hadir Ekstrakurikuler`; } 
   else { optSemua.classList.add('hidden'); if (selKelas.value === "Semua Kelas") selKelas.selectedIndex = 1; document.getElementById('lbl-judul-utama').innerText = `Laporan Hadir Tatap Muka`; }
   await perbaruiOpsiSubEkskul(isEkskul ? mapelRaw.split('|')[1] : '');
+  perbaruiLabelTahunAbsen();
   perbaruiOpsiKelasAbsen();
   perbaruiModeTampilanTanggal();
   perbaruiIkonAkses();
@@ -2997,6 +3001,167 @@ function bolehSimpanAbsen() {
   if (mode !== 'baca') return true;
   showToast('error', 'Mode Hanya Baca: mapel ini bukan diampu Anda — penyimpanan ditolak.');
   return false;
+}
+
+// ==========================================
+// [B1] LABEL "PILIH TAHUN-EKSTRAKURIKULER" & RINGKASAN ANGKATAN
+// ==========================================
+/** Ganti judul filter tahun: kategori Ekskul → "Pilih Tahun-Ekstrakurikuler" (keanggotaan ekskul dicatat per
+ *  Tahun Pelajaran dan lintas angkatan: kelas X, XI, XII, ...); Mapel biasa → "Pilih Tahun". */
+function perbaruiLabelTahunAbsen() {
+  const wrap = document.getElementById('wrap-select-tahun');
+  if (!wrap) return;
+  const isEkskul = String((document.getElementById('select-mapel') || {}).value || '').startsWith('Ekskul');
+  wrap.title = isEkskul ? 'Pilih Tahun-Ekstrakurikuler' : 'Pilih Tahun';
+}
+
+/** Ringkasan angkatan anggota dari daftar murid, mis. "X (12), XI (8)". Kosong bila tak ada data tingkat. */
+function angkatanDariDaftarMurid(daftar) {
+  const urutan = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  const hitung = {};
+  (daftar || []).forEach(m => {
+    const mt = String(m.kelasAsli || '').trim().toUpperCase().match(/^(XII|XI|X|IX|VIII|VII|VI|IV|V|III|II|I|\d{1,2})\b/);
+    if (!mt) return;
+    hitung[mt[1]] = (hitung[mt[1]] || 0) + 1;
+  });
+  const kunci = Object.keys(hitung).sort((a, b) => {
+    const ia = urutan.indexOf(a), ib = urutan.indexOf(b);
+    if (ia >= 0 && ib >= 0) return ia - ib;
+    if (ia >= 0) return -1;
+    if (ib >= 0) return 1;
+    return a.localeCompare(b, 'id', { numeric: true });
+  });
+  return kunci.map(k => `${k} (${hitung[k]})`).join(', ');
+}
+
+// ==========================================
+// [B2] SETTING LOKASI GPS PER MAPEL / EKSKUL (tabel absensi_gps_setting)
+// ==========================================
+/** Baca setting lokasi GPS satu mapel/ekskul. Melempar error bila tabel belum ada / gagal query. */
+async function ambilSettingGpsAbsen(kategori, nama) {
+  const { data, error } = await supaClient.from('absensi_gps_setting')
+    .select('*').eq('kategori', kategori).eq('nama', nama).maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+/** Geofence khusus mapel/ekskul (aktif + koordinat valid + radius > 0), atau null → pakai geofence sekolah. */
+async function ambilGeofenceMapel(kategori, nama) {
+  if (!kategori || !nama) return null;
+  try {
+    const s = await ambilSettingGpsAbsen(String(kategori).toUpperCase() === 'EKSKUL' ? 'Ekskul' : 'Mapel', nama);
+    if (!s || s.aktif === false) return null;
+    const lat = parseFloat(s.latitude), lng = parseFloat(s.longitude), radiusM = parseFloat(s.radius_m);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    if (!Number.isFinite(radiusM) || radiusM <= 0) return null;
+    return { lat, lng, radiusM, sumber: 'mapel' };
+  } catch (e) { console.warn('ambilGeofenceMapel:', e); return null; }
+}
+
+/** Isi kolom lat/lng pada popup Setting dengan lokasi perangkat saat ini. */
+async function isiLokasiSayaSettingGps() {
+  const btn = document.getElementById('gps-set-btn-lokasi');
+  const awal = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Membaca lokasi...'; }
+  const hasil = await getDeviceGPS();
+  if (btn) { btn.disabled = false; btn.innerHTML = awal; }
+  if (!gpsKoordinatValid(hasil)) { showToast('error', 'Lokasi tidak didapat: ' + hasil); return; }
+  const [lat, lng] = String(hasil).split(',').map(s => s.trim());
+  const elLat = document.getElementById('gps-set-lat'), elLng = document.getElementById('gps-set-lng');
+  if (elLat) elLat.value = lat;
+  if (elLng) elLng.value = lng;
+}
+
+/** HTML isi popup Setting Lokasi GPS (form lat/lng/radius + tombol bantu). */
+function htmlFormSettingGps(s, nama, labelKategori, infoSekolah) {
+  const v = (x) => escapeHtml(x != null ? String(x) : '');
+  const aktif = s ? s.aktif !== false : true;
+  const inp = 'w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 text-white mt-1';
+  return `
+    <div class="text-left text-xs text-slate-300">
+      <div class="mb-2 bg-black/30 border border-white/10 rounded px-3 py-2">
+        <span class="text-slate-500 uppercase text-[9px] font-bold tracking-wider">${labelKategori}</span><br>
+        <b class="text-white text-sm">${escapeHtml(nama)}</b>
+      </div>
+      <p class="text-[10px] text-slate-400 mb-2">Titik lokasi &amp; radius absen mandiri murid untuk ${labelKategori.toLowerCase()} ini. ${infoSekolah}</p>
+      <div class="grid grid-cols-2 gap-2">
+        <div><label class="font-bold text-cyan-300">Latitude</label><input id="gps-set-lat" value="${v(s && s.latitude)}" placeholder="-6.2088" inputmode="decimal" class="${inp}"></div>
+        <div><label class="font-bold text-cyan-300">Longitude</label><input id="gps-set-lng" value="${v(s && s.longitude)}" placeholder="106.8456" inputmode="decimal" class="${inp}"></div>
+      </div>
+      <div class="mt-2"><label class="font-bold text-cyan-300">Radius (meter)</label><input id="gps-set-radius" value="${v(s && s.radius_m != null ? s.radius_m : 150)}" placeholder="150" inputmode="numeric" class="${inp}"></div>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <button type="button" id="gps-set-btn-lokasi" onclick="isiLokasiSayaSettingGps()" class="bg-cyan-700 hover:bg-cyan-600 text-white text-[11px] font-bold px-3 py-1.5 rounded"><i class="fa-solid fa-crosshairs mr-1"></i>Pakai Lokasi Saya</button>
+        <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="bg-slate-600 hover:bg-slate-500 text-white text-[11px] font-bold px-3 py-1.5 rounded"><i class="fa-solid fa-map-location-dot mr-1"></i>Buka Google Maps</a>
+      </div>
+      <label class="flex items-center gap-2 mt-3 cursor-pointer"><input type="checkbox" id="gps-set-aktif" ${aktif ? 'checked' : ''}> <span>Aktifkan geofence untuk ${labelKategori.toLowerCase()} ini</span></label>
+      <p class="text-[9px] text-slate-500 mt-2"><i class="fa-solid fa-circle-info mr-1"></i>Cara: buka Google Maps → klik kanan titik lokasi → salin koordinat (mis. -6.2088, 106.8456), atau berdiri di lokasi lalu tekan "Pakai Lokasi Saya".</p>
+    </div>`;
+}
+
+/** Validasi form popup → objek baris absensi_gps_setting, atau null (pesan validasi ditampilkan Swal). */
+function bacaFormSettingGps(kategori, nama) {
+  const num = (id) => parseFloat(String(document.getElementById(id).value).trim().replace(',', '.'));
+  const lat = num('gps-set-lat'), lng = num('gps-set-lng'), radius = parseInt(String(document.getElementById('gps-set-radius').value).trim(), 10);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) { Swal.showValidationMessage('Latitude tidak valid (-90 s/d 90).'); return null; }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) { Swal.showValidationMessage('Longitude tidak valid (-180 s/d 180).'); return null; }
+  if (!Number.isFinite(radius) || radius <= 0 || radius > 100000) { Swal.showValidationMessage('Radius harus angka meter lebih dari 0.'); return null; }
+  const u = (currentUser && currentUser.user) || {};
+  return {
+    kategori, nama, latitude: lat, longitude: lng, radius_m: radius,
+    aktif: document.getElementById('gps-set-aktif').checked,
+    updated_by: String(u["Nama Lengkap"] || u["ID Akun Guru"] || ''),
+    updated_at: new Date().toISOString()
+  };
+}
+
+/** Popup "Setting Lokasi GPS" sesuai kategori Mata Pelajaran / Ekstrakurikuler yang dipilih di Hadir Tatap Muka. */
+async function bukaSettingGpsAbsen() {
+  const mapelRaw = (document.getElementById('select-mapel') || {}).value || '';
+  const arr = mapelRaw.split('|'), jenis = arr[0], nama = arr[1] || '';
+  const stl = { background: '#1e293b', color: '#fff' };
+  if (!nama || jenis === 'SemuaMapel') {
+    return Swal.fire({ icon: 'info', title: 'Pilih Mapel / Ekskul', text: 'Setting lokasi GPS diatur per mata pelajaran atau ekstrakurikuler. Pilih salah satu pada filter "Pilih Mapel / Ekskul" terlebih dahulu.', ...stl });
+  }
+  if (!checkHakAkses(mapelRaw)) return showToast('error', 'Anda tidak memiliki akses mengatur lokasi GPS untuk ' + nama + '.');
+  const kategori = jenis === 'Ekskul' ? 'Ekskul' : 'Mapel';
+  const labelKategori = kategori === 'Ekskul' ? 'Ekstrakurikuler' : 'Mata Pelajaran';
+
+  let s = null;
+  try { s = await ambilSettingGpsAbsen(kategori, nama); }
+  catch (e) {
+    return Swal.fire({ icon: 'error', title: 'Setting GPS belum siap', text: 'Tabel absensi_gps_setting belum tersedia. Jalankan supabase/sql/upgrade_20261025_absensi_gps_setting.sql di Supabase SQL Editor. (' + (e.message || e) + ')', ...stl });
+  }
+  let gfSek = null;
+  try { gfSek = await ambilGeofenceSekolah(); } catch (e) { /* abaikan */ }
+  const infoSekolah = gfSek
+    ? `Tanpa setting khusus, dipakai geofence sekolah: <b>${escapeHtml(String(gfSek.lat))}, ${escapeHtml(String(gfSek.lng))}</b> · radius <b>${Math.round(gfSek.radiusM)} m</b>.`
+    : 'Tanpa setting khusus, geofence tidak aktif (geofence sekolah belum diatur) — absen mandiri dari lokasi mana pun diterima.';
+
+  const hasil = await Swal.fire({
+    title: '<div class="text-lg font-bold"><i class="fa-solid fa-location-crosshairs text-cyan-400"></i> Setting Lokasi GPS</div>',
+    html: htmlFormSettingGps(s, nama, labelKategori, infoSekolah),
+    showCancelButton: true,
+    showDenyButton: !!s,
+    confirmButtonText: 'Simpan',
+    denyButtonText: 'Hapus Setting',
+    cancelButtonText: 'Batal',
+    confirmButtonColor: '#0891b2',
+    ...stl,
+    preConfirm: async () => {
+      const baris = bacaFormSettingGps(kategori, nama);
+      if (!baris) return false;
+      const { error } = await supaClient.from('absensi_gps_setting').upsert(baris, { onConflict: 'kategori,nama' });
+      if (error) { Swal.showValidationMessage('Gagal menyimpan: ' + error.message); return false; }
+      return true;
+    },
+    preDeny: async () => {
+      const { error } = await supaClient.from('absensi_gps_setting').delete().eq('kategori', kategori).eq('nama', nama);
+      if (error) { Swal.showValidationMessage('Gagal menghapus: ' + error.message); return false; }
+      return true;
+    }
+  });
+  if (hasil.isConfirmed) showToast('success', 'Setting lokasi GPS ' + nama + ' tersimpan.');
+  else if (hasil.isDenied) showToast('success', 'Setting lokasi GPS ' + nama + ' dihapus (kembali ke geofence sekolah).');
 }
 
 function checkHakAkses(selectedMapelEkskul) {
@@ -3333,7 +3498,7 @@ async function loadDataMuridDanAbsen(paksa = false) {
   
   const elInfoMapel = document.getElementById('lbl-info-mapel');
   const subTerpilihLbl = isEkskul ? (document.getElementById('select-sub-ekskul')?.value || '') : '';
-  if(elInfoMapel) elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> Tahun: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-blue-400 font-bold"><i class="fa-regular fa-calendar-check"></i> Bln: ${currentBulan}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${smt}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${namaMapel}</span>${subTerpilihLbl ? `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-indigo-400 font-bold"><i class="fa-solid fa-sitemap"></i> Sub: ${subTerpilihLbl}</span>` : ''}<span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> ${isEkskul ? 'Ekskul' : 'Kelas'}: ${kelas}</span>`;
+  if(elInfoMapel) elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> ${isEkskul ? 'Tahun-Ekskul' : 'Tahun'}: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-blue-400 font-bold"><i class="fa-regular fa-calendar-check"></i> Bln: ${currentBulan}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${smt}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${namaMapel}</span>${subTerpilihLbl ? `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-indigo-400 font-bold"><i class="fa-solid fa-sitemap"></i> Sub: ${subTerpilihLbl}</span>` : ''}<span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> ${isEkskul ? 'Ekskul' : 'Kelas'}: ${kelas}</span>`;
 
   const tableEl = document.getElementById('tabel-absensi');
   if(tableEl) tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Sinkronisasi Database...</td></tr>`;
@@ -3400,6 +3565,11 @@ async function loadDataMuridDanAbsen(paksa = false) {
         let jkStr = "-"; if(m["Jenis Kelamin"]) { const jkL = m["Jenis Kelamin"].toLowerCase(); if(jkL.startsWith('l')) jkStr = "L"; else if(jkL.startsWith('p')) jkStr = "P"; }
         return { no: idx + 1, nis: m.NIS || "-", nisn: m.NISN || "-", nama: m["Nama Lengkap"] || "-", kelasAsli: m["Tingkat/Kelas"], jk: jkStr, jabatan: m["Jabatan Kelas"] || "", hp: m["No HP/WA"] || "", totalH: tH, totalS: tS, totalI: tI, totalA: tA, totalD: tD, ket: m["Catatan Khusus"] || "" };
       });
+      // [B1] Ekskul: anggota lintas angkatan (X, XI, XII, ...) → tampilkan ringkasan angkatan pada label info
+      if (isEkskul && elInfoMapel) {
+        const ang = angkatanDariDaftarMurid(listMuridKelas);
+        if (ang) elInfoMapel.insertAdjacentHTML('beforeend', `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-amber-300 font-bold" title="Angkatan anggota ekskul pada tahun terpilih"><i class="fa-solid fa-layer-group"></i> Angkatan: ${escapeHtml(ang)}</span>`);
+      }
       refreshTableAbsenUI();
       perbaruiIkonAkses();
     }
@@ -3570,6 +3740,21 @@ function tampilkanBannerScan(ikon, pesan, warna) {
   }, 1500);
 }
 
+/** Ikon GPS per murid (kolom absensi.gps, format "lat, lng").
+ *  Koordinat valid → ikon hijau, klik membuka Google Maps; kosong/pesan gagal → ikon abu-abu tanpa tautan. */
+function ikonGpsAbsenHTML(gps) {
+  const txt = String(gps || '').trim();
+  const m = txt.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (m) {
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener noreferrer" class="w-5 h-5 rounded bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 flex items-center justify-center transition shrink-0" title="Lokasi absen: ${lat.toFixed(5)}, ${lng.toFixed(5)} (buka peta)"><i class="fa-solid fa-location-dot text-[10px]"></i></a>`;
+    }
+  }
+  const alasan = txt ? escapeHtml(txt) : 'Tidak ada data GPS';
+  return `<span class="w-5 h-5 rounded bg-black/20 text-slate-600 flex items-center justify-center shrink-0" title="${alasan}"><i class="fa-solid fa-location-crosshairs text-[10px]"></i></span>`;
+}
+
 function showModalEditAbsen(tanggal) {
   tempKeteranganHarian = {}; 
   urutNamaModalAsc = null; // reset urutan nama modal
@@ -3607,7 +3792,7 @@ function showModalEditAbsen(tanggal) {
     const colorKet = ketDB ? 'text-blue-400' : 'text-slate-500';
     const ro = 'onclick="radioToggleOff(this)"';
     
-    return `<div class="flex items-center justify-between border-b border-white/10 py-2.5" id="row-murid-${m.nis}"><span onpointerdown="mulaiGeserNamaModal(event)" title="Tarik untuk atur lebar kolom nama" class="modal-nama-absen z-0 cursor-col-resize select-none text-xs font-medium text-slate-200 text-left leading-snug whitespace-normal break-words" style="width:${wNamaModal}px;touch-action:none">${m.no}. ${m.nama}</span><div class="relative z-10 flex gap-1.5 flex-1 min-w-0 justify-end items-center"><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="H" ${cH} ${ro} class="hidden peer radio-h"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-green-500 peer-checked:text-white">H</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="S" ${cS} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-blue-500 peer-checked:text-white">S</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="I" ${cI} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-yellow-500 peer-checked:text-white">I</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="A" ${cA} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-red-500 peer-checked:text-white">A</div></label><label class="cursor-pointer" title="Dispen"><input type="radio" name="absen_${m.nis}" value="D" ${cD} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-purple-500 peer-checked:text-white">D</div></label><div class="flex items-center gap-1 ml-1" style="width: 50px;"><span class="text-[8px] text-yellow-400 truncate w-8 text-right" title="${ketDB}">${ketDB || '-'}</span><button id="btn-ket-${m.nis}" onclick="popupEditKeterangan('${m.nis}', '${m.nama.replace(/'/g, "\\'")}')" class="w-5 h-5 rounded bg-black/30 hover:bg-black/50 transition ${colorKet}"><i class="fa-solid fa-pen-to-square text-[10px]"></i></button></div></div></div>`;
+    return `<div class="flex items-center justify-between border-b border-white/10 py-2.5" id="row-murid-${m.nis}"><span onpointerdown="mulaiGeserNamaModal(event)" title="Tarik untuk atur lebar kolom nama" class="modal-nama-absen z-0 cursor-col-resize select-none text-xs font-medium text-slate-200 text-left leading-snug whitespace-normal break-words" style="width:${wNamaModal}px;touch-action:none">${m.no}. ${m.nama}</span><div class="relative z-10 flex gap-1.5 flex-1 min-w-0 justify-end items-center"><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="H" ${cH} ${ro} class="hidden peer radio-h"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-green-500 peer-checked:text-white">H</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="S" ${cS} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-blue-500 peer-checked:text-white">S</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="I" ${cI} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-yellow-500 peer-checked:text-white">I</div></label><label class="cursor-pointer"><input type="radio" name="absen_${m.nis}" value="A" ${cA} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-red-500 peer-checked:text-white">A</div></label><label class="cursor-pointer" title="Dispen"><input type="radio" name="absen_${m.nis}" value="D" ${cD} ${ro} class="hidden peer"><div class="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-400 peer-checked:bg-purple-500 peer-checked:text-white">D</div></label>${ikonGpsAbsenHTML(dataDb ? dataDb.GPS : '')}<div class="flex items-center gap-1 ml-1" style="width: 50px;"><span class="text-[8px] text-yellow-400 truncate w-8 text-right" title="${ketDB}">${ketDB || '-'}</span><button id="btn-ket-${m.nis}" onclick="popupEditKeterangan('${m.nis}', '${m.nama.replace(/'/g, "\\'")}')" class="w-5 h-5 rounded bg-black/30 hover:bg-black/50 transition ${colorKet}"><i class="fa-solid fa-pen-to-square text-[10px]"></i></button></div></div></div>`;
   }).join('');
 
   let uiAdminGuru = '', btnToggleAdmin = '';
@@ -3657,7 +3842,11 @@ function showModalEditAbsen(tanggal) {
       const nisDihapus = [];
       listMuridKelas.forEach(m => {
         const rad = document.querySelector(`input[name="absen_${m.nis}"]:checked`);
-        if (rad) absenPayload.push({ nis: m.nis, nama: m.nama, status: rad.value, keterangan: tempKeteranganHarian[m.nis] || "" });
+        if (rad) {
+          // gpsAda: GPS yang sudah tercatat di baris ini (mis. dari absen mandiri) — dipertahankan saat simpan
+          const barisAda = rawAbsenData.find(a => hariDariTanggal(a.Tanggal) === parseInt(tanggal) && a.NIS == m.nis);
+          absenPayload.push({ nis: m.nis, nama: m.nama, status: rad.value, keterangan: tempKeteranganHarian[m.nis] || "", gpsAda: barisAda ? (barisAda.GPS || "") : "" });
+        }
         // Radio padam tapi punya baris di DB untuk tanggal ini → akan dihapus permanen saat Simpan
         else if (rawAbsenData.find(a => hariDariTanggal(a.Tanggal) === parseInt(tanggal) && a.NIS == m.nis)) nisDihapus.push(m.nis);
       });
@@ -3696,6 +3885,26 @@ function showModalEditAbsen(tanggal) {
   });
 }
 
+/** True bila teks berupa koordinat "lat, lng" yang valid (format keluaran getDeviceGPS). */
+function gpsKoordinatValid(txt) {
+  const m = String(txt || '').trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!m) return false;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+/** Baca GPS perangkat untuk absen manual dengan batas waktu (default 6 dtk) agar proses simpan
+ *  tidak menggantung bila izin lokasi tidak dijawab. Mengembalikan "lat, lng" atau '' bila gagal. */
+async function bacaGpsAbsenManual(batasMs = 6000) {
+  try {
+    const hasil = await Promise.race([
+      getDeviceGPS(),
+      new Promise(resolve => setTimeout(() => resolve(''), batasMs))
+    ]);
+    return gpsKoordinatValid(hasil) ? String(hasil).trim() : '';
+  } catch (e) { console.warn('bacaGpsAbsenManual:', e); return ''; }
+}
+
 async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "", senyap = false) {
   if (!bolehSimpanAbsen()) return;
   const mapelRaw = document.getElementById('select-mapel').value || "", arrMapel = mapelRaw.split('|'), jenisData = arrMapel[0] || "Mapel", namaMapelEkskul = arrMapel[1] || mapelRaw, kelasDipilih = document.getElementById('select-kelas').value || "";
@@ -3704,6 +3913,12 @@ async function simpanKeDatabase(tanggal, absenList, keteranganMasal = "", senyap
 
   Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
   try {
+    // GPS: pertahankan GPS valid yang sudah tercatat (absen mandiri); selain itu pakai lokasi perangkat perekam.
+    const gpsPerekam = await bacaGpsAbsenManual();
+    absenList = absenList.map(a => {
+      const { gpsAda, ...sisa } = a;
+      return { ...sisa, gps: gpsKoordinatValid(gpsAda) ? String(gpsAda).trim() : gpsPerekam };
+    });
     const res = await apiCall('save_absen_masal', {
       absenList,
       keterangan_kehadiran_masal: keteranganMasal,
@@ -3901,7 +4116,8 @@ async function forceSyncSemuaAbsensi() {
         const m = listMuridKelas.find(x => x.NIS == d.NIS || x.nis == d.NIS);
         if(m) {
             groupedByDate[d.Tanggal].push({
-                nis: d.NIS, nama: m["Nama Lengkap"] || m.Nama || m.nama, status: d.Status, keterangan: d["Keterangan ketidakhadiran"] || d.Keterangan || ""
+                nis: d.NIS, nama: m["Nama Lengkap"] || m.Nama || m.nama, status: d.Status, keterangan: d["Keterangan ketidakhadiran"] || d.Keterangan || "",
+                gps: d.GPS || "" // teruskan GPS yang sudah ada agar tidak terhapus saat simpan semua
             });
         }
     });
@@ -5454,7 +5670,8 @@ async function renderNilaiModule(container) {
     const pilihKelas = [...cacheKelasDiampuGuru].filter(k => dafKelas.includes(k)).sort((a, b) => a.localeCompare(b, 'id'))[0];
     if (pilihKelas) selKelasNilai.value = pilihKelas;
   }
-  perbaruiKelasDiampuGuru();
+  // Eskul: tanpa muat ulang (dimuat sekali di langkah 4). Mata Pelajaran: perilaku awal (tidak diubah).
+  perbaruiKelasDiampuGuru(currentKategoriNilai === "Data Nilai Eskul");
 
   // 4. Langsung eksekusi pemanggilan data tabel jika daftar Mapel tersedia
   if (cacheListMapel.length > 0 || cacheListEkskul.length > 0) {
@@ -5502,13 +5719,36 @@ function konfigurasiNilaiDefault(kategori) {
   return null;
 }
 
+/** [FIX-NILAI-ESKUL] Token muatan terbaru — KHUSUS kategori Ekstrakurikuler: muatan lama dibatalkan
+ *  agar tidak menimpa listMuridKelas/rawDataNilai milik muatan yang lebih baru.
+ *  Kategori Mata Pelajaran (Pengetahuan/Keterampilan/Sikap) TIDAK diubah: batal() selalu false. */
+let tokenMuatNilai = 0;
+
 async function loadDataNilai(paksa = false) {
-  const mapel = document.getElementById('select-mapel-nilai').value, kelas = document.getElementById('select-kelas-nilai').value;
-  currentTahun = document.getElementById('select-tahun-nilai').value;
-  currentSemesterNilai = document.getElementById('select-semester-nilai').value;
-  // (e) Segarkan tanda ★ kelas diampu & highlight ikon mengikuti mapel terpilih
-  perbaruiKelasDiampuGuru();
-  const tableEl = document.getElementById('tabel-nilai');
+  const isEskul = currentKategoriNilai === "Data Nilai Eskul";
+  const tokenIni = ++tokenMuatNilai;
+  const batal = () => isEskul && tokenIni !== tokenMuatNilai;
+  let mapel, kelas, tableEl;
+  if (isEskul) {
+    currentTahun = document.getElementById('select-tahun-nilai').value;
+    currentSemesterNilai = document.getElementById('select-semester-nilai').value;
+    // Segarkan dropdown kelas DULU tanpa muat ulang rekursif, baru baca filter (mapel & kelas konsisten).
+    perbaruiKelasDiampuGuru(true);
+    mapel = document.getElementById('select-mapel-nilai').value; kelas = document.getElementById('select-kelas-nilai').value;
+    tableEl = document.getElementById('tabel-nilai');
+    if (!kelas) {
+      tableEl.innerHTML = `<tr><td class="p-6 text-center text-amber-300 text-xs"><i class="fa-solid fa-circle-info mr-1"></i>Ekstrakurikuler <b>${escapeHtml(mapel || '-')}</b> belum memiliki kelas pada tahun ${escapeHtml(currentTahun)}.</td></tr>`;
+      return;
+    }
+  } else {
+    // Mata Pelajaran: urutan & perilaku awal (tidak diubah)
+    mapel = document.getElementById('select-mapel-nilai').value; kelas = document.getElementById('select-kelas-nilai').value;
+    currentTahun = document.getElementById('select-tahun-nilai').value;
+    currentSemesterNilai = document.getElementById('select-semester-nilai').value;
+    // (e) Segarkan tanda ★ kelas diampu & highlight ikon mengikuti mapel terpilih
+    perbaruiKelasDiampuGuru();
+    tableEl = document.getElementById('tabel-nilai');
+  }
   
   const elInfoMapel = document.getElementById('lbl-info-mapel-nilai');
   if(elInfoMapel) {
@@ -5532,6 +5772,11 @@ async function loadDataNilai(paksa = false) {
     const snap = cacheNilaiSesi[keyCacheNilai];
     rawDataNilai = snap.rawDataNilai; configNilaiAktif = snap.configNilaiAktif;
     cacheNilaiPasangan = snap.cacheNilaiPasangan; cacheTemanSejawat = snap.cacheTemanSejawat;
+    // [FIX-NILAI-ESKUL] Khusus Eskul: pulihkan juga daftar murid milik kunci cache ini.
+    if (isEskul) {
+      if (Array.isArray(snap.listMuridKelas)) listMuridKelas = snap.listMuridKelas;
+      if (snap.dataStatusKunciGuru) dataStatusKunciGuru = snap.dataStatusKunciGuru;
+    }
     renderTabelNilaiAktif();
     return;
   }
@@ -5540,6 +5785,7 @@ async function loadDataNilai(paksa = false) {
     // 1) Konfigurasi kategori+mapel dari Supabase
     const { data: konfigRow, error: errKonfig } = await supaClient.from('nilai_konfigurasi')
       .select('config').eq('kategori', currentKategoriNilai).eq('mapel', katMapel).maybeSingle();
+    if (batal()) return; // muatan lebih baru sudah berjalan
     if (errKonfig) throw errKonfig;
     configNilaiAktif = (konfigRow && konfigRow.config) || null;
 
@@ -5550,18 +5796,24 @@ async function loadDataNilai(paksa = false) {
 
     // 2) Murid + status guru (sumber tunggal: tabel akun) — via cache sesi bersama
     const json = await ambilDashboardData({ kelas: kelas, mapel: mapel, bulan: currentBulan, tahun: currentTahun }, paksa);
+    if (batal()) return; // muatan lebih baru sudah berjalan
     if (json.status !== 'success') throw new Error(json.message || 'Gagal memuat data murid');
-    listMuridKelas = json.murid;
+    let muridMuat = json.murid;
     // PERBAIKAN: Saring data tabel Nilai berdasarkan kolom "Ekstrakurikuler"
     if(currentKategoriNilai === "Data Nilai Eskul") {
-        listMuridKelas = listMuridKelas.filter(m => {
+        muridMuat = muridMuat.filter(m => {
             const dataEkskul = m["Ekstrakurikuler"] || "";
             const arrEkskul = dataEkskul.split(',').map(e => e.trim());
             return arrEkskul.includes(mapel);
         });
     }
 
-    if(json.status_guru) dataStatusKunciGuru = json.status_guru; 
+    const statusGuruMuat = json.status_guru || null;
+    // Mata Pelajaran: assign langsung seperti semula (tidak diubah). Eskul: ditunda sampai lolos cek batal().
+    if (!isEskul) {
+      listMuridKelas = muridMuat;
+      if (statusGuruMuat) dataStatusKunciGuru = statusGuruMuat;
+    }
 
     // 3) Nilai tersimpan (JSONB per siswa) → dibangun ulang ke bentuk kolom dinamis
     // Mode "Semua Kelas" (kategori Eskul): tanpa filter kelas — baris tersimpan per kelas asli siswa
@@ -5576,7 +5828,13 @@ async function loadDataNilai(paksa = false) {
       .eq('semester', currentSemesterNilai);
     if (kelas !== "Semua Kelas") qNilai = qNilai.eq('kelas', kelas);
     const { data: nilaiRows, error: errNilai } = await qNilai;
+    if (batal()) return; // muatan lebih baru sudah berjalan → jangan timpa state global
     if (errNilai) throw errNilai;
+    // Eskul: terapkan murid + status guru bersamaan dgn rawDataNilai (satu kunci filter yang sama)
+    if (isEskul) {
+      listMuridKelas = muridMuat;
+      if (statusGuruMuat) dataStatusKunciGuru = statusGuruMuat;
+    }
     rawDataNilai = (nilaiRows || []).map(r => ({
       "NIS": r.nis,
       nis: r.nis,
@@ -5602,6 +5860,7 @@ async function loadDataNilai(paksa = false) {
         .eq('kelas', kelas)
         .eq('tahun', currentTahun)
         .eq('semester', currentSemesterNilai);
+      if (batal()) return;
       if (errPasangan) console.warn('Gagal memuat nilai pasangan:', errPasangan.message);
       (pasanganRows || []).forEach(r => {
         const na = (r.data || {})["Nilai Akhir Raport"];
@@ -5639,6 +5898,7 @@ async function loadDataNilai(paksa = false) {
           cacheTemanSejawat[key].push(Number(r.skor));
         });
       } catch (e) { console.warn('Gagal memuat rating teman sejawat:', e.message || e); }
+      if (batal()) return;
       // Simpan hasil agregat ke baris JSONB in-memory (ikut export/PDF & tunggakan);
       // persist ke DB dilakukan lewat tombol "Simpan" (forceSyncSemuaNilai)
       rawDataNilai.forEach(r => {
@@ -5656,7 +5916,11 @@ async function loadDataNilai(paksa = false) {
     if (rawDataNilai.length === 0 && listMuridKelas.length > 0) {
       Swal.fire({ title: 'Database Belum Tersedia', text: 'Data untuk Semester ini belum ada. Klik "Simpan Semua" untuk otomatis menginisiasi kolom nilai ke dalam Database.', icon: 'info', background: '#1e293b', color: '#fff', confirmButtonText: 'Baik, Mengerti' });
     }
+
+    // Eskul: snapshot hanya disimpan setelah fetch berhasil, lengkap dengan daftar murid.
+    if (isEskul) cacheNilaiSesi[keyCacheNilai] = { rawDataNilai, configNilaiAktif, cacheNilaiPasangan, cacheTemanSejawat, listMuridKelas, dataStatusKunciGuru };
   } catch (e) {
+    if (batal()) return;
     // [FIX 2026-10-14] Jangan sembunyikan error asli DB (mis. 42501 permission denied):
     // log ke console + tampilkan pesan nyata sebagai teks kecil agar mudah didiagnosis.
     console.error('Gagal memuat data nilai:', e?.message || e);
@@ -5665,8 +5929,8 @@ async function loadDataNilai(paksa = false) {
     tableEl.innerHTML = `<tr><td class="p-6 text-center text-red-400">Gagal memuat data. Periksa koneksi internet Anda.${pesanRalat}</td></tr>`;
   }
 
-  // Simpan snapshot ke cache sesi (setelah fetch berhasil)
-  cacheNilaiSesi[keyCacheNilai] = { rawDataNilai, configNilaiAktif, cacheNilaiPasangan, cacheTemanSejawat };
+  // Mata Pelajaran: simpan snapshot ke cache sesi (setelah fetch) — persis seperti semula (tidak diubah)
+  if (!isEskul) cacheNilaiSesi[keyCacheNilai] = { rawDataNilai, configNilaiAktif, cacheNilaiPasangan, cacheTemanSejawat };
 }
 
 /** Render tabel nilai sesuai kategori aktif (dipakai render awal & restore cache). */
@@ -5777,7 +6041,7 @@ function hitungKelasDiampuGuru(mapel) {
 }
 
 /** Segarkan dropdown Kelas (tanda ★ mengikuti mapel terpilih) + highlight ikon. */
-function perbaruiKelasDiampuGuru() {
+function perbaruiKelasDiampuGuru(tanpaMuat = false) {
   const sel = document.getElementById('select-kelas-nilai');
   const mapel = document.getElementById('select-mapel-nilai')?.value || "";
   cacheKelasDiampuGuru = hitungKelasDiampuGuru(mapel);
@@ -5787,10 +6051,22 @@ function perbaruiKelasDiampuGuru() {
     if ([...sel.options].some(o => o.value === nilaiLama)) sel.value = nilaiLama;
     // Kelas terpilih tidak ada lagi di daftar (mapel ganti → kelas diampu berubah):
     // auto-pilih kelas diampu pertama; bila tak ada, biarkan opsi pertama.
-    else {
+    else if (currentKategoriNilai !== "Data Nilai Eskul") {
+      // Mata Pelajaran: perilaku awal (tidak diubah)
       const diampu = [...sel.options].find(o => o.value === 'Semua Kelas' ? false : cacheKelasDiampuGuru.has(o.value));
       if (diampu) { sel.value = diampu.value; if (typeof loadDataNilai === 'function') loadDataNilai(); }
       else if (sel.options.length > 0 && !sel.value) sel.selectedIndex = 0;
+    } else {
+      // [FIX-NILAI-ESKUL] Eskul: pilih kelas diampu / opsi pertama bernilai; muat ulang hanya bila diminta.
+      const diampu = [...sel.options].find(o => o.value && o.value !== 'Semua Kelas' && cacheKelasDiampuGuru.has(o.value));
+      if (diampu) sel.value = diampu.value;
+      else {
+        const pertama = [...sel.options].find(o => o.value);
+        sel.value = pertama ? pertama.value : '';
+      }
+      // Pemanggil luar tetap bisa minta muat ulang; loadDataNilai (Eskul) memakai tanpaMuat=true
+      // karena ia sendiri yang akan memuat.
+      if (!tanpaMuat && typeof loadDataNilai === 'function') loadDataNilai();
     }
   }
   perbaruiIkonKelasDiampu();
