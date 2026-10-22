@@ -5618,7 +5618,7 @@ async function renderNilaiModule(container) {
              </select>
           </div>
 
-          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Tahun">
+          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih ${labelTahunNilai(currentKategoriNilai === 'Data Nilai Eskul')}" id="wrap-select-tahun-nilai">
              <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-green-400 group-hover:bg-green-500 group-hover:text-white transition shadow-sm"><i class="fa-regular fa-calendar text-[10px] sm:text-xs"></i></div>
              <select id="select-tahun-nilai" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataNilai()">
                  ${listTahun.map(t => `<option value="${t}" class="bg-slate-800 text-white" ${t===defaultTahun ? 'selected':''}>${t}</option>`).join('')}
@@ -5773,7 +5773,7 @@ async function loadDataNilai(paksa = false) {
   
   const elInfoMapel = document.getElementById('lbl-info-mapel-nilai');
   if(elInfoMapel) {
-      elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> Tahun: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${currentSemesterNilai}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${mapel}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> Kelas: ${kelas}</span>`;
+      elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> ${isEskul ? 'Tahun-Ekskul' : 'Tahun'}: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${currentSemesterNilai}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${mapel}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> Kelas: ${kelas}</span>`;
   }
   
   // Update Judul Dinamis
@@ -5965,9 +5965,21 @@ function renderTabelNilaiAktif() {
     else tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs">Modul dalam tahap pengembangan.</td></tr>`;
 }
 
+/** Label filter tahun Input Nilai: kategori Ekstrakurikuler → "Tahun-Ekstrakurikuler"
+ *  (keanggotaan ekskul per Tahun Pelajaran, lintas angkatan); kategori lain tetap "Tahun". */
+function labelTahunNilai(isEskul) {
+  return isEskul ? 'Tahun-Ekstrakurikuler' : 'Tahun';
+}
+
+function perbaruiLabelTahunNilai() {
+  const wrap = document.getElementById('wrap-select-tahun-nilai');
+  if (wrap) wrap.title = 'Pilih ' + labelTahunNilai(currentKategoriNilai === "Data Nilai Eskul");
+}
+
 function changeKategoriNilai() { 
     const mapelTerpilih = document.getElementById('select-mapel-nilai').value; // (g) kunci pilihan lama
     currentKategoriNilai = document.getElementById('select-kategori-nilai').value; 
+    perbaruiLabelTahunNilai();
     
     // Ganti dropdown dinamis berdasarkan kategori
     const selMapel = document.getElementById('select-mapel-nilai');
