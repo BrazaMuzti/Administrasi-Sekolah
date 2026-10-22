@@ -80,7 +80,7 @@ begin
     where n.nspname = 'public' and c.relname = 'nilai' and not t.tgisinternal
     order by t.tgname
   loop
-    insert into _laporan_fix_nilai values (4, 'TRIGGER ' || r.tgname || ' (tgenabled=' || r.tgenabled || ')',
+    insert into _laporan_fix_nilai values (4, 'TRIGGER ' || r.tgname || ' (tgenabled=' || r.tgenabled::text || ')',
       left(r.tdef, 250) || E'\n  fungsi ' || r.proname || ':' || E'\n' || left(r.fdef, 1500));
   end loop;
 
@@ -104,7 +104,7 @@ begin
   end loop;
 
   for r in
-    select grantee, string_agg(privilege_type, ', ' order by privilege_type) as privs
+    select grantee::text as grantee, string_agg(privilege_type::text, ', ' order by privilege_type::text) as privs
     from information_schema.role_table_grants
     where table_schema = 'public' and table_name = 'nilai'
       and grantee in ('anon', 'authenticated', 'service_role')
