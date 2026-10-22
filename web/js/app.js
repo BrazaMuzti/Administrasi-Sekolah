@@ -17635,6 +17635,10 @@ async function renderDashboardUtama(container) {
                     <div class="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">${jadwalHTML}</div>
                 </div>
             </div>
+            <div id="dash-dispen" class="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-person-walking-arrow-right text-orange-400 mr-1"></i> Info Dispen Hari Ini</h3>
+                <p class="text-[11px] text-slate-500 italic">Memuat info dispen...</p>
+            </div>
             <div class="bg-white/5 border border-white/10 rounded-xl p-3">
                 <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-chart-simple text-green-400 mr-1"></i> Statistik Kehadiran Semester ${escapeHtml(smt)} ${role === 'guru' ? '(Kelas & Mapel Diampu)' : '(Tatap Muka)'}</h3>
                 ${statHTML}
@@ -17670,6 +17674,7 @@ async function renderDashboardUtama(container) {
             <div class="text-center text-[9px] text-slate-500">Pengaturan jadwal, libur & kalender tersedia di menu <b class="text-slate-300">Jadwal & Libur</b>.</div>
         </div>
     `;
+    muatDispenHariIniDashboard();
     muatPengumumanDashboard();
 }
 
@@ -25560,6 +25565,121 @@ function daftarKelasRapor() {
     if (isAdminAktif()) return listKelas;
     const wali = (typeof waliKelasAktif === 'function') ? waliKelasAktif() : '';
     return wali ? listKelas.filter(k => k === wali) : [];
+}
+
+// ================= INFO DISPEN HARI INI (DASHBOARD ADMIN & GURU) =================
+/** Gabungkan siswa dispen hari ini dari 2 sumber, per NIS (tanpa duplikat):
+ *   A. surat dispensasi ekskul (tabel dispensasi) yang rentang tanggalnya mencakup hari ini
+ *      (tanggal_izin s.d. detail.tanggalSampai; tanggal tambahan hanya dihitung bila ditulis ISO yyyy-mm-dd),
+ *   B. absensi berstatus 'D' pada hari ini (Hadir Tatap Muka).
+ *  petaKelas: { NIS: kelas terkini } (opsional, menimpa kolom kelas yang bisa usang).
+ *  Hasil: [{ kelas, siswa: [{ nis, nama, surat: [...], absen: [...] }] }] terurut kelas lalu nama. */
+function susunDispenHariIni(rowsDisp, rowsAbs, isoHariIni, petaKelas = {}) {
+    const peta = {};
+    const ambil = (nis, nama, kelas) => {
+        const k = String(nis || nama || '').trim();
+        if (!k) return null;
+        const kelasMentah = String(kelas || '').trim();
+        const kls = String((petaKelas && petaKelas[k]) || (kelasMentah === 'Semua Kelas' ? '' : kelasMentah) || '').trim() || 'Tanpa Kelas';
+        return (peta[k] = peta[k] || { nis: String(nis || ''), nama: nama || k, kelas: kls, surat: [], absen: [] });
+    };
+    (rowsDisp || []).forEach(r => {
+        let det = r.detail;
+        if (typeof det === 'string') { try { det = JSON.parse(det); } catch (e) { det = {}; } }
+        det = det || {};
+        const dari = String(r.tanggal_izin || '').slice(0, 10);
+        const sampai = String(det.tanggalSampai || '').slice(0, 10) || dari;
+        const tambahan = String(det.tanggalTambahan || '');
+        const aktif = (dari && dari <= isoHariIni && isoHariIni <= sampai) || tambahan.includes(isoHariIni);
+        if (!aktif) return;
+        const e = ambil(r.nis, r.nama, r.kelas);
+        if (!e) return;
+        e.surat.push({
+            ekskul: r.ekskul || '', sub: r.sub_ekskul || '',
+            kegiatan: det.kegiatan || r.alasan || '', waktu: det.waktu || '', tempat: det.tempat || '',
+            ket: r.keterangan || ''
+        });
+    });
+    (rowsAbs || []).forEach(r => {
+        if (String(r.status || '').toUpperCase() !== 'D') return;
+        if (String(r.tanggal || '').slice(0, 10) !== isoHariIni) return;
+        const e = ambil(r.nis, r.nama, r.kelas);
+        if (!e) return;
+        const mp = String(r.mapel || '').trim();
+        if (!e.absen.some(a => a.mapel === mp)) e.absen.push({ mapel: mp, ket: r.keterangan || '' });
+    });
+    const perKelas = {};
+    Object.values(peta).forEach(e => (perKelas[e.kelas] = perKelas[e.kelas] || []).push(e));
+    return urutAz(Object.keys(perKelas)).map(kelas => ({
+        kelas,
+        siswa: perKelas[kelas].sort((a, b) => String(a.nama).localeCompare(String(b.nama), 'id', { sensitivity: 'base' }))
+    }));
+}
+
+/** Muat & render widget "Info Dispen Hari Ini" → #dash-dispen (semua kelas, untuk Admin & Guru). */
+async function muatDispenHariIniDashboard() {
+    const el = document.getElementById('dash-dispen');
+    if (!el) return;
+    const judul = (extra = '') => `<h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-person-walking-arrow-right text-orange-400 mr-1"></i> Info Dispen Hari Ini${extra}</h3>`;
+    const iso = ISO_HARIAN(new Date());
+    const batasLama = ISO_HARIAN(new Date(Date.now() - 60 * 86400000));
+    let rowsDisp = [], rowsAbs = [];
+    const gagal = [];
+    try {
+        const [rD, rA] = await Promise.all([
+            supaClient.from('dispensasi')
+                .select('nis, nama, kelas, ekskul, sub_ekskul, alasan, keterangan, tanggal_izin, detail')
+                .lte('tanggal_izin', iso).gte('tanggal_izin', batasLama).limit(2000),
+            supaClient.from('absensi')
+                .select('nis, nama, kelas, mapel, status, tanggal, keterangan')
+                .eq('tanggal', iso).eq('status', 'D').limit(2000)
+        ]);
+        if (rD.error) gagal.push('surat dispensasi'); else rowsDisp = rD.data || [];
+        if (rA.error) gagal.push('absensi'); else rowsAbs = rA.data || [];
+    } catch (e) { console.warn('dispen dashboard:', e); gagal.push('data'); }
+    if (!document.getElementById('dash-dispen')) return; // pengguna sudah pindah menu
+
+    const petaKelas = {};
+    (masterDataCache || []).forEach(m => {
+        const nis = String(m.NIS || m.nis || '').trim();
+        const k = nis ? kelasSiswaTahun(m, currentTahun) : '';
+        if (nis && k) petaKelas[nis] = k;
+    });
+    const grup = susunDispenHariIni(rowsDisp, rowsAbs, iso, petaKelas);
+    const totalSiswa = grup.reduce((n, g) => n + g.siswa.length, 0);
+    const peringatan = gagal.length
+        ? `<p class="text-[9px] text-amber-400 mb-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Sebagian sumber gagal dimuat (${escapeHtml(gagal.join(', '))}) — daftar mungkin tidak lengkap.</p>` : '';
+    if (!grup.length) {
+        el.innerHTML = `${judul()}${peringatan}<p class="text-[11px] text-slate-500 italic">Tidak ada siswa dispensasi hari ini.</p>`;
+        return;
+    }
+    const baris = (s) => {
+        const info = [];
+        s.surat.forEach(x => {
+            const nama = [x.ekskul, x.sub].filter(Boolean).join(' · ') || 'Dispensasi';
+            const rinci = [x.kegiatan, x.waktu, x.tempat].filter(Boolean).join(' — ');
+            const rinciPendek = rinci.length > 70 ? rinci.slice(0, 70) + '…' : rinci;
+            info.push(`<span class="inline-block text-[8px] px-1.5 py-0.5 rounded bg-orange-600/30 text-orange-200 font-bold mr-1 mb-0.5" title="${escapeHtml(rinci)}">${escapeHtml(nama)}${rinci ? ': ' + escapeHtml(rinciPendek) : ''}${x.ket ? ' (' + escapeHtml(x.ket) + ')' : ''}</span>`);
+        });
+        if (s.absen.length) {
+            const mp = s.absen.map(a => a.mapel).filter(Boolean).join(', ');
+            info.push(`<span class="inline-block text-[8px] px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-200 font-bold mr-1 mb-0.5">Absen D${mp ? ': ' + escapeHtml(mp) : ''}</span>`);
+        }
+        return `<div class="px-2 py-1 border-t border-white/5">
+            <div class="text-[10px] text-white font-bold truncate">${escapeHtml(s.nama)}</div>
+            <div>${info.join('')}</div>
+        </div>`;
+    };
+    el.innerHTML = `${judul(` <span class="text-orange-300 normal-case">(${totalSiswa} siswa · ${grup.length} kelas)</span>`)}${peringatan}
+        <div class="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+            ${grup.map(g => `<div class="bg-white/5 border border-white/10 rounded">
+                <div class="flex items-center justify-between px-2 py-1">
+                    <span class="text-[10px] font-extrabold text-indigo-300">${escapeHtml(g.kelas)}</span>
+                    <span class="text-[8px] px-1.5 py-0.5 rounded-full bg-orange-600/30 text-orange-200 font-bold">${g.siswa.length} siswa</span>
+                </div>
+                ${g.siswa.map(baris).join('')}
+            </div>`).join('')}
+        </div>`;
 }
 
 // ================= A. WIDGET PENGUMUMAN DASHBOARD =================
