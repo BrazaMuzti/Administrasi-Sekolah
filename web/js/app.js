@@ -2741,7 +2741,7 @@ async function renderAbsensiModule(container) {
       <div class="flex items-center justify-between gap-1 w-full">
         <div class="flex gap-1 sm:gap-2 flex-wrap items-center">
 
-          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Tahun" id="wrap-select-tahun">
+          <div class="relative w-7 h-7 sm:w-8 sm:h-8 group" title="Pilih Tahun-Pelajaran" id="wrap-select-tahun">
              <div class="w-full h-full rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition shadow-sm"><i class="fa-regular fa-calendar text-[10px] sm:text-xs"></i></div>
              <select id="select-tahun" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="loadDataMuridDanAbsen()">
                ${listTahun.map(t => `<option value="${t}" class="bg-slate-800 text-white" ${t === currentTahun ? 'selected' : ''}>${t}</option>`).join('')}
@@ -3007,12 +3007,17 @@ function bolehSimpanAbsen() {
 // [B1] LABEL "PILIH TAHUN-EKSTRAKURIKULER" & RINGKASAN ANGKATAN
 // ==========================================
 /** Ganti judul filter tahun: kategori Ekskul → "Pilih Tahun-Ekstrakurikuler" (keanggotaan ekskul dicatat per
- *  Tahun Pelajaran dan lintas angkatan: kelas X, XI, XII, ...); Mapel biasa → "Pilih Tahun". */
+ *  Tahun Pelajaran dan lintas angkatan: kelas X, XI, XII, ...); kategori Mapel → "Pilih Tahun-Pelajaran"
+ *  (tahun pelajaran mengikuti angkatan kelas yang dipilih). */
+function labelTahunAbsen(isEkskul) {
+  return isEkskul ? 'Tahun-Ekstrakurikuler' : 'Tahun-Pelajaran';
+}
+
 function perbaruiLabelTahunAbsen() {
   const wrap = document.getElementById('wrap-select-tahun');
   if (!wrap) return;
   const isEkskul = String((document.getElementById('select-mapel') || {}).value || '').startsWith('Ekskul');
-  wrap.title = isEkskul ? 'Pilih Tahun-Ekstrakurikuler' : 'Pilih Tahun';
+  wrap.title = 'Pilih ' + labelTahunAbsen(isEkskul);
 }
 
 /** Ringkasan angkatan anggota dari daftar murid, mis. "X (12), XI (8)". Kosong bila tak ada data tingkat. */
@@ -3498,7 +3503,7 @@ async function loadDataMuridDanAbsen(paksa = false) {
   
   const elInfoMapel = document.getElementById('lbl-info-mapel');
   const subTerpilihLbl = isEkskul ? (document.getElementById('select-sub-ekskul')?.value || '') : '';
-  if(elInfoMapel) elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> ${isEkskul ? 'Tahun-Ekskul' : 'Tahun'}: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-blue-400 font-bold"><i class="fa-regular fa-calendar-check"></i> Bln: ${currentBulan}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${smt}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${namaMapel}</span>${subTerpilihLbl ? `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-indigo-400 font-bold"><i class="fa-solid fa-sitemap"></i> Sub: ${subTerpilihLbl}</span>` : ''}<span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> ${isEkskul ? 'Ekskul' : 'Kelas'}: ${kelas}</span>`;
+  if(elInfoMapel) elInfoMapel.innerHTML = `<span class="text-slate-300 font-bold"><i class="fa-regular fa-calendar"></i> ${isEkskul ? 'Tahun-Ekskul' : 'Tahun-Pelajaran'}: ${currentTahun}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-blue-400 font-bold"><i class="fa-regular fa-calendar-check"></i> Bln: ${currentBulan}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-green-400 font-bold"><i class="fa-solid fa-leaf"></i> Smt: ${smt}</span><span class="text-slate-600 hidden sm:inline">|</span><span class="text-purple-400 font-bold"><i class="fa-solid fa-book"></i> Mapel: ${namaMapel}</span>${subTerpilihLbl ? `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-indigo-400 font-bold"><i class="fa-solid fa-sitemap"></i> Sub: ${subTerpilihLbl}</span>` : ''}<span class="text-slate-600 hidden sm:inline">|</span><span class="text-pink-400 font-bold"><i class="fa-solid fa-users"></i> ${isEkskul ? 'Ekskul' : 'Kelas'}: ${kelas}</span>`;
 
   const tableEl = document.getElementById('tabel-absensi');
   if(tableEl) tableEl.innerHTML = `<tr><td class="p-6 text-center text-slate-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Sinkronisasi Database...</td></tr>`;
@@ -3566,9 +3571,11 @@ async function loadDataMuridDanAbsen(paksa = false) {
         return { no: idx + 1, nis: m.NIS || "-", nisn: m.NISN || "-", nama: m["Nama Lengkap"] || "-", kelasAsli: m["Tingkat/Kelas"], jk: jkStr, jabatan: m["Jabatan Kelas"] || "", hp: m["No HP/WA"] || "", totalH: tH, totalS: tS, totalI: tI, totalA: tA, totalD: tD, ket: m["Catatan Khusus"] || "" };
       });
       // [B1] Ekskul: anggota lintas angkatan (X, XI, XII, ...) → tampilkan ringkasan angkatan pada label info
-      if (isEkskul && elInfoMapel) {
+      // [B1] Mapel: Tahun-Pelajaran sesuai angkatan kelas terpilih (mis. kelas "X IPA 1" → angkatan X)
+      if (elInfoMapel) {
         const ang = angkatanDariDaftarMurid(listMuridKelas);
-        if (ang) elInfoMapel.insertAdjacentHTML('beforeend', `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-amber-300 font-bold" title="Angkatan anggota ekskul pada tahun terpilih"><i class="fa-solid fa-layer-group"></i> Angkatan: ${escapeHtml(ang)}</span>`);
+        const judulAng = isEkskul ? 'Angkatan anggota ekskul pada tahun terpilih' : 'Angkatan kelas pada tahun pelajaran terpilih';
+        if (ang) elInfoMapel.insertAdjacentHTML('beforeend', `<span class="text-slate-600 hidden sm:inline">|</span><span class="text-amber-300 font-bold" title="${judulAng}"><i class="fa-solid fa-layer-group"></i> Angkatan: ${escapeHtml(ang)}</span>`);
       }
       refreshTableAbsenUI();
       perbaruiIkonAkses();
@@ -5267,6 +5274,20 @@ const hitungPredikat = (nilai) => {
   const n = Number(nilai); if (n >= 91) return "A"; if (n >= 81) return "B"; if (n >= 71) return "C"; return "D";
 };
 
+/** Nilai untuk ditampilkan di sel/input: hanya null/undefined yang menjadi kosong.
+ *  Angka 0 adalah nilai VALID (rentang 0-100) — jangan memakai `|| ''` yang menghapusnya. */
+const nv = (v) => (v === null || v === undefined) ? '' : v;
+
+/** Tulis teks ke sel label yang MUNGKIN belum ada di DOM (mis. tabel belum dirender).
+ *  Dipakai di fungsi kalkulasi* agar kegagalan penulisan UI TIDAK PERNAH membatalkan
+ *  penyimpanan nilai ke database (dulu innerText tanpa guard bisa melempar error
+ *  sebelum baris silentSaveNilai dijalankan → nilai tidak tersimpan tanpa jejak). */
+function isiTeks(id, teks) {
+  const el = document.getElementById(id);
+  if (el) el.innerText = teks;
+  return !!el;
+}
+
 // ---------- NILAI DESKRIPSI RAPORT (SUMATIF & CAPAIAN) ----------
 /** Default konfigurasi deskripsi raport per jenis. */
 const DEFAULT_DESKRIPSI_RAPORT = {
@@ -6134,7 +6155,7 @@ function renderTabelPengetahuan() {
     
     for(let i=0; i<maxKD; i++) {
       let ltr = LETTERS_KD[i]; 
-      let t1 = dt[`KD ${ltr} T1`] || '', t2 = dt[`KD ${ltr} T2`] || '', uh = dt[`KD ${ltr} UH`] || '', rta = dt[`KD ${ltr} Rata-rata`] || ''; 
+      let t1 = nv(dt[`KD ${ltr} T1`]), t2 = nv(dt[`KD ${ltr} T2`]), uh = nv(dt[`KD ${ltr} UH`]), rta = nv(dt[`KD ${ltr} Rata-rata`]); 
       let prd = dt[`KD ${ltr} Predikat`] || hitungPredikat(rta);
       
       kdsHTML += `
@@ -6146,8 +6167,8 @@ function renderTabelPengetahuan() {
       `;
     }
 
-    let valCP = dt["Rerata CP"] || ''; let prdCP = valCP ? hitungPredikat(valCP) : '-';
-    let valNA = dt["Nilai Akhir Raport"] || ''; let prdNA = dt["Predikat"] || (valNA ? hitungPredikat(valNA) : '-');
+    let valCP = nv(dt["Rerata CP"]); let prdCP = valCP !== '' ? hitungPredikat(valCP) : '-';
+    let valNA = nv(dt["Nilai Akhir Raport"]); let prdNA = dt["Predikat"] || (valNA !== '' ? hitungPredikat(valNA) : '-');
 
     const sumatifMode = cfgDeskripsiRaport().sumatif.mode;
     const valRPT = hitungSumatifGabungan(m.NIS, valNA);
@@ -6164,8 +6185,8 @@ function renderTabelPengetahuan() {
         ${kdsHTML}
         <td class="border-b border-r border-white/5 p-0 bg-purple-900/10 text-center font-bold ${getWarnaPredikat(hitungPredikat(valCP))}" id="LBL_${m.NIS}_RerataCP">${valCP}</td>
         <td class="border-b border-r border-white/5 p-0 bg-purple-900/5 text-center font-bold ${getWarnaPredikat(prdCP)}" id="PRD_${m.NIS}_RerataCP">${prdCP}</td>
-        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiPengetahuan('${m.NIS}')" id="N_${m.NIS}_UTS" value="${dt.UTS || ''}" class="w-10 h-8 bg-yellow-900/10 text-center text-white outline-none focus:bg-yellow-600/30"></td>
-        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiPengetahuan('${m.NIS}')" id="N_${m.NIS}_UAS" value="${dt["UAS/UKK"] || ''}" class="w-10 h-8 bg-red-900/10 text-center text-white outline-none focus:bg-red-600/30"></td>
+        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiPengetahuan('${m.NIS}')" id="N_${m.NIS}_UTS" value="${nv(dt.UTS)}" class="w-10 h-8 bg-yellow-900/10 text-center text-white outline-none focus:bg-yellow-600/30"></td>
+        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiPengetahuan('${m.NIS}')" id="N_${m.NIS}_UAS" value="${nv(dt["UAS/UKK"])}" class="w-10 h-8 bg-red-900/10 text-center text-white outline-none focus:bg-red-600/30"></td>
         <td class="border-b border-r border-white/5 px-1 bg-green-900/20 text-center text-[13px] font-extrabold ${getWarnaPredikat(hitungPredikat(valNA))}" id="LBL_${m.NIS}_NilaiAkhir">${valNA}</td>
         <td class="border-b border-r border-white/10 px-1 bg-green-900/10 text-center text-[13px] font-extrabold ${getWarnaPredikat(prdNA)}" id="PRD_${m.NIS}_NilaiAkhir">${prdNA}</td>
         <td class="border-b border-r border-white/10 px-1 bg-indigo-900/10 text-center align-middle">
@@ -6176,13 +6197,7 @@ function renderTabelPengetahuan() {
         </td>
         
         <!-- SEL TUNGGAKAN -->
-        <td class="border-b border-r border-white/5 px-2 py-1 text-red-300 whitespace-normal bg-red-900/10 cursor-pointer align-middle" onclick="toggleBelumTuntasNilai()">
-            ${(() => {
-                let t = getTunggakan(m.NIS, currentKategoriNilai);
-                if (!showBelumTuntasNilai) return t.length > 0 ? '<div class="text-center"><i class="fa-solid fa-circle text-[8px] text-red-500"></i></div>' : '<div class="text-center"><i class="fa-solid fa-check text-[10px] text-green-500"></i></div>';
-                return t.length > 0 ? `<ul class="list-disc pl-3 text-[8.5px] leading-tight text-left max-w-[120px] mx-auto">${t.map(x=>`<li>${x}</li>`).join('')}</ul>` : '<div class="text-center text-[9px] text-green-400 font-bold">Tuntas</div>';
-            })()}
-        </td>
+        <td id="TGK_${m.NIS}" class="border-b border-r border-white/5 px-2 py-1 text-red-300 whitespace-normal bg-red-900/10 cursor-pointer align-middle" onclick="toggleBelumTuntasNilai()">${htmlTunggakanNilai(m.NIS)}</td>
         
         <td class="border-b border-r border-white/5 p-0 align-middle"><input type="text" onfocus="storeOldVal(this)" onblur="saveKeteranganNilai('${m.NIS}')" id="KET_${m.NIS}" value="${dt.Keterangan || ''}" class="w-full h-8 bg-transparent text-left px-2 text-[10px] text-white outline-none focus:bg-white/10"></td>
       </tr>
@@ -6277,7 +6292,7 @@ function getNamaWaliKelas(kelas) { if (dataStatusKunciGuru && dataStatusKunciGur
 
 // ================= // ================= LOGIKA AUTO KALKULASI & VALIDASI =================
 function storeOldVal(el) { el.dataset.oldval = el.value; }
-function saveKeteranganNilai(nis) { const el = document.getElementById(`KET_${nis}`); if(el.dataset.oldval !== el.value) { recordUndo(nis, `KET`, el.dataset.oldval, el.value); silentSaveNilai(nis, { "Keterangan": el.value }); } }
+function saveKeteranganNilai(nis) { const el = document.getElementById(`KET_${nis}`); if(!el) return; if(el.dataset.oldval !== el.value) { recordUndo(nis, `KET`, el.dataset.oldval, el.value); silentSaveNilai(nis, { "Keterangan": el.value }); } }
 
 // [REQ 5 & 6] Validasi Nilai 0-100 & Peringatan
 function validateVal(elId, nis, isFromUndo) {
@@ -6321,20 +6336,22 @@ function kalkulasiPengetahuan(nis, isFromUndo = false) {
     let rta = arrKD.length > 0 ? Math.round(calcRerata(arrKD)) : ""; 
     let prd = rta !== "" ? hitungPredikat(rta) : "-";
     
-    document.getElementById(`LBL_${nis}_KD_${ltr}_Rerata`).innerText = rta; 
-    document.getElementById(`PRD_${nis}_KD_${ltr}`).innerText = prd;
+    isiTeks(`LBL_${nis}_KD_${ltr}_Rerata`, rta);
+    isiTeks(`PRD_${nis}_KD_${ltr}`, prd);
+    updateWarnaEl(`LBL_${nis}_KD_${ltr}_Rerata`, rta); updateWarnaEl(`PRD_${nis}_KD_${ltr}`, rta);
     
     // [PERBAIKAN] Selalu catat agar sel yang dihapus ikut terhapus di database
     updates[`KD ${ltr} T1`] = t1; updates[`KD ${ltr} T2`] = t2; updates[`KD ${ltr} UH`] = uh; 
     updates[`KD ${ltr} Rata-rata`] = rta; updates[`KD ${ltr} Predikat`] = prd;
     
     if(rta !== "") { totalRerataKD += Number(rta); kdTeriisi++; }
-    if(!isFromUndo) silentSaveNilai(nis, updates); // Save otomatis selalu dipanggil setelah input kehilangan fokus
+    // (save ditunda ke akhir fungsi — satu upsert per blur, bukan satu per KD yang saling menimpa)
 }
 
 let rerataCP = kdTeriisi > 0 ? Math.round(totalRerataKD / kdTeriisi) : "";
-  document.getElementById(`LBL_${nis}_RerataCP`).innerText = rerataCP; 
-  document.getElementById(`PRD_${nis}_RerataCP`).innerText = rerataCP !== "" ? hitungPredikat(rerataCP) : "-";
+  isiTeks(`LBL_${nis}_RerataCP`, rerataCP);
+  isiTeks(`PRD_${nis}_RerataCP`, rerataCP !== "" ? hitungPredikat(rerataCP) : "-");
+  updateWarnaEl(`LBL_${nis}_RerataCP`, rerataCP); updateWarnaEl(`PRD_${nis}_RerataCP`, rerataCP);
   updates["Rerata CP"] = rerataCP;
 
   const uts = validateVal(`N_${nis}_UTS`), uas = validateVal(`N_${nis}_UAS`);
@@ -6346,8 +6363,9 @@ let rerataCP = kdTeriisi > 0 ? Math.round(totalRerataKD / kdTeriisi) : "";
     akhirPrd = hitungPredikat(nilaiAkhir);
   }
   
-document.getElementById(`LBL_${nis}_NilaiAkhir`).innerText = nilaiAkhir; 
-  document.getElementById(`PRD_${nis}_NilaiAkhir`).innerText = akhirPrd;
+isiTeks(`LBL_${nis}_NilaiAkhir`, nilaiAkhir);
+  isiTeks(`PRD_${nis}_NilaiAkhir`, akhirPrd);
+  updateWarnaEl(`LBL_${nis}_NilaiAkhir`, nilaiAkhir); updateWarnaEl(`PRD_${nis}_NilaiAkhir`, nilaiAkhir);
   updates["Nilai Akhir Raport"] = nilaiAkhir; updates["Predikat"] = akhirPrd;
   Object.assign(updates, deriveNilaiRaport(nis, 'NilaiAkhir', 'NilaiRaport', hitungSumatifGabungan(nis, nilaiAkhir), 'sumatif'));
   
@@ -6376,9 +6394,24 @@ function silentSaveNilai(nis, updates) {
   const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 1500, timerProgressBar: true, background: '#1e293b', color: '#fff' });
   
   // Merge dengan data JSONB yang sudah dimuat (rawDataNilai.__data)
-  const rowLama = rawDataNilai.find(d => String(d["NIS"]) === String(nis) || String(d.nis) === String(nis));
+  let rowLama = rawDataNilai.find(d => String(d["NIS"]) === String(nis) || String(d.nis) === String(nis));
   const dataBaru = { ...((rowLama && rowLama.__data) || {}), ...updates };
   if (rowLama) { rowLama.__data = dataBaru; Object.assign(rowLama, updates); }
+  else {
+    // Siswa belum punya baris di memori (semester/kelas baru): buat agar nilai tidak "hilang" saat render ulang
+    // dan agar penyimpanan berikutnya ikut menggabung (bukan menimpa) kolom lain.
+    const katEks = currentKategoriNilai === "Data Nilai Eskul";
+    rowLama = {
+      "NIS": String(nis), nis: String(nis),
+      "Nama": (mSiswa && (mSiswa["Nama Lengkap"] || mSiswa.nama)) || "",
+      "Tahun": currentTahun, "Semester": currentSemesterNilai,
+      "Tingkat/Kelas": kelasEfektifSiswa(nis, kelas),
+      "Mata Pelajaran": katEks ? "" : mapel, "Ekstrakurikuler": katEks ? mapel : "",
+      ...dataBaru
+    };
+    rowLama.__data = dataBaru;
+    rawDataNilai.push(rowLama);
+  }
 
   const row = {
     nis: String(nis),
@@ -6393,9 +6426,41 @@ function silentSaveNilai(nis, updates) {
     data: dataBaru
   };
   
+  // [FIX 2026-10-26b] Verifikasi round-trip. PostgREST membalas HTTP 200 walau barisnya
+  // TIDAK benar-benar berubah (di database live ada trigger/rule yang menelan UPDATE:
+  // RETURNING mengembalikan baris LAMA). Dulu klien hanya melihat `error` → toast hijau
+  // "Tersimpan" muncul padahal nilai hilang begitu halaman di-refresh. Sekarang nilai yang
+  // dibalas server dibandingkan dengan yang dikirim; beda → toast merah + petunjuk.
+  // Perbaikan akar masalah ada di supabase/sql/fix_20261026b_nilai_trigger_update.sql.
   return supaClient.from('nilai').upsert(row, { onConflict: 'nis,kategori,mapel,ekskul,tahun,semester' })
-    .then(({ error }) => { if (error) throw error; Toast.fire({ icon: 'success', title: 'Tersimpan' }); })
-    .catch(() => Toast.fire({ icon: 'error', title: 'Gagal Simpan!' }));
+    .select('data')
+    .then(({ data: balik, error }) => {
+      if (error) throw error;
+      const tersimpan = (balik && balik[0] && balik[0].data) || null;
+      const kosongkan = (v) => (v === undefined || v === null) ? '' : String(v);
+      // Hanya bandingkan kolom yang benar-benar dikirim (undefined dibuang oleh JSON.stringify).
+      const beda = Object.keys(updates)
+        .filter(k => updates[k] !== undefined)
+        .filter(k => kosongkan(tersimpan ? tersimpan[k] : undefined) !== kosongkan(updates[k]));
+      if (beda.length || !tersimpan) {
+        const e = new Error('Perubahan nilai ditolak database — tidak tersimpan: ' + (beda.join(', ') || 'tidak ada baris dibalas'));
+        e.code = 'TIDAK_TERSIMPAN'; e.kolom = beda;
+        throw e;
+      }
+      Toast.fire({ icon: 'success', title: 'Tersimpan' });
+    })
+    .catch((e) => {
+      // Jangan telan error asli (mis. 42501 permission denied / RLS) — tampilkan di console & toast agar mudah didiagnosis.
+      const tolakDb = e && e.code === 'TIDAK_TERSIMPAN';
+      console.error(tolakDb ? 'Nilai TIDAK tersimpan (perubahan ditolak database):' : 'Gagal menyimpan nilai:',
+        e && (e.message || e.details || e.hint || e), e && e.code);
+      Toast.fire({
+        icon: 'error',
+        title: (tolakDb ? 'Tidak Tersimpan! Perubahan ditolak database' : 'Gagal Simpan!' + (e && e.code ? ` (${e.code})` : '')),
+        timer: tolakDb ? 5000 : 4000
+      });
+    })
+    .finally(() => perbaruiSelTunggakan(nis));
 }
 
 // --- UPDATE: FORCE SYNC / SIMPAN SEMUA ---
@@ -6436,6 +6501,17 @@ async function forceSyncSemuaNilai() {
     for (let sem of semestersToSave) {
       let dataList = [];
       let isCurrentUI = (sem === currentSemesterNilai);
+      // Inisiasi semester LAIN hanya bila benar-benar kosong di DB — jangan menimpa nilai yang sudah ada.
+      if (!isCurrentUI) {
+        const katEks = currentKategoriNilai === "Data Nilai Eskul";
+        const { count: adaData, error: errCek } = await supaClient.from('nilai')
+          .select('nis', { count: 'exact', head: true })
+          .eq('kategori', currentKategoriNilai).eq('mapel', katEks ? "" : mapel).eq('ekskul', katEks ? mapel : "")
+          .eq('tahun', currentTahun).eq('semester', sem)
+          .in('nis', listMuridKelas.map(m => String(m.NIS)));
+        if (errCek) throw errCek;
+        if (adaData > 0) continue;
+      }
       
       listMuridKelas.forEach((m, idx) => {
         let updates = {};
@@ -6529,7 +6605,7 @@ async function forceSyncSemuaNilai() {
         dataList.push({ nis: m.NIS, nama: m["Nama Lengkap"], updates: updates });
       });
 
-      const res = await supaClient.from('nilai').upsert(dataList.map(({ nis, nama, updates }) => ({
+      const payload = dataList.map(({ nis, nama, updates }) => ({
         nis: String(nis),
         nama: nama || "",
         kategori: currentKategoriNilai,
@@ -6540,8 +6616,24 @@ async function forceSyncSemuaNilai() {
         semester: sem,
         id_guru: idGuruAktif,
         data: updates
-      })), { onConflict: 'nis,kategori,mapel,ekskul,tahun,semester' });
+      }));
+      // [FIX 2026-10-26b] `.select('nis,data')` → verifikasi round-trip; POSTGres REST bisa
+      // membalas 200 walau isi baris tidak berubah (trigger/rule di database menelan UPDATE).
+      const res = await supaClient.from('nilai')
+        .upsert(payload, { onConflict: 'nis,kategori,mapel,ekskul,tahun,semester' })
+        .select('nis,data');
       if (res.error) throw res.error;
+      if (payload.length <= 1000) { // RETURNING dibatasi db-max-rows PostgREST (default 1000)
+        const kosongkan = (v) => (v === undefined || v === null) ? '' : String(v);
+        const peta = new Map((res.data || []).map(r => [String(r.nis), r.data || {}]));
+        let beda = 0;
+        for (const p of payload) {
+          const tersimpan = peta.get(String(p.nis));
+          const kunci = Object.keys(p.data);
+          if (!tersimpan || kunci.some(k => kosongkan(tersimpan[k]) !== kosongkan(p.data[k]))) beda++;
+        }
+        if (beda) throw new Error(`${beda} dari ${payload.length} baris nilai DITOLAK database (tidak tersimpan). Jalankan supabase/sql/fix_20261026b_nilai_trigger_update.sql.`);
+      }
     }
 
     cacheNilaiKosongkan(); // upsert masal berubah → snapshot nilai usang
@@ -6552,7 +6644,7 @@ async function forceSyncSemuaNilai() {
 
 // Fitur Undo/Redo
 function recordUndo(nis, elId, oldVal, newVal) { undoStackNilai.push({nis, elId, oldVal, newVal}); redoStackNilai = []; updateUndoRedoUI(); }
-function updateUndoRedoUI() { document.getElementById('btn-undo').disabled = undoStackNilai.length === 0; document.getElementById('btn-redo').disabled = redoStackNilai.length === 0; }
+function updateUndoRedoUI() { const u = document.getElementById('btn-undo'); const r = document.getElementById('btn-redo'); if (u) u.disabled = undoStackNilai.length === 0; if (r) r.disabled = redoStackNilai.length === 0; }
 // --- 2. ROUTING UNDO / REDO ---
 function getColNameFromID(elId) {
     if (currentKategoriNilai === "Data Nilai Pengetahuan") {
@@ -8493,26 +8585,26 @@ function renderTabelKeterampilan() {
     for(let i=0; i<cfg.active_cp; i++) {
       let ltr = LTRS[i]; 
       for(let j=1; j<=cfg.active_sub_cp; j++) {
-          prakHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Prak_${ltr}_${j}" value="${dt[`Prak ${ltr} ${j}`] || ''}" class="w-8 h-8 bg-transparent text-center text-[10px] text-white outline-none focus:bg-blue-600/30"></td>`;
+          prakHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Prak_${ltr}_${j}" value="${nv(dt[`Prak ${ltr} ${j}`])}" class="w-8 h-8 bg-transparent text-center text-[10px] text-white outline-none focus:bg-blue-600/30"></td>`;
       }
-      let opt = dt[`Optimum ${ltr}`] || '';
+      let opt = nv(dt[`Optimum ${ltr}`]);
       prakHTML += `<td class="border-b border-r border-white/5 p-0 bg-blue-900/10 text-center text-[10px] font-bold ${getWarnaPredikat(hitungPredikat(opt))}" id="LBL_${m.NIS}_Opt_${ltr}">${opt}</td>`;
     }
 
     let projHTML = '', portHTML = '';
-    for(let j=1; j<=cfg.active_proj; j++) projHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Proj_${j}" value="${dt[`Projek ${j}`] || ''}" class="w-8 h-8 bg-purple-900/10 text-center text-[10px] text-white outline-none focus:bg-purple-600/30"></td>`;
+    for(let j=1; j<=cfg.active_proj; j++) projHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Proj_${j}" value="${nv(dt[`Projek ${j}`])}" class="w-8 h-8 bg-purple-900/10 text-center text-[10px] text-white outline-none focus:bg-purple-600/30"></td>`;
     
-    let vProj = dt["Rerata Projek"] || '';
+    let vProj = nv(dt["Rerata Projek"]);
     if(cfg.active_proj > 0) projHTML += `<td class="border-b border-r border-white/5 p-0 bg-purple-900/20 text-center font-bold ${getWarnaPredikat(hitungPredikat(vProj))}" id="LBL_${m.NIS}_RerataProj">${vProj}</td>`;
 
-    for(let j=1; j<=cfg.active_port; j++) portHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Port_${j}" value="${dt[`Porto ${j}`] || ''}" class="w-8 h-8 bg-yellow-900/10 text-center text-[10px] text-white outline-none focus:bg-yellow-600/30"></td>`;
+    for(let j=1; j<=cfg.active_port; j++) portHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiKeterampilan('${m.NIS}')" id="N_${m.NIS}_Port_${j}" value="${nv(dt[`Porto ${j}`])}" class="w-8 h-8 bg-yellow-900/10 text-center text-[10px] text-white outline-none focus:bg-yellow-600/30"></td>`;
     
-    let vPort = dt["Rerata Porto"] || '';
+    let vPort = nv(dt["Rerata Porto"]);
     if(cfg.active_port > 0) portHTML += `<td class="border-b border-r border-white/5 p-0 bg-yellow-900/20 text-center font-bold ${getWarnaPredikat(hitungPredikat(vPort))}" id="LBL_${m.NIS}_RerataPort">${vPort}</td>`;
 
-    let valOpt = dt["Rerata Optimum"] || '';
-    let valNA = dt["Nilai Akhir Raport"] || ''; 
-    let prdNA = dt["Predikat"] || (valNA ? hitungPredikat(valNA) : '-');
+    let valOpt = nv(dt["Rerata Optimum"]);
+    let valNA = nv(dt["Nilai Akhir Raport"]); 
+    let prdNA = dt["Predikat"] || (valNA !== '' ? hitungPredikat(valNA) : '-');
 
     const sumatifMode = cfgDeskripsiRaport().sumatif.mode;
     const valRPT = hitungSumatifGabungan(m.NIS, valNA);
@@ -8538,13 +8630,7 @@ function renderTabelKeterampilan() {
         </td>
         
         <!-- SEL TUNGGAKAN -->
-        <td class="border-b border-r border-white/5 px-2 py-1 text-red-300 whitespace-normal bg-red-900/10 cursor-pointer align-middle" onclick="toggleBelumTuntasNilai()">
-            ${(() => {
-                let t = getTunggakan(m.NIS, currentKategoriNilai);
-                if (!showBelumTuntasNilai) return t.length > 0 ? '<div class="text-center"><i class="fa-solid fa-circle text-[8px] text-red-500"></i></div>' : '<div class="text-center"><i class="fa-solid fa-check text-[10px] text-green-500"></i></div>';
-                return t.length > 0 ? `<ul class="list-disc pl-3 text-[8.5px] leading-tight text-left max-w-[120px] mx-auto">${t.map(x=>`<li>${x}</li>`).join('')}</ul>` : '<div class="text-center text-[9px] text-green-400 font-bold">Tuntas</div>';
-            })()}
-        </td>
+        <td id="TGK_${m.NIS}" class="border-b border-r border-white/5 px-2 py-1 text-red-300 whitespace-normal bg-red-900/10 cursor-pointer align-middle" onclick="toggleBelumTuntasNilai()">${htmlTunggakanNilai(m.NIS)}</td>
         
         <td class="border-b border-r border-white/5 p-0 align-middle"><input type="text" onfocus="storeOldVal(this)" onblur="saveKeteranganNilai('${m.NIS}')" id="KET_${m.NIS}" value="${dt.Keterangan || ''}" class="w-full h-8 bg-transparent text-left px-2 text-[10px] text-white outline-none focus:bg-white/10"></td>
       </tr>
@@ -8580,13 +8666,13 @@ function kalkulasiKeterampilan(nis, isFromUndo = false) {
     let opt = calcOpt(arrPrak); 
     
     // [UPDATE REQ 2] Pewarnaan dinamis
-    document.getElementById(`LBL_${nis}_Opt_${ltr}`).innerText = opt; updateWarnaEl(`LBL_${nis}_Opt_${ltr}`, opt);
+    isiTeks(`LBL_${nis}_Opt_${ltr}`, opt); updateWarnaEl(`LBL_${nis}_Opt_${ltr}`, opt);
     updates[`Optimum ${ltr}`] = opt;
     if(opt !== "") allOpt.push(opt);
   }
 
   let rerataOpt = calcRta(allOpt);
-  document.getElementById(`LBL_${nis}_RerataOpt`).innerText = rerataOpt; updateWarnaEl(`LBL_${nis}_RerataOpt`, rerataOpt);
+  isiTeks(`LBL_${nis}_RerataOpt`, rerataOpt); updateWarnaEl(`LBL_${nis}_RerataOpt`, rerataOpt);
   updates["Rerata Optimum"] = rerataOpt;
 
   let arrProj = [], arrPort = [];
@@ -8597,10 +8683,10 @@ function kalkulasiKeterampilan(nis, isFromUndo = false) {
     let vPort = validateVal(`N_${nis}_Port_${j}`, nis, isFromUndo); updates[`Porto ${j}`] = vPort; if(vPort !== "") arrPort.push(vPort);
   }
   
-  let rtaProj = calcRta(arrProj); document.getElementById(`LBL_${nis}_RerataProj`).innerText = rtaProj; updateWarnaEl(`LBL_${nis}_RerataProj`, rtaProj);
+  let rtaProj = calcRta(arrProj); isiTeks(`LBL_${nis}_RerataProj`, rtaProj); updateWarnaEl(`LBL_${nis}_RerataProj`, rtaProj);
   updates["Rerata Projek"] = rtaProj;
   
-  let rtaPort = calcRta(arrPort); document.getElementById(`LBL_${nis}_RerataPort`).innerText = rtaPort; updateWarnaEl(`LBL_${nis}_RerataPort`, rtaPort);
+  let rtaPort = calcRta(arrPort); isiTeks(`LBL_${nis}_RerataPort`, rtaPort); updateWarnaEl(`LBL_${nis}_RerataPort`, rtaPort);
   updates["Rerata Porto"] = rtaPort;
 
   let nilaiAkhir = "", akhirPrd = "-";
@@ -8609,8 +8695,8 @@ function kalkulasiKeterampilan(nis, isFromUndo = false) {
     akhirPrd = hitungPredikat(nilaiAkhir);
   }
   
-  document.getElementById(`LBL_${nis}_AkhirKet`).innerText = nilaiAkhir; updateWarnaEl(`LBL_${nis}_AkhirKet`, nilaiAkhir);
-  document.getElementById(`PRD_${nis}_AkhirKet`).innerText = akhirPrd; updateWarnaEl(`PRD_${nis}_AkhirKet`, nilaiAkhir);
+  isiTeks(`LBL_${nis}_AkhirKet`, nilaiAkhir); updateWarnaEl(`LBL_${nis}_AkhirKet`, nilaiAkhir);
+  isiTeks(`PRD_${nis}_AkhirKet`, akhirPrd); updateWarnaEl(`PRD_${nis}_AkhirKet`, nilaiAkhir);
   updates["Nilai Akhir Raport"] = nilaiAkhir; updates["Predikat"] = akhirPrd;
   Object.assign(updates, deriveNilaiRaport(nis, 'AkhirKet', 'AkhirKet', hitungSumatifGabungan(nis, nilaiAkhir), 'sumatif'));
 
@@ -8653,7 +8739,8 @@ function toggleBelumTuntasNilai() {
 function getTunggakan(nis, kategori) {
     const dt = rawDataNilai.find(d => d.NIS == nis) || {};
     let tunggakan = [];
-    const isKosongAtauKurang = (val) => (val === "" || val === null || Number(val) < 71); // Threshold Tuntas (KKM 71)
+    // Threshold Tuntas (KKM 71). undefined (baris/kolom belum ada) = belum diisi = tunggakan.
+    const isKosongAtauKurang = (val) => (val === undefined || val === "" || val === null || Number(val) < 71);
 
     if (kategori === "Data Nilai Pengetahuan") {
         const maxKD = configNilaiAktif.active_kd;
@@ -8699,6 +8786,20 @@ function getTunggakan(nis, kategori) {
     if(isKosongAtauKurang(dt["Nilai Jurnal"])) tunggakan.push("Nilai Jurnal");
     }
     return tunggakan;
+}
+
+/** HTML isi sel "Belum Tuntas" (Pengetahuan & Keterampilan) — dipakai render awal & pembaruan setelah input. */
+function htmlTunggakanNilai(nis) {
+    const t = getTunggakan(nis, currentKategoriNilai);
+    if (!showBelumTuntasNilai) return t.length > 0 ? '<div class="text-center"><i class="fa-solid fa-circle text-[8px] text-red-500"></i></div>' : '<div class="text-center"><i class="fa-solid fa-check text-[10px] text-green-500"></i></div>';
+    return t.length > 0 ? `<ul class="list-disc pl-3 text-[8.5px] leading-tight text-left max-w-[120px] mx-auto">${t.map(x=>`<li>${x}</li>`).join('')}</ul>` : '<div class="text-center text-[9px] text-green-400 font-bold">Tuntas</div>';
+}
+
+/** Segarkan sel "Belum Tuntas" satu siswa tanpa render ulang tabel (dipanggil setelah nilai tersimpan di memori). */
+function perbaruiSelTunggakan(nis) {
+    if (currentKategoriNilai !== "Data Nilai Pengetahuan" && currentKategoriNilai !== "Data Nilai Keterampilan") return;
+    const el = document.getElementById(`TGK_${nis}`);
+    if (el) el.innerHTML = htmlTunggakanNilai(nis);
 }
 
 // --- [UPDATE REQ 9] BROADCAST WA PER KATEGORI ---
@@ -8995,7 +9096,7 @@ function renderTabelSikap() {
     for(let i=0; i<cfg.active_cp; i++) {
       let ltr = LTRS[i]; 
       for(let j=1; j<=cfg.active_sub_cp; j++) {
-          obsHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiSikap('${m.NIS}')" id="N_${m.NIS}_CP_${ltr}${j}" value="${dt[`CP ${ltr}${j}`] || ''}" class="w-8 h-8 bg-transparent text-center text-[10px] text-white outline-none focus:bg-blue-600/30"></td>`;
+          obsHTML += `<td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiSikap('${m.NIS}')" id="N_${m.NIS}_CP_${ltr}${j}" value="${nv(dt[`CP ${ltr}${j}`])}" class="w-8 h-8 bg-transparent text-center text-[10px] text-white outline-none focus:bg-blue-600/30"></td>`;
       }
     }
 
@@ -9003,10 +9104,11 @@ function renderTabelSikap() {
     const hasilTeman = hitungHasilTemanSejawat(m.NIS);
     const modTemanTampil = hasilTeman.modus !== "" ? `${hasilTeman.modus} — ${hasilTeman.desk}` : '-';
     // [REQ 6c] Nilai Jurnal: saran otomatis dari hasil teman sejawat (dapat diedit guru)
-    const saranJurnal = dt["Nilai Jurnal"] || hasilTeman.modus || '';
+    const jurnalTersimpan = nv(dt["Nilai Jurnal"]);
+    const saranJurnal = jurnalTersimpan !== '' ? jurnalTersimpan : (hasilTeman.modus || '');
 
-    let valAkhir = dt["Nilai Akhir Raport"] || ''; 
-    let prdAkhir = dt["Predikat"] || (valAkhir ? hitungPredikat(valAkhir) : '-');
+    let valAkhir = nv(dt["Nilai Akhir Raport"]); 
+    let prdAkhir = dt["Predikat"] || (valAkhir !== '' ? hitungPredikat(valAkhir) : '-');
 
     // Cek Tunggakan Khusus UI Sikap saat dibuka
     let tHTML = '';
@@ -9030,7 +9132,7 @@ function renderTabelSikap() {
         <td class="sticky left-0 bg-[#0f172a] z-30 text-center border-b border-r border-white/10 px-2 cursor-pointer text-blue-400 font-bold group-hover:bg-slate-800" onclick="toggleNamaSiswaNilai()">${idx + 1}</td>
         <td class="sticky left-[32px] bg-[#0f172a] z-30 border-b border-r border-white/10 px-2 truncate text-left group-hover:bg-slate-800" style="display:${displayNama}; max-width: 0;">${m["Nama Lengkap"]}</td>
         ${obsHTML}
-        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiSikap('${m.NIS}')" id="N_${m.NIS}_Diri" value="${dt["Penilaian Diri"] || ''}" class="w-8 h-8 bg-indigo-900/10 text-center text-[10px] text-white outline-none focus:bg-indigo-600/30"></td>
+        <td class="border-b border-r border-white/5 p-0"><input type="number" onfocus="storeOldVal(this)" onblur="kalkulasiSikap('${m.NIS}')" id="N_${m.NIS}_Diri" value="${nv(dt["Penilaian Diri"])}" class="w-8 h-8 bg-indigo-900/10 text-center text-[10px] text-white outline-none focus:bg-indigo-600/30"></td>
         <!-- [REQ 3] NILAI TEMAN SEJAWAT (agregat) + tombol popup -->
         <td class="border-b border-r border-white/10 px-1 bg-yellow-900/10 text-center align-middle">
           <div class="flex items-center justify-center gap-1">
@@ -9131,7 +9233,7 @@ function kalkulasiSikap(nis, isFromUndo = false) {
   const elNa = document.getElementById(`LBL_${nis}_AkhirSikap`);
   if (elNa) elNa.innerText = vAkhir;
   
-  document.getElementById(`PRD_${nis}_AkhirSikap`).innerText = prdAkhir; updateWarnaEl(`PRD_${nis}_AkhirSikap`, vAkhir);
+  isiTeks(`PRD_${nis}_AkhirSikap`, prdAkhir); updateWarnaEl(`PRD_${nis}_AkhirSikap`, vAkhir);
   
   updates["Nilai Akhir Raport"] = vAkhir; 
   updates["Predikat"] = prdAkhir;
@@ -9825,7 +9927,7 @@ function renderTabelEskul() {
 
     const tbodyHTML = urutMuridTampil().map((m, idx) => {
       const dt = rawDataNilai.find(d => d.NIS == m.NIS) || {};
-      let valNilai = dt.Nilai || '';
+      let valNilai = nv(dt.Nilai);
       let valPred = dt.Predikat || (valNilai !== '' ? getPredikatEskul(valNilai) : '-');
       let valDesc = dt.Deskripsi || '';
       if (valNilai !== '') {
