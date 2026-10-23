@@ -185,15 +185,24 @@ async function apiCall(action, data = {}) {
         // 2) Fallback: cari email akun terkait NIS/NIP → Supabase Auth (guru/admin/Google)
         const { data: byNis, error: errNis } = await supaClient
           .from('akun')
-          .select('email')
+          .select('tipe, email')
           .eq('nis_nip', identifier)
           .maybeSingle();
         if (errNis) return { status: 'error', message: 'Gagal mencari akun: ' + errNis.message };
-        if (!byNis || !byNis.email) {
+        if (!byNis) {
           const pesanRpc = (!rpcErr && rpcRes && rpcRes.message) ? rpcRes.message : 'NIS/NIP tidak terdaftar.';
           return { status: 'error', message: pesanRpc };
         }
-        emailAuth = byNis.email;
+        // Guru/admin tanpa email nyata memakai pola email dummy `[nis_nip]@sekolah.local`
+        // (lihat upgrade_20261027_role_hybrid_opsiC.sql). Bila kolom email kosong,
+        // pakai pola dummy agar signInWithPassword tetap menemukan akun Auth.
+        emailAuth = byNis.email || ((byNis.tipe === 'guru' || byNis.tipe === 'admin')
+          ? (identifier.toLowerCase() + '@sekolah.local')
+          : '');
+        if (!emailAuth) {
+          const pesanRpc = (!rpcErr && rpcRes && rpcRes.message) ? rpcRes.message : 'NIS/NIP tidak terdaftar.';
+          return { status: 'error', message: pesanRpc };
+        }
       } else {
         // Login via email: coba akun murid lokal (lookup NIS dari email) lalu Supabase Auth
         const { data: listByEmail, error: errEmail } = await supaClient

@@ -119,15 +119,12 @@ Deno.serve(async (req) => {
 
     // ================== BUAT AKUN ==================
     if (action === "buat_akun") {
-      const email = String(body.email ?? "").trim().toLowerCase();
+      const emailInput = String(body.email ?? "").trim().toLowerCase();
       const password = String(body.password ?? "");
       const tipe = String(body.tipe ?? "admin");
       const nama = String(body.nama_lengkap ?? "").trim();
       const nisNip = String(body.nis_nip ?? "").trim();
 
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return json({ status: "error", message: "Format email tidak valid." }, 400);
-      }
       if (password.length < 6) {
         return json({ status: "error", message: "Password minimal 6 karakter." }, 400);
       }
@@ -136,6 +133,20 @@ Deno.serve(async (req) => {
       }
       if (tipe !== "admin" && !nisNip) {
         return json({ status: "error", message: "NIS/NIP wajib untuk guru & murid." }, 400);
+      }
+
+      // 4a. Tentukan email Auth. Guru/murid tanpa email nyata memakai pola
+      //     dummy `[nis_nip]@sekolah.local` (lihat upgrade_20261027_role_hybrid_opsiC.sql)
+      //     karena Supabase Auth mewajibkan email. Login frontend menerjemahkan
+      //     NIS/NIP → email dummy ini secara otomatis. Admin tetap wajib email nyata.
+      let email = emailInput;
+      if (!email) {
+        if (tipe === "admin") {
+          return json({ status: "error", message: "Email wajib untuk admin." }, 400);
+        }
+        email = `${nisNip.toLowerCase()}@sekolah.local`;
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ status: "error", message: "Format email tidak valid." }, 400);
       }
 
       // 4. Buat user di Supabase Auth (bukan tabel!) — password di-hash oleh Auth
