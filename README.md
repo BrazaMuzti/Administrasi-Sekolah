@@ -403,13 +403,42 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    perlu menghapus data situs. Naikkan `BUILD` bersama tag `?v=` dan `VERSION` di
    `sw.js`.
 7. **Dua situs, satu folder `web/`.** Selain GitHub Pages, aplikasi juga disajikan
-   Vercel dari repo mirror `BrazaMuzti/SMKN2Banjar` (root directory = `web/`).
-   Folder `web/` di mirror itu **harus selalu identik dengan repo ini**; bila hanya
-   salah satu yang diperbarui, siswa menerima berkas campur (mis. `js/app.js` baru
-   tetapi `sw.js`/`manifest.json` lama). Cara paling aman: kirim seluruh folder
-   `web/` (`git remote add mirror https://github.com/BrazaMuzti/SMKN2Banjar.git`
-   lalu `git push mirror main`) — **jangan** unggah berkas satu per satu lewat web
-   GitHub: unggahan manual pernah melewatkan `sw.js`/`manifest.json` sehingga PWA
-   di situs Vercel rusak (precache `/web/…` → 404, dan `manifest.json` jadi JSON
-   tidak sah karena koma menggantung).
+   Vercel dari repo mirror `BrazaMuzti/SMKN2Banjar` (**Root Directory = `web/`**,
+   tanpa `vercel.json`). Folder `web/` di mirror itu **harus selalu identik dengan
+   repo ini**; bila hanya salah satu yang diperbarui, siswa menerima berkas campur
+   (mis. `js/app.js` baru tetapi `sw.js`/`manifest.json` lama). Histori mirror
+   **berbeda** dari repo ini (dibuat lewat unggahan web), jadi `git push mirror main`
+   ditolak *non-fast-forward*. Cara yang sudah teruji (2026-10-24):
+
+   ```bash
+   git fetch https://github.com/BrazaMuzti/SMKN2Banjar.git main:refs/remotes/mirror/main
+   git worktree add --detach /tmp/mirror-sync mirror/main
+   git archive HEAD web | tar -x -C /tmp/mirror-sync   # hanya berkas web/ yang terlacak
+   git -C /tmp/mirror-sync add -A web
+   git -C /tmp/mirror-sync status --porcelain          # tinjau dulu daftar perubahan
+   git -C /tmp/mirror-sync commit -m "sync web/ dari repo utama (build <tanggal>)"
+   git -C /tmp/mirror-sync push https://github.com/BrazaMuzti/SMKN2Banjar.git HEAD:main
+   git worktree remove --force /tmp/mirror-sync
+   ```
+
+   Verifikasi setelah push: `curl -s https://smkn2banjar.vercel.app/index.html | grep -o 'v=[0-9a-z]*'`
+   harus menampilkan tag terbaru, dan `manifest.json` harus JSON sah
+   (`curl -s …/manifest.json | node -e "JSON.parse(require('fs').readFileSync(0))"`).
+
+   **Jangan** unggah berkas satu per satu lewat web GitHub: unggahan manual pernah
+   melewatkan `sw.js`/`manifest.json` sehingga PWA di situs Vercel rusak
+   (precache `/web/…` → 404, dan `manifest.json` jadi JSON tidak sah karena koma
+   menggantung). **Jangan** pula `git push --force`: repo ini **tidak** melacak
+   `web/js/utils.js` (berisi kredensial → ada di `.gitignore`), sedangkan di mirror
+   berkas itu ada dan itulah satu-satunya sumber konfigurasi Supabase situs Vercel —
+   force-push akan menghapusnya dan situs Vercel kehilangan koneksi database.
+   Mirror juga membawa `.github/workflows/static.yml` warisan yang **selalu gagal**
+   (repo mirror tidak punya secret) — abaikan atau hapus berkasnya. Alternatif
+   jangka panjang yang lebih rapi: arahkan proyek Vercel ke repo ini
+   (`BrazaMuzti/Administrasi-Sekolah`) dengan Root Directory = repo,
+   **Output Directory = `web`**, Build Command
+   `npm run build:css && node scripts/generate-utils.mjs`, plus Environment Variables
+   `SUPABASE_URL` & `SUPABASE_ANON_KEY` — mirror tidak diperlukan lagi dan risiko
+   drift hilang.
+
 
