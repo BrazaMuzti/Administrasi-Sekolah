@@ -361,7 +361,7 @@ apa pun, aplikasi tetap berjalan normal di browser.
 | `manifest.json` | nama, `start_url`/`scope` **relatif** (`./`), `display: standalone`, ikon PNG 192/512 + varian `maskable` |
 | `sw.js` | service worker: precache aset inti, network-first untuk navigasi, cache-first untuk aset, fallback `offline.html` |
 | `offline.html` | halaman fallback saat benar-benar offline |
-| `js/install.js` | registrasi service worker, tombol "Pasang" di header, kartu ajakan di dashboard, panduan iOS, prompt notifikasi (1× per perangkat) |
+| `js/install.js` | registrasi service worker (dengan `updateViaCache: 'none'` + aktivasi versi baru otomatis), tombol "Pasang" di header, kartu ajakan di dashboard, panduan iOS, prompt notifikasi (1× per perangkat), **stempel build + pembersih cache `sisip-*` sekali per build baru** |
 | `assets/icon-*.png`, `assets/apple-touch-icon.png` | ikon PWA — dibuat dari `assets/logo.svg`, **jangan diedit manual** |
 
 **Penting — semua path harus relatif.** GitHub Pages menyajikan folder `web/`
@@ -395,4 +395,21 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
 5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261029a'`; muncul di
+   console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
+   Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
+   memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama
+   (termasuk service worker rusak / cache `sisip-v1`) sembuh sendiri tanpa siswa
+   perlu menghapus data situs. Naikkan `BUILD` bersama tag `?v=` dan `VERSION` di
+   `sw.js`.
+7. **Dua situs, satu folder `web/`.** Selain GitHub Pages, aplikasi juga disajikan
+   Vercel dari repo mirror `BrazaMuzti/SMKN2Banjar` (root directory = `web/`).
+   Folder `web/` di mirror itu **harus selalu identik dengan repo ini**; bila hanya
+   salah satu yang diperbarui, siswa menerima berkas campur (mis. `js/app.js` baru
+   tetapi `sw.js`/`manifest.json` lama). Cara paling aman: kirim seluruh folder
+   `web/` (`git remote add mirror https://github.com/BrazaMuzti/SMKN2Banjar.git`
+   lalu `git push mirror main`) — **jangan** unggah berkas satu per satu lewat web
+   GitHub: unggahan manual pernah melewatkan `sw.js`/`manifest.json` sehingga PWA
+   di situs Vercel rusak (precache `/web/…` → 404, dan `manifest.json` jadi JSON
+   tidak sah karena koma menggantung).
 

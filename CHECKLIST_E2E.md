@@ -229,7 +229,7 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 
 - [ ] **Gate statis**: `npm run check:icons` → `✅ Ikon PWA lengkap`; `node --check web/js/install.js` dan `node --check web/sw.js` → tanpa error.
 - [ ] **Service worker aktif**: buka SISIP → hard refresh (Ctrl+F5) → DevTools → Application → *Service Workers*: status **activated and is running**, scope = `/Administrasi-Sekolah/` (**bukan** `/`). Console: `[PWA] Service worker terdaftar. Scope: …/Administrasi-Sekolah/`.
-- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v2` memuat `index.html`, `offline.html`, `css/style.css?v=20261028f`, `js/app.js?v=20261028f`, `js/install.js?v=20261028f`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
+- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v3` memuat `index.html`, `offline.html`, `css/style.css?v=20261029a`, `js/app.js?v=20261029a`, `js/install.js?v=20261029a`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
 - [ ] **Manifest bersih**: Application → *Manifest* → Name "SISIP…", Short name `SISIP`, Start URL `./index.html`, Display **standalone**, ikon 192 & 512 terdeteksi, **tanpa** peringatan "Must include a 192px/512px icon".
 - [ ] **Android (Chrome/Opera/Samsung)**: tombol **Pasang** muncul di header **dan** kartu "Pasang Aplikasi SISIP" muncul di dashboard → klik → prompt pemasangan muncul → setelah dipasang: toast "Berhasil Dipasang!", tombol & kartu hilang, ikon SISIP ada di launcher **tanpa terpotong** (bukti ikon `maskable` benar).
 - [ ] **Buka dari ikon (standalone)**: tidak ada address bar, header tampil penuh, login → dashboard normal, dan **tidak** ada ajakan pasang lagi.
@@ -238,7 +238,10 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 - [ ] **Prompt notifikasi 1× per perangkat**: muncul sekali (kunci `sisip_pwa_notif_ditanya`); memilih "Tidak" tidak membuatnya bertanya lagi di perangkat yang sama.
 - [ ] **Fallback offline**: DevTools → Network → centang *Offline* → reload → tampil `offline.html` (bukan halaman error browser); tombol **Muat Ulang Halaman** berhasil setelah koneksi kembali.
 - [ ] **Data tidak dilayani dari cache**: saat offline, pembacaan data Supabase gagal wajar (request lintas-origin dilewatkan service worker) — pastikan **tidak ada** data lama/kadaluarsa yang muncul.
-- [ ] **Update versi**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia (aktif setelah muat ulang).` → muat ulang → aset yang dipakai sudah ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`).
+- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261029a`; `<html data-sisip-build="20261029a">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
+- [ ] **Update versi otomatis**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia — mengaktifkan sekarang…` → `[SISIP] Service worker baru aktif — memuat ulang sekali.` → halaman memuat ulang sendiri → aset yang dipakai ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`). Tidak perlu hard refresh manual.
+- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v3` (+ `sisip-runtime-v3` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
+- [ ] **Ritual naik versi**: `web/index.html` (`?v=`) dan `PRECACHE`/`VERSION` di `web/sw.js` sudah sejalan, dan kedua situs (GitHub Pages **dan** mirror Vercel) sama-sama menerima `web/` terbaru — lihat README §8c.
 
 ---
 

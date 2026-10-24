@@ -11,7 +11,7 @@
  * (beda origin) dilewatkan langsung ke jaringan (data selalu real-time).
  * ========================================================================== */
 
-const VERSION = 'v2';
+const VERSION = 'v3'; // ← WAJIB dinaikkan setiap index.html berubah (lihat PRECACHE)
 const STATIC_CACHE = `sisip-static-${VERSION}`;
 const RUNTIME_CACHE = `sisip-runtime-${VERSION}`;
 
@@ -30,11 +30,11 @@ const PRECACHE = [
   'index.html',
   'offline.html',
   'manifest.json',
-  'css/style.css?v=20261028f',
-  'js/utils.js?v=20261028f',
-  'js/app.js?v=20261028f',
-  'js/face.js?v=20261028f',
-  'js/install.js?v=20261028f',
+  'css/style.css?v=20261029a',
+  'js/utils.js?v=20261029a',
+  'js/app.js?v=20261029a',
+  'js/face.js?v=20261029a',
+  'js/install.js?v=20261029a',
   'vendor/face-api.min.js?v=20261014a',
   'vendor/mediapipe/vision_bundle.js?v=20261020c',
   'vendor/onnx/ort.min.js?v=20261020c',
@@ -116,6 +116,11 @@ self.addEventListener('fetch', (event) => {
       return res;
     }).catch(() => null);
 
+    if (cached) return cached; // instan + hemat kuota
+    const res = await dariJaringan;
+    return res || Response.error();
+  })());
+});
 
 /* ─── Push notification (disiapkan utk masa depan; belum dipakai) ────────── */
 self.addEventListener('push', (event) => {
@@ -146,11 +151,5 @@ self.addEventListener('notificationclick', (event) => {
 /* ─── Pesan dari halaman (mis. minta skipWaiting saat update tersedia) ───── */
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
-});
-
-    if (cached) return cached; // instan + hemat kuota
-    const res = await dariJaringan;
-    return res || Response.error();
-  })());
 });
 
