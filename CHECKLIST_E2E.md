@@ -16,6 +16,12 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20260927_sub_ekskul_anggota.sql` (kolom anggota sub-ekskul + self-healing kolom ekskul/surat — perbaikan "Simpan" Edit Profil)
    - `upgrade_20260928_rpc_akun_murid.sql` (RPC profil/password/laporan-nilai murid + kolom Master Data "Jabatan Ekstrakurikuler" — perbaikan "Simpan Perubahan" murid)
    - `upgrade_20260929_jadwal_pelajaran.sql` (tabel jadwal_pelajaran lengkap + RLS/grant — perbaikan "Simpan Jadwal")
+   - `upgrade_20261027_role_hybrid_opsiC.sql` (helper peran `fn_*` + RLS ketat nilai/absensi — WAJIB untuk Fase B)
+   - `upgrade_20261028a_sesi_lokal_murid.sql` (Fase B: tabel `sesi_lokal` + token sesi murid dari server)
+   - `upgrade_20261028b_rpc_akun.sql` (Fase B: RPC baca/tulis tabel `akun`)
+   - `upgrade_20261028b2_token_rpc_murid.sql` (Fase B: RPC murid wajib `p_token`)
+   - `upgrade_20261028c_rls_akun_ketat.sql` (**BARU jalankan setelah frontend baru ter-deploy** — RLS ketat `akun` + `revoke all from anon`)
+   - `fix_20261028d_sesi_wajib.sql` (**terakhir** — klaim NIS tanpa token ditolak; murid lama diminta login ulang)
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.
@@ -201,6 +207,42 @@ Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di
 - [ ] **Filter & reset**: chip `Filter: … (Sub: …)` beserta tombol "Reset Filter" tetap bekerja setelah daftar jadi 2 kolom; ekskul **tanpa** Sub-Ekskurikuler tidak menampilkan tombol Atur Sub.
 - [ ] Sebagai **murid anggota biasa**: blok kontak tetap terkunci (pesan kunci) dan tidak ada tombol Atur Sub.
 
+### S14k — Fase B: sesi murid di server + RLS ketat tabel `akun` (upgrade 20261028a–d)
+- [ ] **Login murid** (`UJI999` / `uji1234`) → berhasil. Di console: `getToken().length` bernilai **64** (token hex dari tabel `sesi_lokal`, bukan `lokal-<uuid>` lagi).
+- [ ] **Data Akun Murid** (admin) → tabel tetap terisi; **Edit** 1 murid → form terbuka lengkap (JK, agama, ortu, alamat); **Simpan** → sukses. Export Excel & PDF tetap berisi kolom lengkap.
+- [ ] **Guru**: Dashboard (statistik murid/guru), Manajemen Akun Guru, dropdown guru (Jadwal/Inventaris), **Kunci Absen** (captcha + BUKA/TUTUP) → semua tetap bekerja (`supaClient.from('akun')` sudah tidak dipakai lagi).
+- [ ] **Murid**: Data Akun Murid (profil sendiri), ubah profil, ganti password (setelah sukses, lanjut tanpa login ulang), Absen Mandiri (captcha diverifikasi server), scan wajah, laporan nilai → tetap bekerja.
+- [ ] **S14k-b1 — Data Akun Murid (murid) → Simpan Perubahan** (regresi PGRST202): login `UJI999` → menu **Data Akun Murid** → ubah satu isian (mis. **No HP/WA**) → klik **Simpan Perubahan** → muncul notifikasi sukses ("Profil diperbarui.") dan nilai tersimpan setelah halaman dimuat ulang. **Tidak boleh** ada toast merah / console error `PGRST202` / "Could not find the function public.ubah_profil_murid". Payload benar = `{ p_nis, p_data, p_token }` (tanpa `p_klaim_nis`).
+- [ ] **S14k-b2 — Ganti Password sendiri (murid)**: isi **Password lama** yang benar + **Password baru** (≥6 karakter) → Simpan → sukses, lalu **tetap bisa** membuka menu murid lain tanpa login ulang (token baru dari server otomatis tersimpan). Cek console: hanya satu panggilan `ubah_password_sendiri` dengan argumen `{ p_nis, p_lama, p_baru, p_token }` — **tanpa** `p_klaim_nis`.
+- [ ] **S14k-b3 — Token kadaluarsa**: di console jalankan `localStorage.setItem('sisip_token','mati')` → klik **Simpan Perubahan** di Data Akun Murid → muncul pesan "Sesi Anda sudah berakhir. Silakan login ulang." lalu aplikasi logout sendiri (bukan diam-diam gagal).
+- [ ] **Verifikasi statis**: `npm run test:rpc-args` → `✅ Semua argumen RPC cocok dengan signature SQL di repo` dan `self-test: ✅ OK` (skrip membandingkan seluruh titik `.rpc()`/`supaRpc()` di `web/js` dengan signature di `supabase/sql`).
+- [ ] **Pengurus ekskul** (murid berjabatan): Kelola/Tambah Anggota, Atur Jabatan, **Profil Anggota** (kontak & keluarga tampil), Ganti Kunci Absen ekskul → tetap bekerja **via RPC + token**.
+- [ ] Verifikasi RLS ketat (console, mode anon tanpa login): `await supaClient.from('akun').select('nis_nip').limit(1)` → **error/denied** (bukan data). Ini bukti anon tidak punya jalur baca `akun` lagi.
+- [ ] Verifikasi klaim NIS ditolak (setelah `fix_20261028d`): `await supaClient.rpc('ambil_daftar_murid', { p_mode: 'list', p_klaim_nis: 'UJI999' })` → `[]`.
+- [ ] **Logout murid** → `sisip_token` kosong dan token dicabut di server (menjalankan halaman dengan token lama → diminta login ulang).
+
+### S14l — PWA: "Pasang ke Layar Utama" + fallback offline
+
+Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
+`web/offline.html`, `web/js/install.js`, dan ikon `web/assets/icon-*.png`
+(cek kelengkapan: `npm run check:icons`).
+
+- [ ] **Gate statis**: `npm run check:icons` → `✅ Ikon PWA lengkap`; `node --check web/js/install.js` dan `node --check web/sw.js` → tanpa error.
+- [ ] **Service worker aktif**: buka SISIP → hard refresh (Ctrl+F5) → DevTools → Application → *Service Workers*: status **activated and is running**, scope = `/Administrasi-Sekolah/` (**bukan** `/`). Console: `[PWA] Service worker terdaftar. Scope: …/Administrasi-Sekolah/`.
+- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v2` memuat `index.html`, `offline.html`, `css/style.css?v=20261028f`, `js/app.js?v=20261028f`, `js/install.js?v=20261028f`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
+- [ ] **Manifest bersih**: Application → *Manifest* → Name "SISIP…", Short name `SISIP`, Start URL `./index.html`, Display **standalone**, ikon 192 & 512 terdeteksi, **tanpa** peringatan "Must include a 192px/512px icon".
+- [ ] **Android (Chrome/Opera/Samsung)**: tombol **Pasang** muncul di header **dan** kartu "Pasang Aplikasi SISIP" muncul di dashboard → klik → prompt pemasangan muncul → setelah dipasang: toast "Berhasil Dipasang!", tombol & kartu hilang, ikon SISIP ada di launcher **tanpa terpotong** (bukti ikon `maskable` benar).
+- [ ] **Buka dari ikon (standalone)**: tidak ada address bar, header tampil penuh, login → dashboard normal, dan **tidak** ada ajakan pasang lagi.
+- [ ] **"Nanti saja" dihormati**: klik "Nanti saja" → kartu hilang dan tidak muncul lagi setelah muat ulang (kunci localStorage `sisip_pwa_kartu_ditolak`).
+- [ ] **iOS/iPadOS Safari**: tekan tombol Pasang → muncul panduan 4 langkah (Bagikan → Tambahkan ke Layar Utama); setelah ditambahkan, ikon di layar utama memakai `apple-touch-icon.png`.
+- [ ] **Prompt notifikasi 1× per perangkat**: muncul sekali (kunci `sisip_pwa_notif_ditanya`); memilih "Tidak" tidak membuatnya bertanya lagi di perangkat yang sama.
+- [ ] **Fallback offline**: DevTools → Network → centang *Offline* → reload → tampil `offline.html` (bukan halaman error browser); tombol **Muat Ulang Halaman** berhasil setelah koneksi kembali.
+- [ ] **Data tidak dilayani dari cache**: saat offline, pembacaan data Supabase gagal wajar (request lintas-origin dilewatkan service worker) — pastikan **tidak ada** data lama/kadaluarsa yang muncul.
+- [ ] **Update versi**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia (aktif setelah muat ulang).` → muat ulang → aset yang dipakai sudah ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`).
+
+---
+
+
 ---
 
 ## D. SELESAI UJI
@@ -209,6 +251,7 @@ Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di
 - [ ] Di SQL Editor jalankan `uji_bersih.sql`.
 - [ ] Verifikasi: Data Akun Murid (cari `UJI`) kosong; Perpustakaan/Inventaris tanpa `UJI-`; pengumuman uji hilang dari dashboard; **hard refresh** aplikasi.
 - [ ] Catat NIS yang dipakai saat konversi — jika bukan `UJI998`, hapus manual di Data Akun Murid.
+- [ ] Fase B: bersihkan sesi uji bila perlu → `delete from sesi_lokal where nis_nip like 'UJI%';` (RLS ON tanpa policy, tidak terjangkau REST).
 
 ---
 
@@ -218,7 +261,7 @@ Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di
 
 # OTOMASI TINGKAT 1 — API (tanpa browser)
 
-Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±50 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel, **akses pengurus ekskul (anon): sub-ekskul, nilai ekskul, agenda/dispensasi, jabatan_ekskul_map & multi-pembina (migrasi 20260926)** — lalu membersihkan data ujinya sendiri.
+Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±50 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel, **akses pengurus ekskul (anon): sub-ekskul, nilai ekskul, agenda/dispensasi, jabatan_ekskul_map & multi-pembina (migrasi 20260926)**, dan **Fase B (upgrade 20261028): `cek_login_murid` menerbitkan `sesi_token` 64 hex, RPC `simpan_ekskul_murid` ber-token berhasil, update `akun` langsung dari anon DITOLAK (RLS ketat), RPC baca `akun` tanpa token ditolak** — lalu membersihkan data ujinya sendiri.
 
 ## Persiapan sekali saja
 1. **Akun uji email** — script otomasi memakai **EMAIL + password Supabase Auth** (bukan NIS/NIP/password lokal):

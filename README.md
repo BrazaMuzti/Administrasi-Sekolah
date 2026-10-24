@@ -9,7 +9,7 @@ PostgREST & fungsi RPC.
 | Bagian | Lokasi | Keterangan |
 |---|---|---|
 | Frontend | `web/` | HTML + JS murni + Tailwind v4, `@supabase/supabase-js` via CDN |
-| Database | `supabase/sql/` | Skema SQL + upgrade berkala; versi lengkap di `supabase/sql/versi-sekarang/` |
+| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (82 blok, dirakit otomatis oleh `npm run build:sql`) |
 | Deploy | GitHub Pages (default) / Vercel (alternatif) | GitHub Pages: otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`). Vercel: lihat [bagian 5](#5-deploy--vercel-alternatif) |
 
 ## Menjalankan Lokal
@@ -81,7 +81,7 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
 
 | Kondisi | File yang dijalankan |
 |---|---|
-| **Project baru / kosong** | `supabase/sql/versi-sekarang/gabungan.sql` — gabungan seluruh 30 upgrade (2026-09-03 s.d. 2026-09-22), sekali jalan |
+| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **82 berkas upgrade** (2026-09-03 s.d. 2026-10-28), sekali jalan |
 | **Project sudah berjalan**, tertinggal beberapa upgrade | file satu-persatu di `supabase/sql/`, **urut tanggal**, hanya yang belum ada di database |
 
 3. Salin seluruh isi file ke SQL Editor (atau pakai tombol **upload** file `.sql`)
@@ -90,7 +90,8 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
    (`akun`, `master_data`, `absensi`, `nilai`, `ekstrakurikuler`, dst.).
 
 > Semua file SQL **idempotent** (aman dijalankan berulang). Daftar lengkap isi &
-> urutan 30 file ada di `supabase/sql/versi-sekarang/README.md`.
+> urutan 82 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
+> (`npm run build:sql`) — jangan diedit manual; `npm run check:sql` akan gagal bila basi.
 > File `uji_data.sql` / `uji_bersih.sql` khusus pengujian E2E — jangan dijalankan di produksi.
 
 ---
@@ -140,6 +141,39 @@ Bila memakai login Google/GitHub:
 Anon/publishable key memang **publik** — keamanan data dijaga oleh **Row Level
 Security (RLS)** dan RPC yang sudah dikonfigurasi di file SQL. Jangan pernah
 menaruh `service_role key` di kode frontend.
+
+#### Fase B — sesi murid di server + RLS ketat pada tabel `akun`
+
+Sejak upgrade `20261028a`–`20261028d` (lihat `supabase/sql/README.md` entri 69–73):
+
+- **Tabel `akun` ber-RLS ketat** dan `anon` tidak punya hak apa pun atas tabel
+  itu; seluruh baca/tulis dari browser lewat RPC `SECURITY DEFINER`
+  (`ambil_daftar_murid`, `ambil_akun_satu`, `simpan_riwayat_murid`, dst.).
+- **Sesi murid memakai token dari server** (`sesi_lokal`, SHA-256, masa 12 jam
+  dengan perpanjangan otomatis). Token diterbitkan `cek_login_murid` dan wajib
+  dikirim sebagai `p_token` pada RPC murid; logout mencabutnya
+  (`logout_sesi`). NIS yang dikirim klien **tidak lagi** dianggap bukti
+  identitas setelah `fix_20261028d_sesi_wajib.sql`.
+- **Kontrak argumen RPC berbeda per fase** — jangan tertukar: RPC baca
+  (`ambil_daftar_murid`, `ambil_akun_satu`, `ambil_peta_wajah`,
+  `cek_sesi_absen`, `simpan_riwayat_murid`, `simpan_ekskul_murid`) menerima
+  `p_token` + `p_klaim_nis` (helper `sesiRpc()`), sedangkan RPC penulis Fase B2
+  (`ubah_profil_murid`, `ubah_password_sendiri`, `simpan_wajah_murid`,
+  `ubah_anggota_ekskul`, `ganti_kunci_absen_ekskul`) **hanya** `p_token`.
+  Mengirim argumen yang tidak dideklarasikan fungsi membuat PostgREST
+  membalas **PGRST202** ("Could not find the function … in the schema cache").
+  Jalankan `npm run test:rpc-args` setiap kali menyentuh nama argumen RPC —
+  skrip ini membandingkan 64 titik panggilan RPC di frontend dengan signature
+  di `supabase/sql/*.sql` (plus self-test yang membuktikan detektornya bekerja).
+- **Urutan deploy wajib:** (1) jalankan `20261028a` → `20261028b` → `20261028b2`
+  di Supabase, (2) deploy frontend (`js/app.js?v=20261028f`), (3) baru jalankan
+  `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Rollback RLS cukup
+  satu perintah: `alter table akun disable row level security;`.
+  Pastikan `npm run test:rpc-args` hijau sebelum deploy frontend, lalu naikkan
+  tag `?v=` di `web/index.html` setiap kali `app.js`/`utils.js`/`face.js`
+  berubah (tag `20261028f` = perbaikan argumen RPC + tombol "Simpan Perubahan"
+  di Data Akun Murid yang dulu gagal dengan PGRST202, ditambah **tombol
+  "Install Aplikasi"** PWA & service worker `sw.js`).
 
 ---
 
@@ -257,6 +291,10 @@ agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lem
 ```bash
 npm run build:css      # build CSS produksi (minify)
 npm run dev:css        # watch mode CSS
+npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (82 blok)
+npm run check:sql      # periksa gabungan.sql sudah sinkron/terdaftar semua
+npm run build:icons    # buat ulang ikon PWA (PNG 192/512/maskable + apple-touch)
+npm run test:rpc-args  # penjaga PGRST202: argumen RPC frontend vs signature SQL
 npm run test:e2e       # uji E2E API (butuh kredensial & data uji terpasang)
 npm run deploy         # sama dengan build:css
 ```
@@ -278,8 +316,8 @@ Supabase** (bukan Google Sheets / Apps Script seperti repo aslinya).
   - Fitur GPS geofencing — bukan kebutuhan aplikasi sekolah saat ini (bisa ditambah belakangan).
 - **Implementasi di proyek ini**: `web/js/face.js` (face-api.js + model lokal `web/models/`,
   offline-friendly); penyimpanan descriptor di kolom `akun.wajah_descriptor` lewat RPC
-  `simpan_wajah_murid` (lihat `supabase/sql/versi-sekarang/upgrade_20261014_wajah.sql`).
-- **Migrasi multi-sampel & tuning startup**: `supabase/sql/versi-sekarang/upgrade_20261014e_wajah_multi.sql`
+  `simpan_wajah_murid` (lihat `supabase/sql/upgrade_20261014_wajah.sql`).
+- **Migrasi multi-sampel & tuning startup**: `supabase/sql/upgrade_20261014e_wajah_multi.sql`
   — `wajah_descriptor` flat `[128 angka]` → array-of-arrays (maks 6 sampel/murid), RPC
   `simpan_wajah_murid` + `p_mode 'ganti'/'tambah'`; frontend: registrasi multi-pose + min-distance
   matching + kamera fallback & pre-warm model.
@@ -306,3 +344,55 @@ localStorage.setItem('sbg_wajah_motor', 'mediapipe'); // ATAU 'faceapi' (baku)
 - **Belangrijk — re-enrollment**: 128-d (face-api) en 512-d (MobileFaceNet) zijn **verschillende feature-ruimten**. Na de switch moeten murids opnieuw geregistreerd worden (modal wajah → "Simpan Data Wajah" met mode `ganti`; de multi-pose pipeline en de 6-sampel cap blijven hetzelfde). Oude 128-rijen blijven in de DB en werken onder motor `faceapi`.
 - **Deploy-eis**: draai één keer `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` in de Supabase SQL Editor (geen data-migratie; RPC accepteert 128 & 512). Zie ook `CHECKLIST_E2E.md` → **S14h**.
 - **Kwaliteit (offline validatie van dit model)**: identical-face cos≈0.85 (d≈0.54), cross-person cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; waterscheiding ruim, maar E2E op de zwakste schoolapparaat blijft verplicht (eerste-scan latentie meten).
+
+---
+
+## 8. PWA — "Pasang ke Layar Utama" (Install & Offline)
+
+Aplikasi bisa dipasang seperti aplikasi native (ikon di layar utama, tampil
+penuh tanpa alamat browser) di Chrome/Edge/Opera (Android & desktop), Safari
+iOS/iPadOS, dan Samsung Internet. Ini murni **peningkatan**: tanpa memasang
+apa pun, aplikasi tetap berjalan normal di browser.
+
+### a. Berkas PWA (semua di `web/`)
+
+| Berkas | Fungsi |
+|---|---|
+| `manifest.json` | nama, `start_url`/`scope` **relatif** (`./`), `display: standalone`, ikon PNG 192/512 + varian `maskable` |
+| `sw.js` | service worker: precache aset inti, network-first untuk navigasi, cache-first untuk aset, fallback `offline.html` |
+| `offline.html` | halaman fallback saat benar-benar offline |
+| `js/install.js` | registrasi service worker, tombol "Pasang" di header, kartu ajakan di dashboard, panduan iOS, prompt notifikasi (1× per perangkat) |
+| `assets/icon-*.png`, `assets/apple-touch-icon.png` | ikon PWA — dibuat dari `assets/logo.svg`, **jangan diedit manual** |
+
+**Penting — semua path harus relatif.** GitHub Pages menyajikan folder `web/`
+sebagai **project page** (`https://<user>.github.io/Administrasi-Sekolah/`).
+Path absolut seperti `/index.html` atau `/sw.js` akan menunjuk root domain
+GitHub Pages dan **404**. Karena itu `manifest.json`, `sw.js`, dan `install.js`
+selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
+(`new URL('./', self.location.href)`).
+
+### b. Cara memasang
+
+- **Android (Chrome/Edge/Opera/Samsung):** buka SISIP → tombol **Pasang** di
+  header (atau kartu "Pasang Aplikasi SISIP" di dashboard) → konfirmasi.
+- **Desktop (Chrome/Edge):** ikon **install** di address bar, atau menu ⋮ →
+  *Pasang aplikasi*.
+- **iPhone/iPad (Safari):** tombol **Bagikan** → **Tambahkan ke Layar Utama**.
+  iOS tidak mendukung `beforeinstallprompt`, jadi `install.js` menampilkan
+  panduan langkah demi langkah saat tombol Pasang ditekan.
+
+### c. Cara merawat (wajib dibaca sebelum mengubah aset)
+
+1. Setiap kali `web/index.html` berubah (tag `?v=` naik), **naikkan `VERSION`
+   di `web/sw.js`** dan **samakan daftar `PRECACHE`** dengan tag di
+   `index.html`. Bila terlewat, pengguna bisa tetap menerima berkas lama
+   dari cache meski sudah ter-deploy versi baru.
+2. Ikon dibuat dari `web/assets/logo.svg`: `npm run build:icons` (tulis ulang)
+   / `npm run check:icons` (verifikasi ukuran & kelengkapan).
+3. Semua UI PWA disuntik dari `js/install.js` — skrip ini **tidak** menyentuh
+   `js/app.js`, sehingga perubahan PWA tetap terisolasi dari file besar itu.
+4. Folder `models/` sengaja **tidak** di-precache (ukurannya besar); model
+   wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
+   sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
+5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
+

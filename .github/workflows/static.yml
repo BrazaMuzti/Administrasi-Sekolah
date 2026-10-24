@@ -39,6 +39,17 @@ jobs:
           cache: npm
       - name: Build Tailwind CSS
         run: npm ci && npm run build:css
+      # Penjaga konsistensi repo (murni Node, cepat, tanpa kredensial):
+      #  - check:sql      → supabase/sql/gabungan.sql wajib sinkron dg 82 migrasi
+      #  - test:rpc-args  → argumen RPC di web/js wajib cocok dg signature SQL (cegah PGRST202)
+      - name: Validasi repo (gabungan.sql + argumen RPC)
+        run: |
+          npm run check:sql
+          npm run test:rpc-args
+      # Verifikasi ikon PWA. Dijadikan peringatan (bukan penghenti deploy) karena
+      # butuh ImageMagick yang bisa saja tidak ada di runner.
+      - name: Verifikasi ikon PWA
+        run: npm run check:icons || echo "::warning::Verifikasi ikon PWA gagal/dilewati — lihat log di atas."
       - name: Generate web/js/utils.js dari template + secrets
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
