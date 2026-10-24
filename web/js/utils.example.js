@@ -180,15 +180,16 @@ async function apiCall(action, data = {}) {
           p_password: password
         });
         if (!rpcErr && rpcRes && rpcRes.status === 'success') {
-          return bangunResponsSesi(rpcRes.akun, rpcRes.akun.email || '', 'lokal-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()));
+          // Token sesi diterbitkan SERVER (tabel `sesi_lokal`) — upgrade_20261028a.
+          // Bila DB belum dimigrasi, jatuh ke pola token lama agar login tetap jalan.
+          const tokenSesi = rpcRes.sesi_token || ('lokal-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()));
+          return bangunResponsSesi(rpcRes.akun, rpcRes.akun.email || '', tokenSesi);
         }
         // 2) Fallback: cari email akun terkait NIS/NIP → Supabase Auth (guru/admin/Google)
-        const { data: byNis, error: errNis } = await supaClient
-          .from('akun')
-          .select('tipe, email')
-          .eq('nis_nip', identifier)
-          .maybeSingle();
-        if (errNis) return { status: 'error', message: 'Gagal mencari akun: ' + errNis.message };
+        //    Baca tabel `akun` kini lewat RPC (RLS ketat) — bukan `from('akun')`.
+        const identitasNis = await akunIdentitasLogin(identifier);
+        if (identitasNis.error) return { status: 'error', message: 'Gagal mencari akun: ' + identitasNis.error.message };
+        const byNis = (identitasNis.akun || [])[0] || null;
         if (!byNis) {
           const pesanRpc = (!rpcErr && rpcRes && rpcRes.message) ? rpcRes.message : 'NIS/NIP tidak terdaftar.';
           return { status: 'error', message: pesanRpc };
@@ -205,19 +206,16 @@ async function apiCall(action, data = {}) {
         }
       } else {
         // Login via email: coba akun murid lokal (lookup NIS dari email) lalu Supabase Auth
-        const { data: listByEmail, error: errEmail } = await supaClient
-          .from('akun')
-          .select('nis_nip')
-          .eq('email', identifier)
-          .limit(1);
-        const nisDariEmail = (!errEmail && listByEmail && listByEmail[0]) ? listByEmail[0].nis_nip : null;
+        const identitasEmail = await akunIdentitasLogin(identifier);
+        const nisDariEmail = ((identitasEmail.akun || [])[0] || {}).nis_nip || null;
         if (nisDariEmail) {
           const { data: rpcRes, error: rpcErr } = await supaClient.rpc('cek_login_murid', {
             p_nis: nisDariEmail,
             p_password: password
           });
           if (!rpcErr && rpcRes && rpcRes.status === 'success') {
-            return bangunResponsSesi(rpcRes.akun, rpcRes.akun.email || identifier, 'lokal-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()));
+            const tokenSesi = rpcRes.sesi_token || ('lokal-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()));
+            return bangunResponsSesi(rpcRes.akun, rpcRes.akun.email || identifier, tokenSesi);
           }
         }
       }
@@ -227,28 +225,17 @@ async function apiCall(action, data = {}) {
         return { status: 'error', message: 'Email/NIS atau Password salah. Jika akun Anda terdaftar via Google, gunakan tombol "Masuk dengan Google".' };
       }
 
-      let { data: prof, error: profErr } = await supaClient
-        .from('akun')
-        .select('*')
-        .eq('user_id', authRes.user.id)
-        .maybeSingle();
+      // Profil dari tabel `akun` — kini lewat RPC `profil_sesi_auth` (RLS ketat).
+      const profilAuth = await supaRpc('profil_sesi_auth', { p_email: authRes.user.email || '' });
+      if (profilAuth.error) return { status: 'error', message: 'Gagal memuat profil: ' + profilAuth.error.message };
+      const prof = (profilAuth.data && profilAuth.data.status === 'success') ? profilAuth.data.akun : null;
 
-      // Profil belum tertaut user_id → cocokkan lewat email lalu tautkan (best-effort).
-      // Berguna untuk akun yang dibuat manual lewat Supabase Dashboard (mis. admin).
-      if (!profErr && !prof && authRes.user.email) {
-        const { data: byEmail } = await supaClient
-          .from('akun')
-          .select('*')
-          .eq('email', authRes.user.email)
-          .maybeSingle();
-        if (byEmail) {
-          prof = byEmail;
-          supaClient.from('akun').update({ user_id: authRes.user.id }).eq('id', byEmail.id)
-            .then(r => { if (r.error) console.warn('Taut user_id gagal:', r.error.message); })
-            .catch(() => {});
-        }
+      // Baris belum tertaut user_id tetapi email cocok → tautkan (best-effort),
+      // kini lewat RPC `taut_user_id_sesi` (verifikasi email dari JWT di server).
+      if (profilAuth.data && profilAuth.data.perlu_taut) {
+        const taut = await supaRpc('taut_user_id_sesi', { p_email: authRes.user.email || '' });
+        if (taut.error) console.warn('Taut user_id gagal:', taut.error.message);
       }
-      if (profErr) return { status: 'error', message: 'Gagal memuat profil: ' + profErr.message };
       if (!prof) {
         await supaClient.auth.signOut();
         return { status: 'error', message: 'Akun Auth belum terhubung ke tabel akun. Hubungi admin.' };
@@ -264,25 +251,14 @@ async function apiCall(action, data = {}) {
       const sesi = data && data.session;
       if (!sesi || !sesi.user) return { status: 'no_session' };
 
-      let { data: prof } = await supaClient
-        .from('akun')
-        .select('*')
-        .eq('user_id', sesi.user.id)
-        .maybeSingle();
+      const profilAuth = await supaRpc('profil_sesi_auth', { p_email: sesi.user.email || '' });
+      const prof = (profilAuth.data && profilAuth.data.status === 'success') ? profilAuth.data.akun : null;
 
-      if (!prof && sesi.user.email) {
-        // Profil belum tertaut user_id → coba cocokkan lewat email, lalu tautkan (best-effort)
-        const { data: byEmail } = await supaClient
-          .from('akun')
-          .select('*')
-          .eq('email', sesi.user.email)
-          .maybeSingle();
-        if (byEmail) {
-          prof = byEmail;
-          supaClient.from('akun').update({ user_id: sesi.user.id }).eq('id', byEmail.id)
-            .then(r => { if (r.error) console.warn('Taut user_id gagal:', r.error.message); })
-            .catch(() => {});
-        }
+      // Baris belum tertaut user_id tetapi email cocok → tautkan (best-effort),
+      // kini lewat RPC `taut_user_id_sesi` (verifikasi email dari JWT di server).
+      if (profilAuth.data && profilAuth.data.perlu_taut) {
+        const taut = await supaRpc('taut_user_id_sesi', { p_email: sesi.user.email || '' });
+        if (taut.error) console.warn('Taut user_id gagal:', taut.error.message);
       }
 
       if (!prof) {
@@ -394,18 +370,14 @@ async function apiCall(action, data = {}) {
       //   * Metode 1 (kode): kode MOET matchen met BUKA-guru die mapel diampu;
       //   * Metode 2 (wajah): kode leeg mag ALLEEN bila wajahCocok=true;
       //   * beide: sessie BUKA blijft verplicht (zonder open sessie geen hadir).
-      const { data: guruRows, error: gErr } = await supaClient
-        .from('akun')
-        .select('captcha, kunci_absen')
-        .in('tipe', ['guru', 'admin'])
-        .or(`mapel.ilike.%${data.mapel}%,ekstrakurikuler.ilike.%${data.mapel}%`);
-      if (gErr) throw gErr;
-      const sesiBuka = (guruRows || []).some(g => g.kunci_absen === 'BUKA');
-      if (!sesiBuka) return { status: 'error', message: 'Sesi absen belum dibuka guru voor ' + String(data.mapel || '') + '.' };
+      // Validasi di SERVER lewat RPC `cek_sesi_absen` — kolom captcha/kunci_absen
+      // guru tidak lagi dibaca langsung dari klien (tabel `akun` ber-RLS ketat).
+      const cekSesi = await akunCekSesiAbsen(data.mapel, data.captcha);
+      if (cekSesi.status !== 'success') return { status: 'error', message: cekSesi.message || 'Validasi sesi absen gagal.' };
+      if (!cekSesi.sesi_buka) return { status: 'error', message: 'Sesi absen belum dibuka guru voor ' + String(data.mapel || '') + '.' };
       const captchaTekst = String(data.captcha || '').trim();
       if (captchaTekst !== '') {
-        const captchaOk = (guruRows || []).some(g => g.kunci_absen === 'BUKA' && String(g.captcha || '').toUpperCase() === captchaTekst.toUpperCase());
-        if (!captchaOk) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
+        if (!cekSesi.captcha_ok) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
       } else if (!data.wajahCocok) {
         return { status: 'error', message: 'Kode captcha wajib diisi.' };
       }
@@ -467,6 +439,198 @@ async function kelolaAkunAuth(payload = {}) {
   }
 }
 
+// ==========================================================
+// [FASE B] JEMBATAN RPC TABEL `akun`
+// ----------------------------------------------------------
+// Sejak `upgrade_20261028c_rls_akun_ketat.sql`, tabel `akun` ber-RLS ketat
+// dan TIDAK punya jalur baca/tulis langsung dari browser lagi. Semua akses
+// data akun kini lewat RPC SECURITY DEFINER
+// (supabase/sql/upgrade_20261028b_rpc_akun.sql) yang memverifikasi sesi:
+//   - guru/admin  → JWT Supabase Auth (fn_role)
+//   - murid lokal → token sesi `sesi_lokal` (p_token, dari cek_login_murid)
+// Selama fase B1/B2 server masih menerima `p_klaim_nis` (kompatibilitas);
+// setelah `fix_20261028d_sesi_wajib.sql`, HANYA token yang diakui.
+//
+// ⚠ KONTRAK ARGUMEN — jangan tertukar (ini pernah mematahkan tombol
+//   "Simpan Perubahan" di menu Data Akun Murid lewat error PGRST202):
+//   a) RPC Fase B (upgrade_20261028b) — menerima `p_token` + `p_klaim_nis`
+//      → pakai sesiRpc():
+//      ambil_daftar_murid, ambil_akun_satu, ambil_peta_wajah,
+//      cek_sesi_absen, simpan_riwayat_murid, simpan_ekskul_murid.
+//   b) RPC Fase B2 (upgrade_20261028b2) — HANYA `p_token`, identitas diambil
+//      server dari sesi → kirim `{ p_token: getToken() }` saja, JANGAN
+//      pakai sesiRpc():
+//      ubah_profil_murid, ubah_password_sendiri, simpan_wajah_murid,
+//      ubah_anggota_ekskul, ganti_kunci_absen_ekskul.
+//   Argumen yang tidak dideklarasikan fungsi membuat PostgREST menjawab
+//   "Could not find the function … in the schema cache" (PGRST202).
+// ==========================================================
+
+/** [FASE B] Parameter sesi untuk RPC murid yang mendeklarasikan `p_klaim_nis`
+ *  (token server + klaim NIS) — lihat kontrak argumen di atas.
+ *  RPC Fase B2 (mis. `ubah_profil_murid`, `ubah_password_sendiri`) TIDAK
+ *  menerima `p_klaim_nis`: kirim `{ p_token: getToken() }` saja. */
+function sesiRpc() {
+  try {
+    const u = getCurrentUser() || {};
+    const user = u.user || {};
+    const nis = String(user["NIS"] || user["NIP"] || user["ID Akun Guru"] || user["nis_nip"] || '');
+    return { p_token: getToken(), p_klaim_nis: nis };
+  } catch (e) {
+    return { p_token: getToken(), p_klaim_nis: '' };
+  }
+}
+
+/** Panggil RPC apa pun dengan penanganan error seragam. */
+async function supaRpc(nama, params = {}) {
+  if (!supaClient) return { data: null, error: new Error('Supabase belum siap. Periksa Konfigurasi Server.') };
+  try {
+    return await supaClient.rpc(nama, params);
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+
+/** Daftar guru/admin per mode: 'guru_ringkas' | 'guru_wali' | 'guru_kanal_absen'
+ *  | 'guru_pembina' | 'guru_penugasan' | 'guru_penugasan_ringkas'
+ *  | 'guru_dashboard' | 'penuh'. */
+async function akunDaftarGuru(mode, opsi = {}) {
+  const { data, error } = await supaRpc('ambil_daftar_guru', {
+    p_mode: mode,
+    p_tipe: opsi.tipe === undefined ? 'guru' : String(opsi.tipe),
+    p_hanya_buka: !!opsi.hanyaBuka
+  });
+  if (error) { console.warn('akunDaftarGuru(' + mode + '):', error.message); return []; }
+  return Array.isArray(data) ? data : [];
+}
+
+/** Daftar murid per mode: 'list' | 'export' | 'cetak' | 'dashboard_murid' |
+ *  'anggota_ekskul' (p_ekskul) | 'pemilih' | 'pemilih_ringkas' | 'ekskul_map'
+ *  | 'nis' (p_nis_list). */
+async function akunDaftarMurid(mode, opsi = {}) {
+  const { data, error } = await supaRpc('ambil_daftar_murid', Object.assign({
+    p_mode: mode,
+    p_ekskul: opsi.ekskul || '',
+    p_nis_list: Array.isArray(opsi.nisList) ? opsi.nisList : []
+  }, sesiRpc()));
+  if (error) { console.warn('akunDaftarMurid(' + mode + '):', error.message); return []; }
+  return Array.isArray(data) ? data : [];
+}
+
+/** Satu baris akun per mode: 'profil_akun' | 'foto' | 'penuh' | 'cetak' |
+ *  'ringkas_murid' | 'ekskul_map' | 'jabatan_map' | 'wajah' | 'nis'.
+ *  Mengembalikan objek baris, atau null bila tidak ada / akses ditolak. */
+async function akunSatu(opsi = {}) {
+  const mode = opsi.mode || 'profil_akun';
+  const { data, error } = await supaRpc('ambil_akun_satu', Object.assign({
+    p_nis_nip: opsi.nis == null ? '' : String(opsi.nis),
+    p_email: opsi.email == null ? '' : String(opsi.email),
+    p_id: opsi.id == null ? '' : String(opsi.id),
+    p_mode: mode
+  }, sesiRpc()));
+  if (error) { console.warn('akunSatu(' + mode + '):', error.message); return null; }
+  if (data && data.status === 'success' && data.akun) return data.akun;
+  if (data && data.message) console.warn('akunSatu(' + mode + '):', data.message);
+  return null;
+}
+
+/** Peta descriptor wajah murid (kolom wajah_descriptor/wajah_status). */
+async function akunPetaWajah(opsi = {}) {
+  const { data, error } = await supaRpc('ambil_peta_wajah', Object.assign({
+    p_nis_list: Array.isArray(opsi.nisList) ? opsi.nisList : [],
+    p_aktif_saja: !!opsi.aktifSaja
+  }, sesiRpc()));
+  if (error) { console.warn('akunPetaWajah:', error.message); return []; }
+  return Array.isArray(data) ? data : [];
+}
+
+/** Cari akun dari NIS/NIP atau email: { id, tipe, nis_nip, user_id, email, … }. */
+async function akunIdentitasLogin(identifier) {
+  const { data, error } = await supaRpc('identitas_login', { p_identifier: String(identifier || '') });
+  if (error) return { error };
+  return data || { status: 'success', jumlah: 0, akun: [] };
+}
+
+/** Hitungan akun (murid/guru/admin) untuk dashboard staf. */
+async function akunHitung() {
+  const { data, error } = await supaRpc('hitung_akun');
+  if (error) { console.warn('akunHitung:', error.message); return { murid: 0, guru: 0, admin: 0 }; }
+  return data || { murid: 0, guru: 0, admin: 0 };
+}
+
+/** Validasi sesi absen mandiri (kunci BUKA + captcha) — diverifikasi server. */
+async function akunCekSesiAbsen(mapel, captcha) {
+  const { data, error } = await supaRpc('cek_sesi_absen', Object.assign({
+    p_mapel: String(mapel || ''),
+    p_captcha: String(captcha || '')
+  }, sesiRpc()));
+  if (error) return { status: 'error', message: error.message };
+  return data || { status: 'error', message: 'Validasi sesi absen gagal.' };
+}
+
+/** Simpan riwayat kelas &/atau riwayat ekskul murid (hanya field yang dikirim). */
+async function akunSimpanRiwayat(p = {}) {
+  const { data, error } = await supaRpc('simpan_riwayat_murid', Object.assign({
+    p_nis: String(p.nis || ''),
+    p_riwayat_kelas: p.riwayatKelas,
+    p_tingkat_kelas: p.tingkatKelas === undefined ? '' : String(p.tingkatKelas),
+    p_riwayat_ekskul: p.riwayatEkskul
+  }, sesiRpc()));
+  if (error) return { status: 'error', message: error.message };
+  return data || { status: 'error', message: 'Simpan riwayat murid gagal.' };
+}
+
+/** Simpan keanggotaan &/atau jabatan ekskul murid (p_ekskul wajib agar
+ *  pengurus ekskul ikut terverifikasi; admin/guru diizinkan tanpa p_ekskul). */
+async function akunSimpanEkskul(p = {}) {
+  const { data, error } = await supaRpc('simpan_ekskul_murid', Object.assign({
+    p_nis: String(p.nis || ''),
+    p_ekstrakurikuler: p.ekstrakurikuler === undefined ? '' : String(p.ekstrakurikuler),
+    p_riwayat_ekskul: p.riwayatEkskul,
+    p_jabatan_ekskul_map: p.jabatanEkskulMap,
+    p_ekskul: p.ekskul || ''
+  }, sesiRpc()));
+  if (error) return { status: 'error', message: error.message };
+  return data || { status: 'error', message: 'Simpan keanggotaan ekskul gagal.' };
+}
+
+/** Salin penugasan guru massal: rows = [{ id | nis_nip, penugasan }]. */
+async function akunSimpanPenugasanGuru(rows) {
+  const { data, error } = await supaRpc('simpan_penugasan_guru', { p_rows: Array.isArray(rows) ? rows : [] });
+  if (error) return { status: 'error', message: error.message };
+  return data || { status: 'error', message: 'Simpan penugasan guru gagal.' };
+}
+
+/** Kunci/captcha absen guru (admin: target apa pun; guru: barisnya sendiri). */
+async function akunSimpanKunciAbsen(p = {}) {
+  const { data, error } = await supaRpc('simpan_kunci_absen', {
+    p_nis_nip: String(p.nisNip || ''),
+    p_captcha: String(p.captcha || ''),
+    p_kunci: String(p.kunci || '')
+  });
+  if (error) return { status: 'error', message: error.message };
+  return data || { status: 'error', message: 'Simpan kunci absen gagal.' };
+}
+
+/** Perpanjang sesi lokal murid (sliding 12 jam). Aman dipanggil tanpa token.
+ *  `kode` (mis. PGRST202) dipakai pemanggil untuk membedakan "RPC belum ada". */
+async function sesiPerpanjang() {
+  const token = getToken();
+  if (!token) return { status: 'no_token' };
+  const { data, error } = await supaRpc('perpanjang_sesi', { p_token: token });
+  if (error) return { status: 'error', kode: (error && error.code) || '', message: error.message };
+  return data || { status: 'error', message: 'Perpanjang sesi gagal.' };
+}
+
+/** Cabut sesi lokal murid di server (logout). Aman dipanggil tanpa token. */
+async function sesiLogout() {
+  const token = getToken();
+  if (!token) return { status: 'no_token' };
+  const { data, error } = await supaRpc('logout_sesi', { p_token: token });
+  if (error) return { status: 'error', kode: (error && error.code) || '', message: error.message };
+  return data || { status: 'success' };
+}
+
 /** Ambil SEMUA baris dari query Supabase dengan paginasi — PostgREST maks 1000 baris/request.
  *  Contoh: await supaAmbilSemua(supaClient.from('akun').select('...').eq('tipe','murid')) */
 async function supaAmbilSemua(builder, ukuran = 1000) {
@@ -508,29 +672,8 @@ async function supabaseFetch(action, payload = {}) {
          // 1) Murid: ambil SEMUA murid (kolom ringkas + riwayat_kelas) → filter kelas efektif & status per TA payload di bawah.
          //    Kelas efektif TA = riwayat_kelas[tahun].kelas (fallback tingkat_kelas statis); siswa non-Aktif disembunyikan.
          //    Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan semua halaman.
-         let muridSemua;
-          // Kolom opsional (dari migrasi lebih baru): jabatan_ekskul_map & riwayat_ekskul belum tentu ada.
-          // Coba bertahap dari kolom terlengkap → palin ringkas, pakai yang berhasil.
-          const kandidatSelect = [
-            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, riwayat_ekskul, tahun_pelajaran, semester, no_telepon',
-            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, riwayat_ekskul, tahun_pelajaran, semester, no_telepon',
-            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, jabatan_ekskul_map, tahun_pelajaran, semester, no_telepon',
-            'nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, agama, catatan_khusus, ekstrakurikuler, jabatan, tahun_pelajaran, semester, no_telepon'
-          ];
-          let errTerakhir = null;
-          for (const kolSel of kandidatSelect) {
-            try {
-              muridSemua = await supaAmbilSemua(
-                supaClient
-                 .from('akun')
-                 .select(kolSel)
-                 .eq('tipe', 'murid')
-              );
-              errTerakhir = null;
-              break;
-            } catch (eKolom) { errTerakhir = eKolom; }
-          }
-          if (errTerakhir) throw errTerakhir;
+         // Baca tabel `akun` kini lewat RPC (RLS ketat) — kolom hasil identik.
+         let muridSemua = await akunDaftarMurid('dashboard_murid');
          const tahunDbRw = String(payload.tahun || '');
          const murid = muridSemua.filter(m => {
             const rw = (m.riwayat_kelas || {})[tahunDbRw] || null;
@@ -584,13 +727,10 @@ async function supabaseFetch(action, payload = {}) {
          let { data: absen, error: errAbsen } = await bangunQAbsen('nis, tanggal, status, keterangan, gps');
          if (errAbsen) ({ data: absen, error: errAbsen } = await bangunQAbsen('nis, tanggal, status, keterangan'));
 
-          // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji)
-          const { data: guru, error: errGuru } = await supaClient
-             .from('akun')
-             .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, wali_kelas, penugasan, tingkat_kelas, captcha, kunci_absen, no_telepon, gelar_depan, gelar_belakang')
-             .in('tipe', ['guru', 'admin']);
+          // 3) Daftar guru (status kunci, wali kelas, pilihan guru penguji) — via RPC.
+          const guru = await akunDaftarGuru('guru_dashboard', { tipe: '' });
 
-         if (errAbsen || errGuru) throw new Error("Gagal mengambil data dashboard");
+         if (errAbsen) throw new Error("Gagal mengambil data dashboard");
 
           return {
               status: 'success',

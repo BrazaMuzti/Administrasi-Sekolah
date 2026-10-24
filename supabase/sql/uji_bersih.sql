@@ -28,10 +28,14 @@ delete from rapor_catatan  where nis = 'UJI999';
 delete from akun_kredensial where nis_nip in ('UJI999', 'UJI998');
 delete from akun            where nis_nip in ('UJI999', 'UJI998') and tipe = 'murid';
 
+-- [FASE B] Cabut sesi lokal murid uji (tabel `sesi_lokal`, RLS ON tanpa policy).
+delete from sesi_lokal      where nis_nip in ('UJI999', 'UJI998') or nis_nip like 'UJI%';
+
 -- ========== RELOAD CACHE SKEMA POSTGREST ==========
 notify pgrst, 'reload schema';
 
 -- Verifikasi manual (opsional, jalankan terpisah):
 --   select count(*) from akun where nis_nip like 'UJI%';        -- harus 0
+--   select count(*) from sesi_lokal where nis_nip like 'UJI%';  -- harus 0
 --   select count(*) from perpus_buku where kode like 'UJI-%';   -- harus 0
 --   select count(*) from ppdb_calon where nama like 'UJI%';     -- harus 0

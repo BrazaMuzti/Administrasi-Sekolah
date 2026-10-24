@@ -160,23 +160,9 @@ async function ambilDaftarEkskul() {
 async function ambilAnggotaEkskul(ekskul, ta, smt) {
   if (!ekskul) return [];
   // [PIKET v3 / FILTER] tahun_pelajaran ikut diambil agar pemilih siswa bisa disaring per ID Tahun.
-  // Kolom opsional (migrasi belum dijalankan) → coba dari terlengkap ke paling dasar.
-  const KANDIDAT_KOLOM = [
-    'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, tgl_lahir, jabatan_ekskul_map, riwayat_ekskul, tahun_pelajaran',
-    'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, tgl_lahir, jabatan_ekskul_map, riwayat_ekskul',
-    'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, tgl_lahir, tahun_pelajaran',
-    'nis_nip, nama_lengkap, tingkat_kelas, jabatan, no_telepon, tgl_lahir'
-  ];
-  let data = null;
-  let error = null;
-  for (const kolom of KANDIDAT_KOLOM) {
-    ({ data, error } = await supaClient.from('akun')
-      .select(kolom)
-      .eq('tipe', 'murid')
-      .ilike('ekstrakurikuler', `%${ekskul}%`));
-    if (!error) break;
-  }
-  if (error) { console.warn('ambilAnggotaEkskul:', error); return []; }
+  // [FASE B] Roster anggota ekskul dibaca lewat RPC `ambil_daftar_murid('anggota_ekskul')`
+  // — tabel `akun` kini ber-RLS ketat dan tidak punya jalur baca langsung.
+  const data = await akunDaftarMurid('anggota_ekskul', { ekskul });
   // [TA] Saring sesuai keanggotaan pada Tahun Pelajaran yang dipilih. Skenario:
   //   ta tidak dipilih (null)        → pakai TA aktif modul (getCurrentTAEkskul).
   //   akun belum punya riwayat       → pakai kolom ekstrakurikuler (live), kompatibilitas lama.
@@ -268,10 +254,9 @@ function ulangTahunTerdekat(anggota, hariKe) {
 async function petaWaliKelas() {
   if (cacheGuruWali.length === 0) {
     try {
-      const { data, error } = await supaClient.from('akun')
-        .select('nama_lengkap, gelar_depan, gelar_belakang, wali_kelas')
-        .in('tipe', ['guru', 'admin']);
-      if (!error && data) cacheGuruWali = data;
+      // [FASE B] Daftar guru/admin lewat RPC (tabel `akun` RLS ketat).
+      const data = await akunDaftarGuru('guru_wali', { tipe: '' });
+      if (data.length) cacheGuruWali = data;
     } catch (e) { console.warn('petaWaliKelas:', e); }
   }
   const map = {};
@@ -306,6 +291,22 @@ function initApp(user) {
   currentUser = user !== undefined ? user : (currentUser || null);
   try { setupSmartFAB(); }
   catch (e) { console.error('initApp › setupSmartFAB:', e); }
+  // [FASE B] Sesi murid lokal diverifikasi & diperpanjang di SERVER (non-blocking).
+  // Token yang sudah tidak berlaku (mis. sesi gaya lama) → minta login ulang,
+  // kecuali RPC sesi belum ada di DB (PGRST202) supaya tidak memaksa logout
+  // pada database yang belum dimigrasi.
+  try {
+    if (((currentUser || {}).role || '') === 'murid') {
+      sesiPerpanjang().then(r => {
+        const kode = (r && r.kode) || '';
+        if (r && r.status === 'error' && kode !== 'PGRST202' && kode !== 'PGRST404') {
+          console.warn('initApp › sesi lokal tidak berlaku:', r.message);
+          showToast('warning', 'Sesi Anda sudah berakhir. Silakan login ulang.');
+          setTimeout(() => logout(), 2500);
+        }
+      }).catch(e => console.warn('initApp › perpanjang sesi:', e));
+    }
+  } catch (e) { console.warn('initApp › perpanjang sesi:', e); }
   try { checkAuth(); }
   catch (e) { console.error('initApp › checkAuth:', e); }
   // Muat konfigurasi libur dari server (non-blocking) → liburConfigCache terisi nyata.
@@ -677,15 +678,13 @@ async function bukaProfilAkun() {
   // admin tanpa NIP pada sesi → coba lookup lewat email
   let prof = null;
   try {
-    const kolom = 'nis_nip, nama_lengkap, gelar_depan, gelar_belakang, email, tingkat_kelas, jabatan, wali_kelas, mapel, ekstrakurikuler, penugasan, no_telepon, jenis_kelamin, agama, nisn, tipe, url_foto';
     const emailSesi = sesi["Email"] || '';
+    // [FASE B] Profil akun lewat RPC `ambil_akun_satu` (tabel `akun` RLS ketat).
     if (idUser && !/\s/.test(idUser)) {
-      const { data, error } = await supaClient.from('akun').select(kolom).eq('nis_nip', idUser).maybeSingle();
-      if (!error && data) prof = data;
+      prof = await akunSatu({ nis: idUser, mode: 'profil_akun' });
     }
     if (!prof && emailSesi) {
-      const { data } = await supaClient.from('akun').select(kolom).eq('email', emailSesi).maybeSingle();
-      if (data) prof = data;
+      prof = await akunSatu({ email: emailSesi, mode: 'profil_akun' });
     }
   } catch (e) { console.warn('bukaProfilAkun:', e); }
 
@@ -770,16 +769,11 @@ async function muatFotoAvatarHeader() {
     const user = (currentUser || {}).user || {};
     const ident = String(user["NIS"] || user["NIP"] || user["ID Akun Guru"] || '');
     let baris = null;
-    if (ident && !/\s/.test(ident)) {
-      const { data } = await supaClient.from('akun').select('url_foto').eq('nis_nip', ident).maybeSingle();
-      if (data) baris = data;
-    }
+    // [FASE B] Foto profil lewat RPC (tabel `akun` RLS ketat).
+    if (ident && !/\s/.test(ident)) baris = await akunSatu({ nis: ident, mode: 'foto' });
     if (!baris) {
       const em = String(user["Email"] || '').trim();
-      if (em) {
-        const { data } = await supaClient.from('akun').select('url_foto').eq('email', em).maybeSingle();
-        if (data) baris = data;
-      }
+      if (em) baris = await akunSatu({ email: em, mode: 'foto' });
     }
     const box = document.getElementById('header-avatar-box');
     if (!box) return;
@@ -1212,13 +1206,11 @@ async function lupaPassword() {
   if (!res.isConfirmed || !res.value) return;
   const email = String(res.value).trim();
   try {
-    const { data: ak, error: akErr } = await supaClient
-      .from('akun')
-      .select('tipe, user_id')
-      .eq('email', email)
-      .limit(1);
-    if (akErr) throw akErr;
-    if (ak && ak[0] && ak[0].tipe === 'murid' && !ak[0].user_id) {
+    // [FASE B] Identitas akun lewat RPC `identitas_login` (tabel `akun` RLS ketat).
+    const identitas = await akunIdentitasLogin(email);
+    if (identitas.error) throw identitas.error;
+    const ak = identitas.akun || [];
+    if (ak.length && ak[0].tipe === 'murid' && !ak[0].user_id) {
       Swal.fire({ icon: 'info', title: 'Akun Murid Lokal', text: 'Password akun murid direset oleh admin melalui menu Manajemen Murid. Silakan hubungi admin sekolah.', background: '#1e293b', color: '#fff' });
       return;
     }
@@ -1368,6 +1360,10 @@ async function bukaPengaturanServer() {
 window.bukaPengaturanServer = bukaPengaturanServer;
 
 async function logout() {
+  // 0) [FASE B] Cabut sesi lokal murid di SERVER (tabel `sesi_lokal`) — best-effort,
+  //    diberi batas waktu agar logout tidak menggantung bila jaringan lambat.
+  try { await Promise.race([sesiLogout(), new Promise(r => setTimeout(r, 1200))]); }
+  catch (e) { console.warn('logout › sesiLogout:', e); }
   // 1) Hapus sesi aplikasi SISIP SINKRON — pastikan getCurrentUser() tidak menemukan user saat reload.
   clearSession();
   try {
@@ -1693,7 +1689,8 @@ async function renderDashboardMurid(container) {
   let fotoSaya = user["URL Foto"] || user["url_foto"] || '';
   try {
     if (supaClient && nis) {
-      const { data: barisFoto } = await supaClient.from('akun').select('url_foto').eq('nis_nip', nis).maybeSingle();
+      // [FASE B] Foto dari RPC (tabel `akun` RLS ketat).
+      const barisFoto = await akunSatu({ nis, mode: 'foto' });
       if (barisFoto && barisFoto.url_foto) fotoSaya = String(barisFoto.url_foto);
     }
   } catch (e) { console.warn('renderDashboardMurid/foto:', e); }
@@ -1983,7 +1980,8 @@ async function cetakIdCardMurid() {
   let foto = window.__fotoIdCardSaya || '';
   if (!foto && supaClient && nis) {
     try {
-      const { data: b } = await supaClient.from('akun').select('url_foto').eq('nis_nip', nis).maybeSingle();
+      // [FASE B] Foto dari RPC (tabel `akun` RLS ketat).
+      const b = await akunSatu({ nis, mode: 'foto' });
       if (b && b.url_foto) foto = String(b.url_foto);
     } catch (e) { /* biarkan kosong */ }
   }
@@ -2093,11 +2091,8 @@ async function renderAbsenMandiriMurid(container) {
   // Sesi absen yang dibuka guru (kolom captcha sengaja TIDAK diambil)
   let sesiGuru = [];
   try {
-    const { data, error } = await supaClient.from('akun')
-      .select('nis_nip, nama_lengkap, mapel, ekstrakurikuler, kunci_absen')
-      .in('tipe', ['guru', 'admin'])
-      .eq('kunci_absen', 'BUKA');
-    if (!error) sesiGuru = data || [];
+    // [FASE B] Daftar sesi BUKA lewat RPC (tabel `akun` RLS ketat).
+    sesiGuru = await akunDaftarGuru('guru_kanal_absen', { tipe: '', hanyaBuka: true });
   } catch (e) { console.warn('sesi absen:', e); }
 
   const jamSekarang = `${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
@@ -2371,8 +2366,9 @@ async function renderAkunSayaMurid(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Profil...</div>`;
   const user = (currentUser || {}).user || {};
   const nis = user["NIS"] || '';
-  const { data: prof, error } = await supaClient.from('akun').select('*').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
-  if (error || !prof) {
+  // [FASE B] Profil murid sendiri lewat RPC (mode 'penuh'); tabel `akun` RLS ketat.
+  const prof = await akunSatu({ nis, mode: 'penuh' });
+  if (!prof) {
     container.innerHTML = `<div class="p-6 text-center text-red-300">Profil tidak ditemukan. Muat ulang halaman atau hubungi admin.</div>`;
     return;
   }
@@ -2543,6 +2539,7 @@ async function simpanSubEkskulSaya() {
 async function simpanProfilMurid() {
   const user = (currentUser || {}).user || {};
   const nis = user["NIS"] || '';
+  if (!nis) return showToast('error', 'NIS tidak ditemukan pada sesi. Silakan login ulang.');
   const ambil = (id) => document.getElementById(id)?.value?.trim() ?? null;
   const p_data = {
     email: ambil('pro-email'),
@@ -2562,13 +2559,30 @@ async function simpanProfilMurid() {
     nama_wali: ambil('pro-nama_wali'),
     catatan_khusus: ambil('pro-catatan_khusus')
   };
-  const { data, error } = await supaClient.rpc('ubah_profil_murid', { p_nis: nis, p_data });
+  // [FASE B] Signature B2 = ubah_profil_murid(p_nis, p_data, p_token) — TIDAK ada
+  // `p_klaim_nis`. Jangan pakai sesiRpc() di sini: argumen tak dikenal membuat
+  // PostgREST menolak dengan PGRST202 ("Could not find the function … in the
+  // schema cache") dan tombol "Simpan Perubahan" gagal sebelum sampai server.
+  const { data, error } = await supaClient.rpc('ubah_profil_murid', {
+    p_nis: nis, p_data, p_token: getToken()
+  });
   if (error || (data && data.status === 'error')) {
-    return Swal.fire({ icon: 'error', title: 'Gagal', text: (data && data.message) || error?.message, background: '#1e293b', color: '#fff' });
+    const pesan = (data && data.message) || (error && error.message) || 'Gagal menyimpan profil.';
+    // RPC belum ada di database → user belum menjalankan migrasi B2.
+    if (/could not find the function/i.test(pesan)) {
+      return Swal.fire({ icon: 'info', title: 'Migrasi belum dijalankan', text: 'RPC ubah_profil_murid(p_nis, p_data, p_token) belum ada di database. Jalankan supabase/sql/upgrade_20261028b2_token_rpc_murid.sql di SQL Editor Supabase, lalu muat ulang halaman.', background: '#1e293b', color: '#fff' });
+    }
+    // Murid mengubah profilnya sendiri tapi ditolak → token sesi tidak dikenali.
+    if (((currentUser || {}).role || '') === 'murid' && /sesi|tidak berhak/i.test(pesan)) {
+      showToast('warning', 'Sesi Anda sudah berakhir. Silakan login ulang.');
+      setTimeout(() => logout(), 2500);
+    }
+    return Swal.fire({ icon: 'error', title: 'Gagal', text: pesan, background: '#1e293b', color: '#fff' });
   }
   // Perbarui sesi lokal (email bisa berubah → profil header konsisten)
   try {
-    const { data: baru } = await supaClient.from('akun').select('*').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
+    // [FASE B] Baca ulang profil lewat RPC (tabel `akun` RLS ketat).
+    const baru = await akunSatu({ nis, mode: 'penuh' });
     if (baru) {
       const sess = bangunResponsSesi(baru, baru.email, getToken());
       setSession(getToken(), sess.user);
@@ -2584,9 +2598,21 @@ async function gantiPasswordSendiri() {
   const lama = document.getElementById('pass-lama')?.value || '';
   const baru = document.getElementById('pass-baru')?.value || '';
   if (!lama || !baru) return showToast('warning', 'Isi password lama dan baru.');
-  const { data, error } = await supaClient.rpc('ubah_password_sendiri', { p_nis: nis, p_lama: lama, p_baru: baru });
+  // [FASE B] Signature B2 = ubah_password_sendiri(p_nis, p_lama, p_baru, p_token)
+  // — TANPA `p_klaim_nis` (pakai sesiRpc() di sini ⇒ PGRST202). Server mencabut
+  // seluruh sesi lama murid ini lalu menerbitkan sesi baru (sesi_token).
+  const { data, error } = await supaClient.rpc('ubah_password_sendiri', {
+    p_nis: nis, p_lama: lama, p_baru: baru, p_token: getToken()
+  });
   const ok = !error && data && data.status === 'success';
-  Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Berhasil' : 'Gagal', text: (data && data.message) || error?.message, background: '#1e293b', color: '#fff' });
+  // Simpan token baru bersama objek USER (bukan currentUser utuh) agar bentuk
+  // sesi lokal tetap konsisten dengan getCurrentUser()/setSession().
+  if (ok && data && data.sesi_token) setSession(data.sesi_token, (currentUser || {}).user || {});
+  const pesanGagal = (data && data.message) || (error && error.message) || 'Gagal mengganti password.';
+  if (!ok && /could not find the function/i.test(pesanGagal)) {
+    return Swal.fire({ icon: 'info', title: 'Migrasi belum dijalankan', text: 'RPC ubah_password_sendiri(p_nis, p_lama, p_baru, p_token) belum ada di database. Jalankan supabase/sql/upgrade_20261028b2_token_rpc_murid.sql di SQL Editor Supabase, lalu muat ulang halaman.', background: '#1e293b', color: '#fff' });
+  }
+  Swal.fire({ icon: ok ? 'success' : 'error', title: ok ? 'Berhasil' : 'Gagal', text: ok ? ((data && data.message) || 'Password diperbarui.') : pesanGagal, background: '#1e293b', color: '#fff' });
   if (ok) {
     const el1 = document.getElementById('pass-lama'), el2 = document.getElementById('pass-baru');
     if (el1) el1.value = ''; if (el2) el2.value = '';
@@ -4032,10 +4058,9 @@ async function updateKunciServer() {
   if(!nipGuru) return Swal.fire({toast:true, position:'top-end', icon:'error', title:'Akun tidak memiliki NIP.', showConfirmButton:false, timer:2000});
   try {
     // FIX BUG LOCALSTORAGE: verifikasi respons server SEBELUM menyentuh state/sesi lokal.
-    const { error } = await supaClient.from('akun')
-      .update({ captcha: newCaptcha, kunci_absen: newKunci })
-      .eq('nis_nip', nipGuru);
-    if (error) throw error;
+    // [FASE B] Kunci/captcha lewat RPC `simpan_kunci_absen` (tabel `akun` RLS ketat).
+    const hasilKunci = await akunSimpanKunciAbsen({ nisNip: nipGuru, captcha: newCaptcha, kunci: newKunci });
+    if (hasilKunci.status !== 'success') throw new Error(hasilKunci.message || 'Gagal memperbarui kunci.');
     cacheDashboardKosongkan(); // status kunci/captcha guru berubah → sesi cache usang
     currentUser.user["Captcha"] = newCaptcha; currentUser.user["Kunci Absen"] = newKunci;
     // Simpan hanya bila token valid — jangan timpa token sesi dengan string kosong.
@@ -10035,6 +10060,9 @@ let cacheAkunMuridSesiAda = false;   // true setelah 1x fetch sukses per sesi
 let ukuranHalamanMurid = 50;         // default ukuran halaman (25/50/75/100)
 let halamanAktifMurid = 1;
 // Kolom ringkas utk daftar tabel + filter + tombol aksi (payload ±60% lebih ringan dari select('*'))
+// [FASE B] Daftar kolom di bawah kini HANYA dokumentasi whitelist: akses
+// tabel `akun` dari browser sudah lewat RPC (`ambil_daftar_murid` mode
+// 'list'/'export') — lihat supabase/sql/upgrade_20261028b_rpc_akun.sql.
 const KOLOM_LIST_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, jabatan, jabatan_ekskul, email, ekstrakurikuler, tahun_pelajaran, semester, riwayat_kelas, url_foto';
 // Kolom penuh utk export Excel/PDF (fetch on-demand saat tombol export diklik)
 const KOLOM_EXPORT_MURID = 'id, user_id, nis_nip, nisn, nama_lengkap, tingkat_kelas, riwayat_kelas, jenis_kelamin, tgl_lahir, agama, golongan_darah, ekstrakurikuler, jabatan, jabatan_ekskul, nama_ayah, pekerjaan_ayah, nama_ibu, pekerjaan_ibu, nama_wali, alamat, no_telepon, email, catatan_khusus, tahun_pelajaran, semester, url_foto, alamat_maps, media_sosial';
@@ -10093,9 +10121,8 @@ async function renderManajemenMurid(container, paksa = false) {
         if (paksa || !cacheAkunMuridSesiAda) {
             try {
               // Paginasi: PostgREST maks 1000 baris/request — gabungkan semua halaman sesuai jumlah DB
-              cacheAkunMurid = await supaAmbilSemua(
-                supaClient.from('akun').select(KOLOM_LIST_MURID).eq('tipe', 'murid')
-              );
+              // [FASE B] Daftar murid lewat RPC (tabel `akun` RLS ketat).
+              cacheAkunMurid = await akunDaftarMurid('list');
               cacheAkunMuridSesiAda = true;
             } catch (error) {
               console.error("Gagal memuat akun", error);
@@ -10216,8 +10243,9 @@ async function exportExcelMurid() {
   Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas (paginasi >1000 baris)
-    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas.
+    // [FASE B] Lewat RPC `ambil_daftar_murid('export')` (tabel `akun` RLS ketat).
+    sumber = await akunDaftarMurid('export');
   } catch (e) {
     console.error('exportExcelMurid:', e);
     sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
@@ -10270,8 +10298,9 @@ async function exportPdfMurid() {
   Swal.fire({ title: 'Menyiapkan Export...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas (paginasi >1000 baris)
-    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
+    // Kolom penuh diambil on-demand — cache daftar hanya memuat kolom ringkas.
+    // [FASE B] Lewat RPC `ambil_daftar_murid('export')` (tabel `akun` RLS ketat).
+    sumber = await akunDaftarMurid('export');
   } catch (e) {
     console.error('exportPdfMurid:', e);
     sumber = cacheAkunMurid || []; // fallback cache sesi (kolom profil berpotensi kosong)
@@ -10540,11 +10569,8 @@ window.FaceWajahOnTersimpan = (nis, status) => {
 async function editAkunMurid(id) {
     const fallback = (cacheAkunMurid || []).find(r => String(r.id) === String(id));
     try {
-        let { data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID + ', jabatan_ekskul_map').eq('id', id).maybeSingle();
-        if (error && /jabatan_ekskul_map/i.test(error.message || '')) {
-            ({ data, error } = await supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('id', id).maybeSingle());
-        }
-        if (error) throw error;
+        // [FASE B] Baris lengkap lewat RPC `ambil_akun_satu` mode 'cetak'.
+        const data = await akunSatu({ id, mode: 'cetak' });
         if (!data) throw new Error('Data murid tidak ditemukan.');
         openFormAkunMurid(false, data);
     } catch (e) {
@@ -11448,11 +11474,9 @@ async function unggahFotoMurid({ nis, nisn, nama, tahun, kelas, dataUrl, hapus }
     try {
       const em = String(u["Email"] || '').trim();
       if (em && supaClient) {
-        const { data: baris } = await supaClient
-          .from('akun')
-          .select('nis_nip')
-          .eq('email', em)
-          .maybeSingle();
+        // [FASE B] Identitas akun lewat RPC (tabel `akun` RLS ketat).
+        const identitas = await akunIdentitasLogin(em);
+        const baris = (identitas.akun || [])[0] || null;
         if (baris && baris.nis_nip) pemanggil.nisNip = String(baris.nis_nip);
       }
     } catch (e) { /* biarkan kosong — Edge Function punya fallback email sendiri */ }
@@ -11809,7 +11833,7 @@ async function scanWajahMasal() {
     return showToast('error', 'Modul wajah (face.js) belum dimuat.');
   }
   let sumber;
-  try { sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid')); }
+  try { sumber = await akunDaftarMurid('export'); }
   catch (e) { console.warn('scanWajahMasal fetch:', e); sumber = cacheAkunMurid || []; }
   const rows = muridTersaring(sumber);
   const nisList = rows.map(d => String(d.nis_nip || d.NIS || d.nis)).filter(Boolean);
@@ -11950,7 +11974,7 @@ async function openUploadFotoMasal() {
 
   // 1. Ambil SEMUA murid (tipe=murid) — tanpa filter tabel aktif maupun status wajah.
   let sumber;
-  try { sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid')); }
+  try { sumber = await akunDaftarMurid('export'); }
   catch (e) { console.warn('openUploadFotoMasal fetch:', e); sumber = cacheAkunMurid || []; }
   const daftarMurid = sumber || [];
   if (!daftarMurid.length) {
@@ -12146,7 +12170,8 @@ async function cetakFotoSiswa() {
   Swal.fire({ title: 'Menyiapkan Lembar Foto...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
+    // [FASE B] Lewat RPC (tabel `akun` RLS ketat).
+    sumber = await akunDaftarMurid('export');
   } catch (e) {
     console.error('cetakFotoSiswa:', e);
     sumber = cacheAkunMurid || [];
@@ -12276,7 +12301,8 @@ async function cetakKartuPelajar(moda) {
   Swal.fire({ title: 'Menyiapkan Kartu Pelajar...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff' });
   let sumber;
   try {
-    sumber = await supaAmbilSemua(supaClient.from('akun').select(KOLOM_EXPORT_MURID).eq('tipe', 'murid'));
+    // [FASE B] Lewat RPC (tabel `akun` RLS ketat).
+    sumber = await akunDaftarMurid('export');
   } catch (e) {
     console.error('cetakKartuPelajar:', e);
     sumber = cacheAkunMurid || [];
@@ -12491,7 +12517,12 @@ async function simpanAkunMurid(formData, isNew) {
     const rw = { ...(formData.riwayat_kelas || {}) };
     const kelasAktif = rw[currentTahun] ? String(rw[currentTahun].kelas || '') : String(formData.tingkat_kelas || '');
     if (!rw[currentTahun] && kelasAktif) rw[currentTahun] = { kelas: kelasAktif, status: 'Aktif', ket: '' };
-    await supaClient.from('akun').update({ riwayat_kelas: rw, tingkat_kelas: kelasAktif || String(formData.tingkat_kelas || '') }).eq('nis_nip', String(formData.nis || ''));
+    // [FASE B] Tulis riwayat lewat RPC `simpan_riwayat_murid` (tabel `akun` RLS ketat).
+    const hasilRw = await akunSimpanRiwayat({
+      nis: String(formData.nis || ''), riwayatKelas: rw,
+      tingkatKelas: kelasAktif || String(formData.tingkat_kelas || '')
+    });
+    if (hasilRw.status !== 'success') throw new Error(hasilRw.message || 'Gagal menyimpan riwayat kelas.');
   } catch (eRw) { console.warn('Riwayat murid (dual-write):', eRw); }
   // [SEMESTER] Dual-write riwayat_ekskul: catat Tahun Pelajaran & Semester Keanggotaan terpilih di
   // form (riwayat_ekskul[TA].smt[ekskul]) agar dimensi per-TA/per-semester konsisten dengan
@@ -12501,9 +12532,9 @@ async function simpanAkunMurid(formData, isNew) {
     const ekskulSmt = formData._ekskulSmt || currentSemesterEkskul;
     const liveEkskul = String(formData.ekstrakurikuler || '').split(',').map(e => e.trim()).filter(Boolean);
     const nisStr = String(formData.nis || '');
-    const { data: eRow, error: eErr } = await supaClient.from('akun')
-      .select('riwayat_ekskul').eq('nis_nip', nisStr).eq('tipe', 'murid').maybeSingle();
-    if (!eErr && eRow) {
+    // [FASE B] Baca riwayat ekskul lewat RPC (tabel `akun` RLS ketat).
+    const eRow = await akunSatu({ nis: nisStr, mode: 'ekskul_map' });
+    if (eRow) {
       const riwayat = (eRow.riwayat_ekskul && typeof eRow.riwayat_ekskul === 'object') ? { ...eRow.riwayat_ekskul } : {};
       const entri = (riwayat[ekskulTa] && typeof riwayat[ekskulTa] === 'object') ? { ...riwayat[ekskulTa] } : {};
       const smtMap = (entri.smt && typeof entri.smt === 'object' && !Array.isArray(entri.smt)) ? { ...entri.smt } : {};
@@ -12518,7 +12549,8 @@ async function simpanAkunMurid(formData, isNew) {
         smt: smtMap,
         status: 'Aktif'
       };
-      await supaClient.from('akun').update({ riwayat_ekskul: riwayat }).eq('nis_nip', nisStr).eq('tipe', 'murid');
+      // [FASE B] Tulis riwayat ekskul lewat RPC (tabel `akun` RLS ketat).
+      await akunSimpanRiwayat({ nis: nisStr, riwayatEkskul: riwayat });
     }
   } catch (eEks) { console.warn('Riwayat ekskul murid (dual-write):', eEks); }
 
@@ -13321,8 +13353,8 @@ async function previewImportMurid(file) {
 
         // Deteksi duplikat vs database (NIS yang sudah terdaftar)
         const nisFile = rows.map(r => r.nis);
-        const { data: existing } = await supaClient.from('akun')
-            .select('nis_nip').eq('tipe', 'murid').in('nis_nip', nisFile.slice(0, 200));
+        // [FASE B] Cek NIS terdaftar lewat RPC (tabel `akun` RLS ketat).
+        const existing = await akunDaftarMurid('nis', { nisList: nisFile.slice(0, 200) });
         const nisDb = new Set((existing || []).map(e => String(e.nis_nip)));
 
         const duplikatFile = new Set();
@@ -13404,7 +13436,8 @@ async function simpanMasalAkunMurid(rows) {
                 const kelas = String(r.tingkat_kelas || '');
                 if (!ta || !kelas || !r.nis) continue;
                 const rw = { [ta]: { kelas, status: 'Aktif', ket: '' } };
-                await supaClient.from('akun').update({ riwayat_kelas: rw }).eq('nis_nip', String(r.nis));
+                // [FASE B] Riwayat kelas lewat RPC (tabel `akun` RLS ketat).
+                await akunSimpanRiwayat({ nis: String(r.nis), riwayatKelas: rw });
             }
         } catch (eRw) { console.warn('Riwayat import murid:', eRw); }
 
@@ -13445,12 +13478,8 @@ async function renderManajemenAdmin(container) {
     container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Data Admin...</div>`;
 
     try {
-        const { data, error } = await supaClient
-          .from('akun')
-          .select('*')
-          .eq('tipe', 'admin')
-          .order('nama_lengkap', { ascending: true });
-        if (error) throw error;
+        // [FASE B] Daftar admin lewat RPC (tabel `akun` RLS ketat).
+        const data = await akunDaftarGuru('penuh', { tipe: 'admin' });
         cacheAkunAdmin = data || [];
 
         container.innerHTML = `
@@ -14956,13 +14985,8 @@ async function renderManajemenGuru(container) {
             const { data: master, error: mErr } = await supaClient.from('master_data').select('*');
             if (!mErr && master) masterDataCache = master;
         }
-        // 2. Ambil semua guru dari tabel akun
-        const { data, error } = await supaClient
-          .from('akun')
-          .select('*')
-          .eq('tipe', 'guru')
-          .order('nama_lengkap', { ascending: true });
-        if (error) throw error;
+        // 2. Ambil semua guru dari tabel akun — [FASE B] lewat RPC (RLS ketat).
+        const data = await akunDaftarGuru('penuh', { tipe: 'guru' });
         cacheAkunGuru = data || [];
 
         const isAdmin = (currentUser || {}).role === 'admin';
@@ -15307,18 +15331,22 @@ async function salinPenugasanMassal() {
     let disalin = 0, dilewati = 0;
     Swal.fire({ title: 'Menyalin penugasan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
     try {
-        const { data: guruRows, error } = await supaClient.from('akun').select('id, nis_nip, penugasan').eq('tipe', 'guru');
-        if (error) throw error;
+        // [FASE B] Penugasan guru dibaca & ditulis lewat RPC (tabel `akun` RLS ketat).
+        const guruRows = await akunDaftarGuru('guru_penugasan');
+        const barisUbah = [];
         for (const g of (guruRows || [])) {
             const p = g.penugasan || {};
             const s = p[sumber];
             if (!s) { dilewati++; continue; }
             if (p[tujuan] && !timpa) { dilewati++; continue; }
             p[tujuan] = JSON.parse(JSON.stringify(s));
-            const { error: errU } = await supaClient.from('akun').update({ penugasan: p }).eq('id', g.id);
-            if (errU) throw errU;
-            disalin++;
+            barisUbah.push({ id: g.id, penugasan: p });
         }
+        if (barisUbah.length) {
+            const hasilPn = await akunSimpanPenugasanGuru(barisUbah);
+            if (hasilPn.status !== 'success') throw new Error(hasilPn.message || 'Gagal menyimpan penugasan.');
+        }
+        disalin = barisUbah.length;
         cacheDashboardKosongkan();
         Swal.fire({ icon: 'success', title: 'Selesai!', text: `${disalin} guru disalin, ${dilewati} dilewati.`, background: '#1e293b', color: '#fff' });
         renderManajemenGuru(document.getElementById('main-content'));
@@ -15707,12 +15735,9 @@ async function muatDataJadwalLibur() {
 /** Muat daftar akun guru (utk dropdown "ID Akun Guru" pada form jadwal). */
 async function muatGuruJadwal() {
   try {
-    const { data, error } = await supaClient
-      .from('akun')
-      .select('nis_nip, nama_lengkap, gelar_depan, gelar_belakang')
-      .eq('tipe', 'guru')
-      .order('nama_lengkap', { ascending: true });
-    if (!error && data) cacheGuruJadwal = data;
+    // [FASE B] Daftar guru lewat RPC (tabel `akun` RLS ketat).
+    const data = await akunDaftarGuru('guru_ringkas');
+    if (data.length) cacheGuruJadwal = data;
   } catch (e) { console.warn('muatGuruJadwal:', e); }
 }
 
@@ -16632,16 +16657,20 @@ function duplikatKalenderTahun() {
             }
             if (penugasan) {
                 // Salin penugasan guru (mapel/wali/ekskul) dari TA sumber → tujuan
-                const { data: guruRows, error: errG } = await supaClient.from('akun').select('id, penugasan').eq('tipe', 'guru');
-                if (errG) throw errG;
+                // [FASE B] Penugasan guru lewat RPC (tabel `akun` RLS ketat).
+                const guruRows = await akunDaftarGuru('guru_penugasan_ringkas');
+                const barisPn = [];
                 for (const g of (guruRows || [])) {
                     const p = g.penugasan || {};
                     if (!p[sumber]) continue;
                     p[tujuan] = JSON.parse(JSON.stringify(p[sumber]));
-                    const { error: errP } = await supaClient.from('akun').update({ penugasan: p }).eq('id', g.id);
-                    if (errP) throw errP;
-                    total++;
+                    barisPn.push({ id: g.id, penugasan: p });
                 }
+                if (barisPn.length) {
+                    const hasilPn = await akunSimpanPenugasanGuru(barisPn);
+                    if (hasilPn.status !== 'success') throw new Error(hasilPn.message || 'Gagal menyimpan penugasan.');
+                }
+                total += barisPn.length;
             }
             kalenderTahun = tujuan;
             await muatDataJadwalLibur();
@@ -17489,8 +17518,8 @@ async function renderDashboardUtama(container) {
 
     let rowsAbs = [];
     let cMurid = '-', cGuru = '-';
-    const qMurid = supaClient.from('akun').select('*', { count: 'exact', head: true }).eq('tipe', 'murid');
-    const qGuru = supaClient.from('akun').select('*', { count: 'exact', head: true }).eq('tipe', 'guru');
+    // [FASE B] Hitungan akun lewat RPC `hitung_akun` (tabel `akun` RLS ketat).
+    const qHitung = akunHitung();
     if (!guruTanpaRuangLingkup) {
         let qAbs = supaClient.from('absensi').select('nis, nama, status, tanggal, kelas, mapel')
             .eq('tahun', tahun).eq('semester', smt).neq('kelas', 'Semua Kelas');
@@ -17499,16 +17528,16 @@ async function renderDashboardUtama(container) {
             if (mapelDiampuArr.length) qAbs = qAbs.in('mapel', mapelDiampuArr);
         }
         try {
-            const [rM, rG, rAbs] = await Promise.all([qMurid, qGuru, qAbs]);
-            cMurid = (rM && rM.count != null) ? rM.count : '-';
-            cGuru = (rG && rG.count != null) ? rG.count : '-';
+            const [rHitung, rAbs] = await Promise.all([qHitung, qAbs]);
+            cMurid = (rHitung && rHitung.murid != null) ? rHitung.murid : '-';
+            cGuru = (rHitung && rHitung.guru != null) ? rHitung.guru : '-';
             rowsAbs = rAbs.data || [];
         } catch (e) { console.warn('statistik dashboard:', e); }
     } else {
         try {
-            const [rM, rG] = await Promise.all([qMurid, qGuru]);
-            cMurid = (rM && rM.count != null) ? rM.count : '-';
-            cGuru = (rG && rG.count != null) ? rG.count : '-';
+            const rHitung = await qHitung;
+            cMurid = (rHitung && rHitung.murid != null) ? rHitung.murid : '-';
+            cGuru = (rHitung && rHitung.guru != null) ? rHitung.guru : '-';
         } catch (e) { console.warn('statistik dashboard:', e); }
     }
 
@@ -17899,17 +17928,17 @@ async function gantiKunciAbsenEkskul(ekskul, captcha, kunci) {
   if (role === 'admin') {
     const nip = String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || '');
     if (!nip) return showToast('error', 'Data akun admin tidak ditemukan.');
-    const { error: errUp } = await supaClient.from('akun')
-      .update({ captcha: String(captcha || '').trim().toUpperCase(), kunci_absen: kunci === 'BUKA' ? 'BUKA' : 'TUTUP' })
-      .eq('nis_nip', nip);
-    if (errUp) return showToast('error', 'Gagal memperbarui kunci: ' + (errUp.message || ''));
+    // [FASE B] Kunci absen admin lewat RPC (tabel `akun` RLS ketat).
+    const hasilKunci = await akunSimpanKunciAbsen({ nisNip: nip, captcha, kunci });
+    if (hasilKunci.status !== 'success') return showToast('error', 'Gagal memperbarui kunci: ' + (hasilKunci.message || ''));
     return true;
   }
   const { data: rpc, error } = await supaClient.rpc('ganti_kunci_absen_ekskul', {
     p_pemanggil: String(sesi_["NIS"] || sesi_["NIP"] || sesi_["ID Akun Guru"] || sesi_["nis_nip"] || (barisGuruSesi() || {})["ID Akun Guru"] || ''),
     p_ekskul: String(ekskul || ''),
     p_captcha: String(captcha || ''),
-    p_kunci: String(kunci || '')
+    p_kunci: String(kunci || ''),
+    p_token: getToken()
   });
   if (error) return showToast('error', 'Gagal mengganti kunci: ' + (error.message || ''));
   if ((rpc || {}).status === 'error') return showToast('error', rpc.message || 'Gagal mengganti kunci.');
@@ -17973,8 +18002,8 @@ async function renderEkstrakurikulerModule(container) {
     if (!window.__tabEkskulInit) { currentTabEkskul = 'info'; window.__tabEkskulInit = true; }
     if ((currentTabEkskul === 'persuratan') && aksesAktif === 'anggota') currentTabEkskul = 'info';
     try {
-      const { data } = await supaClient.from('akun').select('nis_nip, nama_lengkap, gelar_depan, gelar_belakang, no_telepon, ekstrakurikuler').in('tipe', ['guru', 'admin']);
-      window.__cacheGuruEkskul = data || [];
+      // [FASE B] Daftar pembina lewat RPC (tabel `akun` RLS ketat).
+      window.__cacheGuruEkskul = await akunDaftarGuru('guru_pembina', { tipe: '' });
     } catch (e) { window.__cacheGuruEkskul = []; }
 
     const isAdminGuru = aksesAktif === 'admin' || aksesAktif === 'guru';
@@ -20121,9 +20150,10 @@ async function popupProfilAnggotaEkskul(nis, nama) {
   nis = String(nis || '');
   if (!nis) return;
   Swal.fire({ title: 'Memuat profil...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
-  const { data: row, error } = await supaClient.from('akun').select('*').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
-  if (error || !row) {
-    return Swal.fire({ icon: 'error', title: 'Gagal', text: (error && error.message) || 'Data murid tidak ditemukan.', background: '#1e293b', color: '#fff' });
+  // [FASE B] Profil anggota lewat RPC (tabel `akun` RLS ketat).
+  const row = await akunSatu({ nis, mode: 'penuh' });
+  if (!row) {
+    return Swal.fire({ icon: 'error', title: 'Gagal', text: 'Data murid tidak ditemukan.', background: '#1e293b', color: '#fff' });
   }
   const role = (currentUser || {}).role || '';
   // [MOBILE v3] Chip Sub di baris daftar anggota dihapus → tombol "Atur Sub" dipindah ke footer kartu profil.
@@ -20338,16 +20368,14 @@ async function formPilihSubAnggota(nis, namaLengkap) {
 // ---------- [REQ 1a] KELOLA JABATAN ANGGOTA EKSKUL (akun.jabatan_ekskul_map) ----------
 /** Simpan jabatan satu anggota pada satu ekskul: ubah kunci ekskul pada kolom jabatan_ekskul_map. */
 async function simpanJabatanAnggotaEkskul(nis, ekskul, jabatan) {
-  const { data, error } = await supaClient.from('akun')
-    .select('jabatan_ekskul_map').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
-  if (error) { showToast('error', 'Gagal memuat jabatan: ' + (error.message || '')); return false; }
+  // [FASE B] Baca & tulis jabatan ekskul lewat RPC (tabel `akun` RLS ketat).
+  const data = await akunSatu({ nis, mode: 'jabatan_map' });
   if (!data) return false;
   const map = (data.jabatan_ekskul_map && typeof data.jabatan_ekskul_map === 'object') ? { ...data.jabatan_ekskul_map } : {};
   const bersih = String(jabatan || '').trim();
   if (bersih) map[ekskul] = bersih; else delete map[ekskul];
-  const { error: errUp } = await supaClient.from('akun')
-    .update({ jabatan_ekskul_map: map }).eq('nis_nip', nis).eq('tipe', 'murid');
-  if (errUp) { showToast('error', 'Gagal menyimpan jabatan: ' + (errUp.message || '')); return false; }
+  const hasilJab = await akunSimpanEkskul({ nis, jabatanEkskulMap: map, ekskul });
+  if (hasilJab.status !== 'success') { showToast('error', 'Gagal menyimpan jabatan: ' + (hasilJab.message || '')); return false; }
   return true;
 }
 
@@ -20487,7 +20515,8 @@ async function terapkanKeanggotaanEkskul(nis, ekskul, tambah, ta, smt, keluar) {
       p_nis_list: nis,
       p_tambah: !!tambah,
       p_ta: taFinal,
-      p_smt: [smtFinal]
+      p_smt: [smtFinal],
+      p_token: getToken()
     };
     try {
       const { data: rpc, error } = await supaClient.rpc('ubah_anggota_ekskul', cmd);
@@ -20506,9 +20535,8 @@ async function terapkanKeanggotaanEkskul(nis, ekskul, tambah, ta, smt, keluar) {
   // Sekaligus dual-write ke riwayat_ekskul[TA] agar dimensi per-TA tetap konsisten.
   let total = 0;
   for (const satu of nis) {
-    const { data, error } = await supaClient.from('akun')
-      .select('ekstrakurikuler, riwayat_ekskul').eq('nis_nip', satu).eq('tipe', 'murid').maybeSingle();
-    if (error) throw error;
+    // [FASE B] Baca baris murid lewat RPC (tabel `akun` RLS ketat).
+    const data = await akunSatu({ nis: satu, mode: 'ekskul_map' });
     if (!data) continue;
     // [SOFT-DELETE] keluar=true mempertahankan nama ekskul di string live (dimensi dikendalikan
     // status:'Keluar' di riwayat_ekskul[TA], bukan dengan menghapus nama).
@@ -20536,9 +20564,14 @@ async function terapkanKeanggotaanEkskul(nis, ekskul, tambah, ta, smt, keluar) {
     }
     const upd = { ekstrakurikuler: baru };
     if (Object.prototype.hasOwnProperty.call(data, 'riwayat_ekskul')) upd.riwayat_ekskul = riwayatBaru;
-    const { error: errUp } = await supaClient.from('akun')
-      .update(upd).eq('nis_nip', satu).eq('tipe', 'murid');
-    if (errUp) throw errUp;
+    // [FASE B] Tulis keanggotaan ekskul lewat RPC (tabel `akun` RLS ketat).
+    const hasilKe = await akunSimpanEkskul({
+      nis: satu, ekskul: String(ekskul || ''),
+      ekstrakurikuler: upd.ekstrakurikuler,
+      riwayatEkskul: upd.riwayat_ekskul,
+      jabatanEkskulMap: upd.jabatan_ekskul_map
+    });
+    if (hasilKe.status !== 'success') throw new Error(hasilKe.message || 'Gagal menyimpan keanggotaan ekskul.');
     total++;
   }
   return total > 0;
@@ -20636,11 +20669,8 @@ async function formTambahAnggotaEkskul() {
   try {
     // [REQ 1b] Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan
     // semua halaman agar seluruh "Data Akun Murid" terload (bukan hanya sebagian).
-    murid = await supaAmbilSemua(
-      supaClient.from('akun')
-        .select('nis_nip, nama_lengkap, tingkat_kelas, tahun_pelajaran, ekstrakurikuler, jabatan, no_telepon')
-        .eq('tipe', 'murid')
-    );
+    // [FASE B] Kandidat anggota lewat RPC (tabel `akun` RLS ketat).
+    murid = await akunDaftarMurid('pemilih');
   } catch (e) { return Swal.fire({ icon: 'error', title: 'Gagal', text: 'Gagal memuat daftar siswa: ' + (e.message || ''), background: '#1e293b', color: '#fff' }); }
   window.__cacheMuridTambah = murid;
   const listTahun = urutAz([...new Set(murid.map(m => m.tahun_pelajaran).filter(Boolean))]);
@@ -20795,9 +20825,8 @@ async function formImportAnggotaEkskul() {
   if (!isConfirmed || !value) return;
   await bacaFile();
   if (nisSet.size === 0) return showToast('info', 'Tidak ada NIS yang terisi.');
-  const semua = window.__cacheMuridTambah || (await supaAmbilSemua(
-    supaClient.from('akun').select('nis_nip, nama_lengkap, tahun_pelajaran, tingkat_kelas, ekstrakurikuler').eq('tipe', 'murid')
-  ).catch(() => []));
+  // [FASE B] Daftar ringkas murid lewat RPC (tabel `akun` RLS ketat).
+  const semua = window.__cacheMuridTambah || (await akunDaftarMurid('pemilih_ringkas'));
   window.__cacheMuridTambah = semua;
   const petaMurid = {};
   (semua || []).forEach(m => { if (m.nis_nip) petaMurid[String(m.nis_nip)] = m; });
@@ -21124,9 +21153,8 @@ function pilihSemuaHapusPermanen(pilih) {
  *  riwayat_ekskul[TA] (ekskul+smt[ekskul]+jabatan_map[ekskul]), jabatan_ekskul_map global,
  *  dan NIS dari sub_ekstrakurikuler.anggota. */
 async function hapusPermanenSatuAnggota(nis, ekskul, ta) {
-  const { data: akun, error } = await supaClient.from('akun')
-    .select('ekstrakurikuler, riwayat_ekskul, jabatan_ekskul_map').eq('nis_nip', nis).eq('tipe', 'murid').maybeSingle();
-  if (error) throw error;
+  // [FASE B] Baca baris murid lewat RPC (tabel `akun` RLS ketat).
+  const akun = await akunSatu({ nis, mode: 'ekskul_map' });
   if (!akun) return;
   const upd = { ekstrakurikuler: buangEkskulSiswa(akun.ekstrakurikuler || '', ekskul) };
   // riwayat_ekskul[TA]
@@ -21155,8 +21183,14 @@ async function hapusPermanenSatuAnggota(nis, ekskul, ta) {
     delete jmG[ekskul];
     upd.jabatan_ekskul_map = jmG;
   }
-  const { error: errUp } = await supaClient.from('akun').update(upd).eq('nis_nip', nis).eq('tipe', 'murid');
-  if (errUp) throw errUp;
+  // [FASE B] Tulis keanggotaan ekskul lewat RPC (tabel `akun` RLS ketat).
+  const hasilHapus = await akunSimpanEkskul({
+    nis, ekskul: String(ekskul || ''),
+    ekstrakurikuler: upd.ekstrakurikuler,
+    riwayatEkskul: upd.riwayat_ekskul,
+    jabatanEkskulMap: upd.jabatan_ekskul_map
+  });
+  if (hasilHapus.status !== 'success') throw new Error(hasilHapus.message || 'Gagal menyimpan perubahan anggota.');
   // Bersihkan NIS dari sub_ekstrakurikuler.anggota (ekskul ini)
   const { data: subs, error: errSub } = await supaClient.from('sub_ekstrakurikuler')
     .select('id, anggota').eq('nama_ekskul', ekskul);
@@ -21211,9 +21245,8 @@ async function formMigrasiKeanggotaanEkskul() {
     let nSiswa = 0, nEkskul = 0, gagal = 0, pesanErr = '';
 
     try {
-      const list = await supaAmbilSemua(
-        supaClient.from('akun').select('nis_nip, ekstrakurikuler, riwayat_ekskul, jabatan_ekskul_map').eq('tipe', 'murid')
-      );
+      // [FASE B] Data keanggotaan semua murid lewat RPC (tabel `akun` RLS ketat).
+      const list = await akunDaftarMurid('ekskul_map');
       for (const m of (list || [])) {
         const riwayat = (m.riwayat_ekskul && typeof m.riwayat_ekskul === 'object') ? { ...m.riwayat_ekskul } : {};
         const sumber = (riwayat[taAsal] && typeof riwayat[taAsal] === 'object' && String(riwayat[taAsal].status || 'Aktif') === 'Aktif') ? { ...riwayat[taAsal] } : null;
@@ -21242,8 +21275,9 @@ async function formMigrasiKeanggotaanEkskul() {
         if (Object.keys(tujSmt).length) entriT.smt = tujSmt;
         if (Object.keys(jabMap).length) entriT.jabatan_map = jabMap;
         riwayat[taTujuan] = entriT;
-        const { error: errUp } = await supaClient.from('akun').update({ riwayat_ekskul: riwayat }).eq('nis_nip', m.nis_nip).eq('tipe', 'murid');
-        if (errUp) { if (!gagal) pesanErr = errUp.message || ''; gagal++; continue; }
+        // [FASE B] Tulis riwayat ekskul lewat RPC (tabel `akun` RLS ketat).
+        const hasilMigrasi = await akunSimpanRiwayat({ nis: m.nis_nip, riwayatEkskul: riwayat });
+        if (hasilMigrasi.status !== 'success') { if (!gagal) pesanErr = hasilMigrasi.message || ''; gagal++; continue; }
         nSiswa++; nEkskul += cocok.length;
       }
     } catch (e) { gagal++; pesanErr = (e && e.message) || ''; }
@@ -24489,8 +24523,8 @@ async function renderAdministrasiGuru(container) {
     }
     if (cacheGuruAdmin.length === 0) {
       try {
-        const { data: g } = await supaClient.from('akun').select('nis_nip, nama_lengkap, gelar_depan, gelar_belakang').eq('tipe', 'guru').order('nama_lengkap', { ascending: true });
-        cacheGuruAdmin = g || [];
+        // [FASE B] Daftar guru lewat RPC (tabel `akun` RLS ketat).
+        cacheGuruAdmin = await akunDaftarGuru('guru_ringkas');
       } catch (e) { cacheGuruAdmin = []; }
     }
     const tabs = [
@@ -25387,9 +25421,8 @@ function cetakPdfAdmin(tabel) {
 async function pastikanCacheMuridRapor() {
     if ((cacheAkunMurid || []).length > 0 || cacheAkunMuridSesiAda) return cacheAkunMurid || [];
     try {
-        cacheAkunMurid = await supaAmbilSemua(
-            supaClient.from('akun').select(KOLOM_LIST_MURID).eq('tipe', 'murid')
-        );
+        // [FASE B] Lewat RPC (tabel `akun` RLS ketat).
+        cacheAkunMurid = await akunDaftarMurid('list');
         cacheAkunMuridSesiAda = true;
     } catch (e) { console.warn('pastikanCacheMuridRapor:', e); }
     return cacheAkunMurid || [];
@@ -25401,8 +25434,8 @@ async function cariMuridRapor(nis) {
     const lokal = (cache || []).find(x => String(x.nis_nip) === String(nis));
     if (lokal) return lokal;
     try {
-        const { data } = await supaClient.from('akun').select('id, nis_nip, nisn, nama_lengkap, tingkat_kelas, ekstrakurikuler, riwayat_kelas, tahun_pelajaran, semester').eq('nis_nip', String(nis)).eq('tipe', 'murid').maybeSingle();
-        return data || null;
+        // [FASE B] Lewat RPC (tabel `akun` RLS ketat).
+        return await akunSatu({ nis: String(nis), mode: 'ringkas_murid' });
     } catch (e) { return null; }
 }
 
@@ -29001,8 +29034,8 @@ function renderInvRiwayat() {
 
 async function muatDaftarGuruInv() {
     try {
-        const { data } = await supaClient.from('akun').select('nis_nip, nama_lengkap').eq('tipe', 'guru').order('nama_lengkap');
-        return data || [];
+        // [FASE B] Daftar guru lewat RPC (tabel `akun` RLS ketat).
+        return await akunDaftarGuru('guru_ringkas', { tipe: 'guru' });
     } catch (e) { console.warn('daftar guru inv:', e); return []; }
 }
 

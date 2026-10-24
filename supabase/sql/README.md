@@ -6,9 +6,9 @@ Folder ini berisi skema database **versi terkini** untuk SIAKAD/SISIP.
 
 | File | Keterangan |
 |---|---|
-| `gabungan.sql` | **Gabungan seluruh 30 file upgrade** (2026-09-03 s.d. 2026-09-22) dalam satu file, urut tanggal pengembangan, **tanpa data uji**. |
+| `gabungan.sql` | **Gabungan seluruh 82 berkas migrasi** (2026-09-03 s.d. 2026-10-28) dalam satu file, urut **eksekusi** pengembangan, **tanpa data uji**. Dirakit otomatis oleh `npm run build:sql` — **jangan diedit manual** (`npm run check:sql` akan gagal bila basi). |
 | `upgrade_*.sql` / `fix_*.sql` | Salinan file satu-persatu (nama & isi sama dengan `../`), urut tanggal. |
-| `uji_data.sql` / `uji_bersih.sql` | Tidak ikut di folder ini — masih ada di `supabase/sql/` (khusus pengujian E2E). |
+| `uji_*.sql` / `diag_*.sql` | Berkas bantu pengujian E2E (`uji_data`, `uji_bersih`, `uji_bersih_penugasan`, `uji_data_penugasan`) & diagnosa (`diag_20261019_nis_ta_lain`) — **tidak ikut** ke `gabungan.sql` dan **jangan dijalankan di produksi**. |
 
 ## Kapan pakai yang mana?
 
@@ -17,7 +17,30 @@ Folder ini berisi skema database **versi terkini** untuk SIAKAD/SISIP.
 
 Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap jalankan hanya yang dibutuhkan.
 
-## Urutan file satu-persatu (30 file)
+## Merakit ulang `gabungan.sql` (menambah migrasi baru)
+
+`gabungan.sql` **dihasilkan otomatis** — jangan diedit manual:
+
+```bash
+npm run build:sql                       # rakit ulang setelah menambah/mengubah berkas migrasi
+npm run check:sql                       # periksa saja (exit 1 bila basi / manifest tidak konsisten)
+node scripts/build-gabungan.mjs --list  # lihat urutan 82 blok
+```
+
+`scripts/build-gabungan.mjs` menyimpan daftar urut **eksplisit** (`const URUTAN`).
+Menambah berkas `upgrade_*.sql` baru **wajib** mendaftarkan namanya di sana — skrip
+menolak jalan (dan `check:sql` gagal) selama ada berkas baru yang belum terdaftar.
+Penjaga lain: isi blok lama tidak boleh menyimpang dari berkas sumbernya, dan jumlah
+`$$` (dollar-quote) tiap blok harus genap.
+
+> Dua blok `jadwal_pelajaran` — `upgrade_20260920_fix_kolom_jadwal_pelajaran.sql` dan
+> `upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql` — berada di **blok 35–36,
+> yaitu SETELAH `upgrade_20260929_jadwal_pelajaran.sql`** (blok 34), karena keduanya
+> menyentuh tabel yang baru dibuat blok itu (`fix_kolom` memakai `alter table
+> jadwal_pelajaran` **tanpa** guard `if not exists`). Jadi urutan `gabungan.sql` **bukan**
+> hasil sort nama berkas — jangan diacak.
+
+## Urutan file satu-persatu (82 berkas)
 
 1. `upgrade_20260903.sql` — kolom profil akun + tabel master_data (13 kolom gaya Sheets) + RLS
 2. `fix_20260903_kredensial.sql` — kredensial murid & RPC (pengganti bagian 20260903)
@@ -121,3 +144,22 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
     - **Email dummy untuk guru/admin:** backfill `akun.email = lower(nis_nip) || '@sekolah.local'` bila email kosong & tipe guru/admin. Frontend menerjemahkan NIS/NIP → email dummy ini otomatis saat login.
     - **RLS ketat** pada `nilai` & `absensi`: `*_select_ketat` (baca: `fn_role() in ('admin','guru')` ATAU `nis = fn_nis()`) dan `*_tulis_guru` (tulis: hanya admin/guru). Idempotent (cek `pg_policies` sebelum buat/drop).
     - **Edge Function `buat-akun`:** guru/murid kini boleh dibuat TANPA email nyata (dibuatkan email dummy `[nis_nip]@sekolah.local`); admin tetap wajib email nyata. Frontend (`web/js/utils.js`/`utils.example.js`) mendapat fallback email dummy pada alur login NIS/NIP guru.
+
+69. `upgrade_20261028a_sesi_lokal_murid.sql` — **Fase B (1/4): token sesi murid dari SERVER.** Sebelumnya murid "password lokal" memakai anon key + NIS sebagai identitas palsu (`lokal-<uuid>` dibuat klien, `akses_tabel` Edge Function memercayai klaim itu apa adanya) → siapa pun yang tahu NIS bisa membaca/menulis baris murid lain lewat REST. Isi:
+    - **Tabel `sesi_lokal`** (`token_hash` PK = SHA-256 token, `nis_nip`, `peran`, `created_at`, `expires_at` 12 jam, `last_seen`, `revoked_at`). RLS ON **tanpa policy** + `revoke all` dari `anon`/`authenticated` → tabel ini tidak punya jalur REST sama sekali.
+    - **Gate sesi:** `fn_sesi_valid(p_token)` (token → NIS, sliding expiry 12 jam, diperpanjang saat dipakai bila jeda > 5 menit), `fn_sesi_buat(p_nis, p_peran, p_jam)` (internal), `fn_sesi_cabut_nis(p_nis)`, `fn_akses_murid(p_token, p_nis_fallback)`, `fn_akses_murid_list(...)`, `fn_akses_ekskul(p_token, p_nis, p_ekskul)` → `'tulis' | 'baca' | NULL`.
+    - **`cek_login_murid` dibuat ulang** (kolom & pesan error identik dengan versi 20260926) + menerbitkan `sesi_token`, `sesi_peran`, `sesi_expires_at`. Tambahan RPC `perpanjang_sesi(p_token)` & `logout_sesi(p_token)`.
+    - Blok **pre-flight** menolak eksekusi bila `fn_role()`/`fn_nis()`/`akun_kredensial`/pgcrypto belum ada. Idempotent.
+
+70. `upgrade_20261028b_rpc_akun.sql` — **Fase B (2/4): seluruh baca/tulis tabel `akun` dipindah ke RPC SECURITY DEFINER** (16 fungsi + helper proyeksi kolom `fn_akun_export`/`fn_akun_json`/`fn_jsonb_atau`). Menggantikan 71 titik `supaClient.from('akun')` di `app.js`/`utils.js`/`face.js`. Isi:
+    - Baca: `identitas_login`, `profil_sesi_auth`, `taut_user_id_sesi`, `ambil_daftar_guru(mode, …)`, `ambil_daftar_murid(mode, p_ekskul, p_nis_list, …)`, `ambil_akun_satu(mode, …)`, `ambil_peta_wajah(…)`, `hitung_akun()`, `cek_sesi_absen(p_mapel, p_captcha, …)` (captcha dibandingkan **di server** — klien tidak lagi membaca kolom `captcha`/`kunci_absen` guru).
+    - Tulis: `simpan_riwayat_murid`, `simpan_ekskul_murid`, `simpan_penugasan_guru(rows)`, `simpan_kunci_absen`.
+    - Otorisasi: admin/guru via JWT (`fn_is_admin`/`fn_is_guru`), murid via token sesi; mode berisi data ortu/alamat (`export`, `cetak`, `dashboard_murid`) **staf saja**; kartu profil anggota ekskul boleh dibaca pengurus ekskul (sejalan `bolehLihatKontakAnggotaEkskul()` di `app.js`). Idempotent.
+
+71. `upgrade_20261028b2_token_rpc_murid.sql` — **Fase B (3/4): token sesi untuk RPC murid yang MENULIS `akun`.** RPC lama memakai NIS yang dikirim klien (`p_nis`/`p_pengurus_nis`/`p_pemanggil`) sebagai bukti identitas padahal di-grant ke anon → profil, descriptor wajah, dan keanggotaan ekskul murid lain bisa diubah siapa pun yang tahu NIS-nya. Isi: `ubah_profil_murid`, `ubah_password_sendiri` (semua sesi lama dicabut + `sesi_token` baru diterbitkan), `simpan_wajah_murid`, `ganti_kunci_absen_ekskul`, `daftar_anggota_ekskul_baru`, `ubah_anggota_ekskul` — semuanya dibuat ulang **persis seperti versi terakhirnya** (20261013/20260928/20261023/20261006c/20260930/20261021) dengan tambahan `p_token` + identitas pemanggil diambil **dari sesi** (JWT/token), bukan dari parameter. Overload lama (tanpa `p_token`) di-drop agar PostgREST tidak ambigu. Idempotent.
+    - **Koreksi (klien ↔ SQL):** argumen NIS dari klien (`p_nis`, `p_pengurus_nis`, `p_pemanggil`, `p_pemanggil_nis`) tetap dideklarasikan **hanya** demi kompatibilitas signature, tetapi nilainya kini **diabaikan**: seluruh otorisasi memakai `fn_akses_murid(p_token, '')`, jadi RPC di file ini sudah ketat **sejak file ini dijalankan** (tidak menunggu `fix_20261028d`, yang tugasnya menutup jalur sama untuk RPC baca di entri 70).
+    - ⚠ Di sisi klien, `ubah_profil_murid` / `ubah_password_sendiri` **tidak boleh** dikirimi `p_klaim_nis` (dulu disuntik otomatis oleh `sesiRpc()`): PostgREST mencocokkan nama argumen, sehingga satu argumen asing membuat fungsi dianggap tidak ada → **PGRST202** ("Could not find the function … in the schema cache") dan tombol **Simpan Perubahan** di menu Data Akun Murid gagal total. Kini payload-nya eksplisit `{ p_nis, p_data, p_token }` / `{ p_nis, p_lama, p_baru, p_token }`. Penjaga regresinya: `npm run test:rpc-args` (`scripts/cek-arg-rpc.mjs`), yang juga memverifikasi ulang seluruh 64 titik RPC frontend terhadap signature di `supabase/sql/*.sql`.
+
+72. `upgrade_20261028c_rls_akun_ketat.sql` — **Fase B (4/4): RLS ketat pada `public.akun`.** `alter table akun enable row level security` (**TANPA** `force` — force akan mematikan semua RPC SECURITY DEFINER), policy `akun_auth_baca` (baris sendiri ATAU staf), `akun_admin_tulis` (admin), `akun_guru_tulis_sendiri`, lalu `revoke all on akun from anon` (termasuk dua grant per-kolom `ekstrakurikuler`/`jabatan_ekskul_map` dari 20260926). ⚠ Jalankan **hanya setelah** frontend `js/app.js?v=20261028a` ter-deploy. Rollback = `alter table akun disable row level security;`. Idempotent (cek `pg_policies`; memberi `raise warning` bila `force` RLS menyala).
+
+73. `fix_20261028d_sesi_wajib.sql` — **Fase B (penutup): klaim NIS tanpa token dimatikan.** `fn_akses_murid`/`fn_akses_murid_list` dibuat ulang sehingga token `sesi_lokal` menjadi SATU-SATUNYA bukti identitas murid (parameter `p_nis_fallback` sengaja diabaikan). Jalankan setelah frontend baru ter-deploy → murid yang masih memegang token gaya lama akan diminta login ulang (memang tujuannya). Rollback = jalankan ulang `upgrade_20261028a_sesi_lokal_murid.sql` (blok 3d/3e). Tidak ada perubahan tabel.

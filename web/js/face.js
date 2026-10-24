@@ -766,7 +766,10 @@
       p_status: status || 'aktif',
       p_pemanggil_nis: pgl.nis,
       p_pemanggil_tipe: pgl.tipe,
-      p_mode: mode || 'ganti'
+      p_mode: mode || 'ganti',
+      // [FASE B] Token sesi server (murid lokal) — diverifikasi RPC
+      // `simpan_wajah_murid` (upgrade_20261028b2_token_rpc_murid.sql).
+      p_token: (typeof getToken === 'function') ? getToken() : ''
     };
     const { data, error } = await fa.rpc('simpan_wajah_murid', payload);
     if (error) throw new Error(error.message || 'RPC simpan_wajah_murid gagal.');
@@ -782,10 +785,8 @@
   async function muatPetaWajah() {
     if (petaWajahCache && petaWajahCacheMotor === motorWajah()) return petaWajahCache;
     const fa = fxSupabase();
-    const rows = await fxAmbilSemua(
-      fa.from('akun').select('nis_nip, wajah_descriptor, wajah_status')
-        .eq('tipe', 'murid').not('wajah_descriptor', 'is', null)
-    );
+    // [FASE B] Peta wajah dibaca lewat RPC `ambil_peta_wajah` (tabel akun RLS ketat).
+    const rows = await akunPetaWajah();
     const peta = {};
     (rows || []).forEach(r => {
       if (!r.wajah_descriptor) return;
@@ -1293,12 +1294,10 @@
     if (!murid) {
       // Self-service (menu siswa "Data Akun Murid"): cache admin (cacheAkunMurid) tidak ada di sesi ini,
       // ambil row murid langsung — RLS mengizinkan baris sendiri utk siswa, semua baris utk admin.
+      // [FASE B] Baca 1 baris murid lewat RPC (tabel `akun` RLS ketat).
       try {
-        const fa = fxSupabase();
-        const { data, error } = await fa.from('akun')
-          .select('nis_nip, nama_lengkap, tingkat_kelas, url_foto, wajah_descriptor, wajah_status')
-          .eq('nis_nip', String(nis)).eq('tipe', 'murid').maybeSingle();
-        if (!error && data) murid = data;
+        const data = await akunSatu({ nis: String(nis), mode: 'wajah' });
+        if (data) murid = data;
       } catch (e) { console.error('[FaceWajah] ambil murid fallback:', e); }
     }
     if (!murid) { fxToast('error', 'Data murid tidak ditemukan.'); return; }
@@ -2020,9 +2019,8 @@
         const mapKelas = {};
         if (!nisList.length) return mapKelas;
         try {
-          const query = fxSupabase().from('akun').select('nis_nip, wajah_descriptor, wajah_status')
-            .eq('tipe', 'murid').in('nis_nip', nisList).not('wajah_descriptor', 'is', null);
-          const rows = await fxAmbilSemua(query);
+          // [FASE B] Peta wajah NIS terpilih lewat RPC (tabel `akun` RLS ketat).
+          const rows = await akunPetaWajah({ nisList });
           (rows || []).forEach(r => {
             if (r.wajah_status !== 'aktif') return;
             const list = normalisasiDescriptorWajah(r.wajah_descriptor);
@@ -2297,10 +2295,8 @@
       if (!nisS) throw new Error('NIS pemanggil kosong.');
 
       // Ambil descriptor murid ini (mendukung MULTI-SAMPEL; data lama flat juga terbaca).
-      const rows = await fxAmbilSemua(
-        fxSupabase().from('akun').select('nis_nip, wajah_descriptor')
-          .eq('tipe', 'murid').eq('nis_nip', nisS).eq('wajah_status', 'aktif').not('wajah_descriptor', 'is', null)
-      );
+      // [FASE B] Descriptor murid ini lewat RPC (hanya status 'aktif').
+      const rows = await akunPetaWajah({ nisList: [nisS], aktifSaja: true });
       const row = (rows || [])[0];
       const daftarSampel = row ? normalisasiDescriptorWajah(row.wajah_descriptor) : null;
       if (!daftarSampel || !daftarSampel.length) {
