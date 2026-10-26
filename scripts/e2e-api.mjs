@@ -283,6 +283,28 @@ async function main() {
         cek('RPC ambil_rapor_nilai_murid (rapor murid, anon) — nilai terbaca', !error && data?.status === 'success' && Array.isArray(data?.nilai), error?.message);
     }
     {
+        // [FASE B] Panel murid "Absen Mandiri" memakai RPC khusus
+        // `ambil_sesi_absen_murid` (lihat fix_20261029_murid_kanal_absen.sql):
+        //  - tanpa bukti identitas → `[]` (mencegah nama/NIP guru bocor ke anon),
+        //  - dengan `sesi_token` murid yang valid → array (boleh kosong bila saat
+        //    tes tidak ada guru yang membuka sesi absen).
+        const { data: sesiKosong, error: eSesiKosong } = await anon.rpc('ambil_sesi_absen_murid', { p_token: '', p_klaim_nis: '' });
+        cek('RPC ambil_sesi_absen_murid (anon tanpa identitas) → []', !eSesiKosong && Array.isArray(sesiKosong) && sesiKosong.length === 0,
+            eSesiKosong?.message || JSON.stringify(sesiKosong).slice(0, 80));
+
+        const { data: loginSesi } = await anon.rpc('cek_login_murid', { p_nis: NIS_MURID, p_password: 'uji1234' });
+        const tokenSesi = (loginSesi && loginSesi.sesi_token) || '';
+        const { data: sesiToken, error: eSesiToken } = await anon.rpc('ambil_sesi_absen_murid', { p_token: tokenSesi, p_klaim_nis: NIS_MURID });
+        cek('RPC ambil_sesi_absen_murid (murid ber-sesi_token) — array terbaca', !eSesiToken && Array.isArray(sesiToken), eSesiToken?.message);
+
+        // Kolom yang dikirim ke murid WAJIB terbatas (captcha/kunci_absen TIDAK ikut).
+        if (Array.isArray(sesiToken) && sesiToken.length > 0) {
+            const kolomSah = ['nis_nip', 'nama_lengkap', 'mapel', 'ekstrakurikuler'];
+            const kolomEkstra = Object.keys(sesiToken[0]).filter((k) => !kolomSah.includes(k));
+            cek('Kolom sesi murid hanya nis_nip/nama_lengkap/mapel/ekstrakurikuler (captcha tidak ikut)', kolomEkstra.length === 0, kolomEkstra.join(', '));
+        }
+    }
+    {
         // [MIGRASI 20260926] anon (pengurus ekskul) kini diberi akses penuh tabel nilai
         const { error: eNilai } = await anon.from('nilai').select().limit(1);
         cek('Anon BISA baca tabel nilai (pengurus ekskul — grant 20260926)', !eNilai, eNilai?.message);

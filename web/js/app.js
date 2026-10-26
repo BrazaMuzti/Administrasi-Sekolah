@@ -1512,7 +1512,7 @@ async function cekGeofenceGPS(gpsLokasi, kategori, namaMapel) {
   const gpsTxt = String(gpsLokasi || '').trim();
   const m = gpsTxt.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)\s*$/);
   if (!m) {
-    return { ok: false, pesan: 'Geofence sekolah aktief, maar lokasi GPS niet verkregen (' + gpsTxt + '). Schakel lokasi in en probeer opnieuw.' };
+    return { ok: false, pesan: 'Geofence sekolah aktif, tetapi lokasi GPS tidak diperoleh (' + gpsTxt + '). Aktifkan lokasi lalu coba lagi.' };
   }
   const lat = parseFloat(m[1].replace(',', '.'));
   const lng = parseFloat(m[2].replace(',', '.'));
@@ -1527,7 +1527,16 @@ async function cekGeofenceGPS(gpsLokasi, kategori, namaMapel) {
  *  Dipanggil sia dari tombol "Saya Hadir Hari Ini" sia otomatis dari face scan.
  *  @param {Object} o { captcha, gps, wajahCocok, sumber } */
 async function jalankanAbsenMandiri(o) {
-  const mapelRaw = document.getElementById('murid-mapel').value.split('|');
+  const selMapel = document.getElementById('murid-mapel');
+  // Pilihan Mapel/Ekskul dibangun dari sesi guru yang TERBUKA; bila dropdown
+  // masih berisi placeholder (tanpa value), jangan kirim mapel kosong ke server —
+  // beri pesan yang bisa dimengerti murid (dulu: TypeError / ditolak server).
+  if (!selMapel || !String(selMapel.value || '').trim()) {
+    const pesanSesi = 'Sesi absen belum tersedia — minta guru pengampu membuka sesi absen (Kunci Absen -> BUKA) lebih dulu.';
+    Swal.fire({ icon: 'warning', title: 'Sesi Absen Belum Terbuka', text: pesanSesi, background: '#1e293b', color: '#fff' });
+    return { status: 'error', message: pesanSesi };
+  }
+  const mapelRaw = selMapel.value.split('|');
   const btn = document.getElementById('btn-absen-mandiri');
   // Metode 1 (Kode Captcha): kode diisi murid. Metode 2 (Face Scan NIS): kode
   // captcha TIDAK diperlukan — identitas diverifikasi via wajah cocok sesuai NIS.
@@ -1560,7 +1569,7 @@ async function jalankanAbsenMandiri(o) {
       if (stW) stW.innerHTML = '<span class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark mr-1"></i>' + escapeHtml(pesanLoc) + '</span>';
       return { status: 'error', message: pesanLoc };
     }
-    Swal.fire({ icon: 'error', title: 'Geofence Blokkeerd', text: pesanLoc, background: '#1e293b', color: '#fff' });
+    Swal.fire({ icon: 'error', title: 'Lokasi Diblokir', text: pesanLoc, background: '#1e293b', color: '#fff' });
     return { status: 'error', message: pesanLoc };
   }
 
@@ -2088,11 +2097,14 @@ async function renderAbsenMandiriMurid(container) {
   const isoHariIni = ISO_HARIAN(now);
   const liburHariIni = isHariLiburDariMap(isoHariIni, (now.getDay() + 6) % 7, events);
 
-  // Sesi absen yang dibuka guru (kolom captcha sengaja TIDAK diambil)
+  // Sesi absen yang dibuka guru (kolom captcha sengaja TIDAK diambil).
+  // [FASE B] Murid memakai RPC khusus `ambil_sesi_absen_murid`: `ambil_daftar_guru`
+  // digerbang fn_is_admin()/fn_is_guru(), jadi SELALU `[]` untuk sesi murid —
+  // gejalanya "Tidak Ada Sesi Absen Terbuka" DAN dropdown Mapel/Ekskul kosong
+  // (daftar pilihan dibangun dari `sesiGuru` di bawah).
   let sesiGuru = [];
   try {
-    // [FASE B] Daftar sesi BUKA lewat RPC (tabel `akun` RLS ketat).
-    sesiGuru = await akunDaftarGuru('guru_kanal_absen', { tipe: '', hanyaBuka: true });
+    sesiGuru = await akunSesiAbsenMurid();
   } catch (e) { console.warn('sesi absen:', e); }
 
   const jamSekarang = `${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
@@ -2174,7 +2186,7 @@ async function renderAbsenMandiriMurid(container) {
           </button>
         </div>
         <div id="blok-metoda-wajah" class="hidden">
-          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-id-card mr-1"></i> Pindai Wajah <span class="text-slate-500 normal-case font-normal">(metode 2 — zonder kode captcha)</span></label>
+          <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-id-card mr-1"></i> Pindai Wajah <span class="text-slate-500 normal-case font-normal">(metode 2 — tanpa kode captcha)</span></label>
           <div class="mt-1 flex items-center gap-2">
             <button type="button" id="btn-pindai-wajah-mandiri" onclick="pindaiWajahMandiriSaya()"
               class="bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white px-3 py-2 rounded-lg text-[11px] font-bold transition whitespace-nowrap">

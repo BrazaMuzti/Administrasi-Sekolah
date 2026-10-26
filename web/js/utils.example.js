@@ -374,7 +374,7 @@ async function apiCall(action, data = {}) {
       // guru tidak lagi dibaca langsung dari klien (tabel `akun` ber-RLS ketat).
       const cekSesi = await akunCekSesiAbsen(data.mapel, data.captcha);
       if (cekSesi.status !== 'success') return { status: 'error', message: cekSesi.message || 'Validasi sesi absen gagal.' };
-      if (!cekSesi.sesi_buka) return { status: 'error', message: 'Sesi absen belum dibuka guru voor ' + String(data.mapel || '') + '.' };
+      if (!cekSesi.sesi_buka) return { status: 'error', message: 'Sesi absen belum dibuka guru untuk ' + String(data.mapel || '') + '.' };
       const captchaTekst = String(data.captcha || '').trim();
       if (captchaTekst !== '') {
         if (!cekSesi.captcha_ok) return { status: 'error', message: 'Captcha salah atau sesi absen belum dibuka guru.' };
@@ -566,6 +566,23 @@ async function akunCekSesiAbsen(mapel, captcha) {
   }, sesiRpc()));
   if (error) return { status: 'error', message: error.message };
   return data || { status: 'error', message: 'Validasi sesi absen gagal.' };
+}
+
+/** [FASE B] Daftar sesi absen yang SEDANG DIBUKA guru/admin (`kunci_absen`
+ *  'BUKA') untuk panel murid **Absen Mandiri**. Kolom yang dikirim:
+ *  `nis_nip`, `nama_lengkap`, `mapel`, `ekstrakurikuler` (captcha & kunci_absen
+ *  sengaja tidak dikirim — lihat `fix_20261029_murid_kanal_absen.sql`).
+ *  Murid TIDAK memakai `akunDaftarGuru('guru_kanal_absen')`: RPC
+ *  `ambil_daftar_guru` digerbang `fn_is_admin()/fn_is_guru()`, jadi selalu
+ *  membalas `[]` untuk sesi murid. */
+async function akunSesiAbsenMurid() {
+  // Payload ditulis lewat `Object.assign` (bukan langsung `sesiRpc()`) supaya
+  // argumennya terbaca statis oleh penjaga `npm run test:rpc-args` — bentuk
+  // langsung hanya memicu WARN "tak terbaca penuh". Isinya `{ p_token,
+  // p_klaim_nis }`, persis dua parameter RPC-nya.
+  const { data, error } = await supaRpc('ambil_sesi_absen_murid', Object.assign({}, sesiRpc()));
+  if (error) { console.warn('akunSesiAbsenMurid:', error.message); return []; }
+  return Array.isArray(data) ? data : [];
 }
 
 /** Simpan riwayat kelas &/atau riwayat ekskul murid (hanya field yang dikirim). */

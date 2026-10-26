@@ -9,7 +9,7 @@ PostgREST & fungsi RPC.
 | Bagian | Lokasi | Keterangan |
 |---|---|---|
 | Frontend | `web/` | HTML + JS murni + Tailwind v4, `@supabase/supabase-js` via CDN |
-| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (82 blok, dirakit otomatis oleh `npm run build:sql`) |
+| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (83 blok, dirakit otomatis oleh `npm run build:sql`) |
 | Deploy | GitHub Pages (default) / Vercel (alternatif) | GitHub Pages: otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`). Vercel: lihat [bagian 5](#5-deploy--vercel-alternatif) |
 
 ## Menjalankan Lokal
@@ -81,7 +81,7 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
 
 | Kondisi | File yang dijalankan |
 |---|---|
-| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **82 berkas upgrade** (2026-09-03 s.d. 2026-10-28), sekali jalan |
+| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **83 berkas upgrade** (2026-09-03 s.d. 2026-10-29), sekali jalan |
 | **Project sudah berjalan**, tertinggal beberapa upgrade | file satu-persatu di `supabase/sql/`, **urut tanggal**, hanya yang belum ada di database |
 
 3. Salin seluruh isi file ke SQL Editor (atau pakai tombol **upload** file `.sql`)
@@ -90,7 +90,7 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
    (`akun`, `master_data`, `absensi`, `nilai`, `ekstrakurikuler`, dst.).
 
 > Semua file SQL **idempotent** (aman dijalankan berulang). Daftar lengkap isi &
-> urutan 82 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
+> urutan 83 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
 > (`npm run build:sql`) — jangan diedit manual; `npm run check:sql` akan gagal bila basi.
 > File `uji_data.sql` / `uji_bersih.sql` khusus pengujian E2E — jangan dijalankan di produksi.
 
@@ -144,7 +144,7 @@ menaruh `service_role key` di kode frontend.
 
 #### Fase B — sesi murid di server + RLS ketat pada tabel `akun`
 
-Sejak upgrade `20261028a`–`20261028d` (lihat `supabase/sql/README.md` entri 69–73):
+Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri 69–74):
 
 - **Tabel `akun` ber-RLS ketat** dan `anon` tidak punya hak apa pun atas tabel
   itu; seluruh baca/tulis dari browser lewat RPC `SECURITY DEFINER`
@@ -156,24 +156,33 @@ Sejak upgrade `20261028a`–`20261028d` (lihat `supabase/sql/README.md` entri 69
   identitas setelah `fix_20261028d_sesi_wajib.sql`.
 - **Kontrak argumen RPC berbeda per fase** — jangan tertukar: RPC baca
   (`ambil_daftar_murid`, `ambil_akun_satu`, `ambil_peta_wajah`,
-  `cek_sesi_absen`, `simpan_riwayat_murid`, `simpan_ekskul_murid`) menerima
+  `cek_sesi_absen`, `ambil_sesi_absen_murid`, `simpan_riwayat_murid`,
+  `simpan_ekskul_murid`) menerima
   `p_token` + `p_klaim_nis` (helper `sesiRpc()`), sedangkan RPC penulis Fase B2
   (`ubah_profil_murid`, `ubah_password_sendiri`, `simpan_wajah_murid`,
   `ubah_anggota_ekskul`, `ganti_kunci_absen_ekskul`) **hanya** `p_token`.
   Mengirim argumen yang tidak dideklarasikan fungsi membuat PostgREST
   membalas **PGRST202** ("Could not find the function … in the schema cache").
   Jalankan `npm run test:rpc-args` setiap kali menyentuh nama argumen RPC —
-  skrip ini membandingkan 64 titik panggilan RPC di frontend dengan signature
+  skrip ini membandingkan 66 titik panggilan RPC di frontend dengan signature
   di `supabase/sql/*.sql` (plus self-test yang membuktikan detektornya bekerja).
 - **Urutan deploy wajib:** (1) jalankan `20261028a` → `20261028b` → `20261028b2`
-  di Supabase, (2) deploy frontend (`js/app.js?v=20261028f`), (3) baru jalankan
-  `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Rollback RLS cukup
+  di Supabase, (2) deploy frontend (`js/app.js?v=20261029b` — tag terbaru saat
+  dokumen ini diperbarui), (3) baru jalankan
+  `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Untuk perbaikan
+  menu murid **Absen Mandiri**, jalankan `fix_20261029_murid_kanal_absen.sql`
+  **sebelum** frontend `?v=20261029b` ter-deploy — RPC `ambil_sesi_absen_murid`
+  wajib sudah ada di database, kalau tidak panel murid tetap kosong. Rollback
+  RLS cukup
   satu perintah: `alter table akun disable row level security;`.
   Pastikan `npm run test:rpc-args` hijau sebelum deploy frontend, lalu naikkan
   tag `?v=` di `web/index.html` setiap kali `app.js`/`utils.js`/`face.js`
   berubah (tag `20261028f` = perbaikan argumen RPC + tombol "Simpan Perubahan"
   di Data Akun Murid yang dulu gagal dengan PGRST202, ditambah **tombol
-  "Install Aplikasi"** PWA & service worker `sw.js`).
+  "Install Aplikasi"** PWA & service worker `sw.js`). Tag terakhir `20261029b`
+  = **kanal absen murid** (`ambil_sesi_absen_murid`, entri 74) + pesan geofence
+  berbahasa Indonesia; `VERSION` di `web/sw.js` naik ke `v4` dan stempel
+  `BUILD` di `web/js/install.js` ikut bernilai `20261029b`.
 
 ---
 
@@ -291,7 +300,7 @@ agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lem
 ```bash
 npm run build:css      # build CSS produksi (minify)
 npm run dev:css        # watch mode CSS
-npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (82 blok)
+npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (83 blok)
 npm run check:sql      # periksa gabungan.sql sudah sinkron/terdaftar semua
 npm run build:icons    # buat ulang ikon PWA (PNG 192/512/maskable + apple-touch)
 npm run test:rpc-args  # penjaga PGRST202: argumen RPC frontend vs signature SQL
@@ -395,7 +404,7 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
 5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
-6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261029a'`; muncul di
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261029b'`; muncul di
    console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
    Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
    memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama

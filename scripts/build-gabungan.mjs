@@ -149,7 +149,8 @@ const URUTAN = [
   'upgrade_20261028b_rpc_akun.sql', // WAJIB sebelum b2 (b2 = revisi b)
   'upgrade_20261028b2_token_rpc_murid.sql',
   'upgrade_20261028c_rls_akun_ketat.sql',
-  'fix_20261028d_sesi_wajib.sql'
+  'fix_20261028d_sesi_wajib.sql',
+  'fix_20261029_murid_kanal_absen.sql'
 ];
 
 // ============================================================

@@ -6,7 +6,7 @@ Folder ini berisi skema database **versi terkini** untuk SIAKAD/SISIP.
 
 | File | Keterangan |
 |---|---|
-| `gabungan.sql` | **Gabungan seluruh 82 berkas migrasi** (2026-09-03 s.d. 2026-10-28) dalam satu file, urut **eksekusi** pengembangan, **tanpa data uji**. Dirakit otomatis oleh `npm run build:sql` — **jangan diedit manual** (`npm run check:sql` akan gagal bila basi). |
+| `gabungan.sql` | **Gabungan seluruh 83 berkas migrasi** (2026-09-03 s.d. 2026-10-29) dalam satu file, urut **eksekusi** pengembangan, **tanpa data uji**. Dirakit otomatis oleh `npm run build:sql` — **jangan diedit manual** (`npm run check:sql` akan gagal bila basi). |
 | `upgrade_*.sql` / `fix_*.sql` | Salinan file satu-persatu (nama & isi sama dengan `../`), urut tanggal. |
 | `uji_*.sql` / `diag_*.sql` | Berkas bantu pengujian E2E (`uji_data`, `uji_bersih`, `uji_bersih_penugasan`, `uji_data_penugasan`) & diagnosa (`diag_20261019_nis_ta_lain`) — **tidak ikut** ke `gabungan.sql` dan **jangan dijalankan di produksi**. |
 
@@ -24,7 +24,7 @@ Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap
 ```bash
 npm run build:sql                       # rakit ulang setelah menambah/mengubah berkas migrasi
 npm run check:sql                       # periksa saja (exit 1 bila basi / manifest tidak konsisten)
-node scripts/build-gabungan.mjs --list  # lihat urutan 82 blok
+node scripts/build-gabungan.mjs --list  # lihat urutan 83 blok
 ```
 
 `scripts/build-gabungan.mjs` menyimpan daftar urut **eksplisit** (`const URUTAN`).
@@ -40,7 +40,7 @@ Penjaga lain: isi blok lama tidak boleh menyimpang dari berkas sumbernya, dan ju
 > jadwal_pelajaran` **tanpa** guard `if not exists`). Jadi urutan `gabungan.sql` **bukan**
 > hasil sort nama berkas — jangan diacak.
 
-## Urutan file satu-persatu (82 berkas)
+## Urutan file satu-persatu (83 berkas)
 
 1. `upgrade_20260903.sql` — kolom profil akun + tabel master_data (13 kolom gaya Sheets) + RLS
 2. `fix_20260903_kredensial.sql` — kredensial murid & RPC (pengganti bagian 20260903)
@@ -163,3 +163,5 @@ Penjaga lain: isi blok lama tidak boleh menyimpang dari berkas sumbernya, dan ju
 72. `upgrade_20261028c_rls_akun_ketat.sql` — **Fase B (4/4): RLS ketat pada `public.akun`.** `alter table akun enable row level security` (**TANPA** `force` — force akan mematikan semua RPC SECURITY DEFINER), policy `akun_auth_baca` (baris sendiri ATAU staf), `akun_admin_tulis` (admin), `akun_guru_tulis_sendiri`, lalu `revoke all on akun from anon` (termasuk dua grant per-kolom `ekstrakurikuler`/`jabatan_ekskul_map` dari 20260926). ⚠ Jalankan **hanya setelah** frontend `js/app.js?v=20261028a` ter-deploy. Rollback = `alter table akun disable row level security;`. Idempotent (cek `pg_policies`; memberi `raise warning` bila `force` RLS menyala).
 
 73. `fix_20261028d_sesi_wajib.sql` — **Fase B (penutup): klaim NIS tanpa token dimatikan.** `fn_akses_murid`/`fn_akses_murid_list` dibuat ulang sehingga token `sesi_lokal` menjadi SATU-SATUNYA bukti identitas murid (parameter `p_nis_fallback` sengaja diabaikan). Jalankan setelah frontend baru ter-deploy → murid yang masih memegang token gaya lama akan diminta login ulang (memang tujuannya). Rollback = jalankan ulang `upgrade_20261028a_sesi_lokal_murid.sql` (blok 3d/3e). Tidak ada perubahan tabel.
+
+74. `fix_20261029_murid_kanal_absen.sql` — **Perbaikan menu murid "Absen Mandiri": sesi terbuka + dropdown Mapel/Ekstrakurikuler.** Panel murid memuat sesi lewat `akunDaftarGuru('guru_kanal_absen')` → RPC `ambil_daftar_guru` (entri 70), padahal fungsi itu digerbang `fn_is_admin()/fn_is_guru()`. Sesi murid tidak lolos gerbang itu — murid password lokal ber-peran PostgREST `anon` (`fn_role()` = `''`), murid ber-JWT Auth `fn_role()` = `'murid'` — sehingga RPC **selalu** `[]` dan panel menampilkan DUA gejala: kartu "Tidak Ada Sesi Absen Terbuka" walau guru sudah Kunci Absen → BUKA, **dan** dropdown Mapel/Ekskul kosong (pilihannya dibangun dari `sesiGuru` × jadwal kelas di `jadwal_pelajaran` [dibaca anon lewat policy `jadwal_baca_anon`] × ekskul murid). Isi: RPC baca baru `ambil_sesi_absen_murid(p_token, p_klaim_nis)` — `SECURITY DEFINER`, mengembalikan HANYA `nis_nip`, `nama_lengkap`, `mapel`, `ekstrakurikuler` untuk baris `tipe in ('guru','admin')` dengan `kunci_absen = 'BUKA'` (kolom `captcha` & `kunci_absen` sengaja tidak dikirim) — dengan gerbang 3 jalur: staf, murid ber-JWT (`fn_role() = 'murid'`), atau token `sesi_lokal` valid (`fn_akses_murid`); tanpa salah satunya → `[]` (daftar akun tidak bocor ke anon). Sengaja fungsi TERPISAH (bukan melonggarkan `ambil_daftar_guru`) agar 9 titik pemanggil staf tidak tersentuh. Grant `execute` ke `anon, authenticated`; verifikasi `do $$` + `notify pgrst`. Sisi klien: helper `akunSesiAbsenMurid()` (`utils.js`/`utils.example.js`), panel murid memakainya, null-guard `#murid-mapel` di `jalankanAbsenMandiri`, 3 string Belanda diterjemahkan, cache-bust `?v=20261029b` (`VERSION` `sw.js` → `v4`, stempel `install.js` ikut). ⚠ Jalankan **sebelum** frontend `?v=20261029b` ter-deploy. Tanpa perubahan tabel; rollback = `drop function if exists ambil_sesi_absen_murid(text, text);`. Idempotent.

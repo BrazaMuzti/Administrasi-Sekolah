@@ -22,6 +22,7 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20261028b2_token_rpc_murid.sql` (Fase B: RPC murid wajib `p_token`)
    - `upgrade_20261028c_rls_akun_ketat.sql` (**BARU jalankan setelah frontend baru ter-deploy** — RLS ketat `akun` + `revoke all from anon`)
    - `fix_20261028d_sesi_wajib.sql` (**terakhir** — klaim NIS tanpa token ditolak; murid lama diminta login ulang)
+   - `fix_20261029_murid_kanal_absen.sql` (**BARU — jalankan sebelum frontend `?v=20261029b` ter-deploy**; RPC `ambil_sesi_absen_murid` untuk menu murid "Absen Mandiri")
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.
@@ -136,7 +137,12 @@ Akun uji:
 - [ ] (console) `bisaEditAkunMurid()` → `true` utk admin.
 
 ### S14c — Absen Mandiri: dua metode — Kode Captcha / Face Scan NIS (Req B1)
-- [ ] Login murid `UJI999` → **Absen Mandiri** → guru telah membuka sesi (Kunci Absen → BUKA) voor mapel/ekskul.
+- [ ] Login murid `UJI999` → **Absen Mandiri** → guru telah membuka sesi (Kunci Absen → BUKA) untuk mapel/ekskul.
+- [ ] **Kanal sesi murid (fix_20261029)**: kartu hijau **"Sesi Absen Terbuka"** muncul (bukan "Tidak Ada Sesi Absen Terbuka") dan dropdown **Mapel/Ekstrakurikuler** terisi (mapel dari jadwal kelas murid + ekskul murid). Di console, muat panel memanggil **`ambil_sesi_absen_murid`** — **bukan** `ambil_daftar_guru` (yang selalu `[]` untuk murid).
+- [ ] **Kanal sesi murid — ditutup lagi**: guru klik Kunci Absen → **TUTUP** → muat ulang panel murid → kartu kembali kosong ("Tidak Ada Sesi Absen Terbuka") dan dropdown kembali placeholder (tanpa value).
+- [ ] **Kanal sesi murid — tanpa sesi valid**: di console murid jalankan `localStorage.setItem('sisip_token','mati')` → muat ulang panel **Absen Mandiri** → kartu kosong **dan** console tidak menampilkan daftar akun/NIP guru (RPC membalas `[]`); server tidak membocorkan data ke anon.
+- [ ] **Kanal sesi murid — submit tanpa pilihan**: dengan dropdown masih placeholder, klik **Saya Hadir Hari Ini** → muncul peringatan "Sesi Absen Belum Terbuka" (bukan error TypeError / tolakan server yang membingungkan).
+- [ ] **Pesan Indonesia**: pesan geofence/GPS & label metode absen memakai bahasa Indonesia (mis. "Geofence sekolah aktif, tetapi lokasi GPS tidak diperoleh …", judul "Lokasi Diblokir", "(metode 2 — tanpa kode captcha)").
 - [ ] Selector **Metode Absen** tampil met 2 puns: **Kode Captcha** (actief standaard) en **Face Scan**.
 - [ ] **Metode 1 — Kode Captcha**: kies mapel, ketik kode captcha → klik **Saya Hadir Hari Ini** → baris `absensi` status `'H'` (wajah_cocok=false). Kode kosong → toast "Captcha kosong!" zonder API-request.
 - [ ] **Metode 2 — Face Scan (NIS)**: klik pun **Face Scan** → alleen blok kamera tampil (input kode captcha niet zichtbaar/aktief).
@@ -229,7 +235,7 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 
 - [ ] **Gate statis**: `npm run check:icons` → `✅ Ikon PWA lengkap`; `node --check web/js/install.js` dan `node --check web/sw.js` → tanpa error.
 - [ ] **Service worker aktif**: buka SISIP → hard refresh (Ctrl+F5) → DevTools → Application → *Service Workers*: status **activated and is running**, scope = `/Administrasi-Sekolah/` (**bukan** `/`). Console: `[PWA] Service worker terdaftar. Scope: …/Administrasi-Sekolah/`.
-- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v3` memuat `index.html`, `offline.html`, `css/style.css?v=20261029a`, `js/app.js?v=20261029a`, `js/install.js?v=20261029a`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
+- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v4` memuat `index.html`, `offline.html`, `css/style.css?v=20261029b`, `js/app.js?v=20261029b`, `js/install.js?v=20261029b`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
 - [ ] **Manifest bersih**: Application → *Manifest* → Name "SISIP…", Short name `SISIP`, Start URL `./index.html`, Display **standalone**, ikon 192 & 512 terdeteksi, **tanpa** peringatan "Must include a 192px/512px icon".
 - [ ] **Android (Chrome/Opera/Samsung)**: tombol **Pasang** muncul di header **dan** kartu "Pasang Aplikasi SISIP" muncul di dashboard → klik → prompt pemasangan muncul → setelah dipasang: toast "Berhasil Dipasang!", tombol & kartu hilang, ikon SISIP ada di launcher **tanpa terpotong** (bukti ikon `maskable` benar).
 - [ ] **Buka dari ikon (standalone)**: tidak ada address bar, header tampil penuh, login → dashboard normal, dan **tidak** ada ajakan pasang lagi.
@@ -238,9 +244,9 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 - [ ] **Prompt notifikasi 1× per perangkat**: muncul sekali (kunci `sisip_pwa_notif_ditanya`); memilih "Tidak" tidak membuatnya bertanya lagi di perangkat yang sama.
 - [ ] **Fallback offline**: DevTools → Network → centang *Offline* → reload → tampil `offline.html` (bukan halaman error browser); tombol **Muat Ulang Halaman** berhasil setelah koneksi kembali.
 - [ ] **Data tidak dilayani dari cache**: saat offline, pembacaan data Supabase gagal wajar (request lintas-origin dilewatkan service worker) — pastikan **tidak ada** data lama/kadaluarsa yang muncul.
-- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261029a`; `<html data-sisip-build="20261029a">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
+- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261029b`; `<html data-sisip-build="20261029b">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
 - [ ] **Update versi otomatis**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia — mengaktifkan sekarang…` → `[SISIP] Service worker baru aktif — memuat ulang sekali.` → halaman memuat ulang sendiri → aset yang dipakai ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`). Tidak perlu hard refresh manual.
-- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v3` (+ `sisip-runtime-v3` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
+- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v4` (+ `sisip-runtime-v4` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
 - [ ] **Ritual naik versi**: `web/index.html` (`?v=`) dan `PRECACHE`/`VERSION` di `web/sw.js` sudah sejalan, dan kedua situs (GitHub Pages **dan** mirror Vercel) sama-sama menerima `web/` terbaru — lihat README §8c.
 
 ---
@@ -264,7 +270,7 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 
 # OTOMASI TINGKAT 1 — API (tanpa browser)
 
-Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±50 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel, **akses pengurus ekskul (anon): sub-ekskul, nilai ekskul, agenda/dispensasi, jabatan_ekskul_map & multi-pembina (migrasi 20260926)**, dan **Fase B (upgrade 20261028): `cek_login_murid` menerbitkan `sesi_token` 64 hex, RPC `simpan_ekskul_murid` ber-token berhasil, update `akun` langsung dari anon DITOLAK (RLS ketat), RPC baca `akun` tanpa token ditolak** — lalu membersihkan data ujinya sendiri.
+Skrip `scripts/e2e-api.mjs` menjalankan alur bisnis inti secara otomatis (±65 assertion): login admin/guru, buat murid uji via RPC, kenaikan naik/turun/tolak-guru, perpus + denda telat, SPP → kas, poin + ambang, PPDB → konversi akun, pembacaan murid-anon + proteksi tabel, **akses pengurus ekskul (anon): sub-ekskul, nilai ekskul, agenda/dispensasi, jabatan_ekskul_map & multi-pembina (migrasi 20260926)**, dan **Fase B (upgrade 20261028): `cek_login_murid` menerbitkan `sesi_token` 64 hex, RPC `simpan_ekskul_murid` ber-token berhasil, update `akun` langsung dari anon DITOLAK (RLS ketat), RPC baca `akun` tanpa token ditolak**, **kanal sesi murid (`fix_20261029`): `ambil_sesi_absen_murid` tanpa identitas → `[]`, dengan `sesi_token` murid → array dan kolomnya hanya `nis_nip`/`nama_lengkap`/`mapel`/`ekstrakurikuler` (captcha tidak ikut)** — lalu membersihkan data ujinya sendiri.
 
 ## Persiapan sekali saja
 1. **Akun uji email** — script otomasi memakai **EMAIL + password Supabase Auth** (bukan NIS/NIP/password lokal):
