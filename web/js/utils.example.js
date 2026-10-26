@@ -574,15 +574,41 @@ async function akunCekSesiAbsen(mapel, captcha) {
  *  sengaja tidak dikirim — lihat `fix_20261029_murid_kanal_absen.sql`).
  *  Murid TIDAK memakai `akunDaftarGuru('guru_kanal_absen')`: RPC
  *  `ambil_daftar_guru` digerbang `fn_is_admin()/fn_is_guru()`, jadi selalu
- *  membalas `[]` untuk sesi murid. */
+ *  membalas `[]` untuk sesi murid.
+ *
+ *  Kembalian = ARRAY sesi seperti sebelumnya (`.length`/`.map` tetap aman),
+ *  DITAMBAH dua properti diagnosis agar panel murid dapat menjelaskan SEBAB
+ *  daftarnya kosong tanpa membocorkan apa pun dari server:
+ *    .sebab  'ok' | 'kosong' | 'token-basi' | 'rpc-tidak-ada' | 'gagal'
+ *    .pesan  pesan mentah server (untuk log/diagnosis)
+ *  Properti ditempel pada array (bukan objek baru) supaya build lama yang
+ *  masih memanggil fungsi ini tetap menerima array biasa → aman ketika
+ *  sebagian host masih menyajikan berkas versi lama (kasus drift build). */
 async function akunSesiAbsenMurid() {
   // Payload ditulis lewat `Object.assign` (bukan langsung `sesiRpc()`) supaya
   // argumennya terbaca statis oleh penjaga `npm run test:rpc-args` — bentuk
   // langsung hanya memicu WARN "tak terbaca penuh". Isinya `{ p_token,
   // p_klaim_nis }`, persis dua parameter RPC-nya.
   const { data, error } = await supaRpc('ambil_sesi_absen_murid', Object.assign({}, sesiRpc()));
-  if (error) { console.warn('akunSesiAbsenMurid:', error.message); return []; }
-  return Array.isArray(data) ? data : [];
+  const hasil = (!error && Array.isArray(data)) ? data : [];
+  hasil.pesan = error ? String((error && error.message) || error) : '';
+  if (error) {
+    console.warn('akunSesiAbsenMurid:', hasil.pesan);
+    // PGRST202/PGRST404 = RPC belum ada di server (DB/host belum dimigrasi).
+    hasil.sebab = /PGRST202|PGRST404|Could not find the function/i.test(hasil.pesan) ? 'rpc-tidak-ada' : 'gagal';
+    return hasil;
+  }
+  if (hasil.length > 0) { hasil.sebab = 'ok'; return hasil; }
+  // Kosong: bedakan "belum ada guru ber-BUKA" dari "bukti identitas murid
+  // tidak sah". Token gaya lama (`lokal-…`) atau token kosong tidak lagi
+  // dikenali server (`fn_akses_murid` sejak `fix_20261028d` hanya menerima
+  // token `sesi_lokal`) → pesannya harus "masuk ulang", bukan "minta guru
+  // membuka sesi absen".
+  const sesi = getCurrentUser() || {};
+  const tok = String(getToken() || '');
+  const tokenBasi = !tok || tok.indexOf('lokal-') === 0;
+  hasil.sebab = (String(sesi.role || '') === 'murid' && tokenBasi) ? 'token-basi' : 'kosong';
+  return hasil;
 }
 
 /** Simpan riwayat kelas &/atau riwayat ekskul murid (hanya field yang dikirim). */

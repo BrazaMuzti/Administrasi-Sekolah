@@ -22,7 +22,7 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20261028b2_token_rpc_murid.sql` (Fase B: RPC murid wajib `p_token`)
    - `upgrade_20261028c_rls_akun_ketat.sql` (**BARU jalankan setelah frontend baru ter-deploy** — RLS ketat `akun` + `revoke all from anon`)
    - `fix_20261028d_sesi_wajib.sql` (**terakhir** — klaim NIS tanpa token ditolak; murid lama diminta login ulang)
-   - `fix_20261029_murid_kanal_absen.sql` (**BARU — jalankan sebelum frontend `?v=20261029b` ter-deploy**; RPC `ambil_sesi_absen_murid` untuk menu murid "Absen Mandiri")
+   - `fix_20261029_murid_kanal_absen.sql` (**BARU — jalankan sebelum frontend `?v=20261030a` ter-deploy**; RPC `ambil_sesi_absen_murid` untuk menu murid "Absen Mandiri")
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.
@@ -142,7 +142,11 @@ Akun uji:
 - [ ] **Kanal sesi murid — ditutup lagi**: guru klik Kunci Absen → **TUTUP** → muat ulang panel murid → kartu kembali kosong ("Tidak Ada Sesi Absen Terbuka") dan dropdown kembali placeholder (tanpa value).
 - [ ] **Kanal sesi murid — tanpa sesi valid**: di console murid jalankan `localStorage.setItem('sisip_token','mati')` → muat ulang panel **Absen Mandiri** → kartu kosong **dan** console tidak menampilkan daftar akun/NIP guru (RPC membalas `[]`); server tidak membocorkan data ke anon.
 - [ ] **Kanal sesi murid — submit tanpa pilihan**: dengan dropdown masih placeholder, klik **Saya Hadir Hari Ini** → muncul peringatan "Sesi Absen Belum Terbuka" (bukan error TypeError / tolakan server yang membingungkan).
+- [ ] **Pesan kosong informatif (build `20261030a`)**: dengan sesi tertutup, kartu kosong menyebut sebabnya secara spesifik — mis. "Belum Ada Sesi Absen Terbuka" (guru memang belum klik BUKA) — bukan teks generik yang menyiratkan aplikasi rusak.
+- [ ] **Token murid basi**: di console murid jalankan `localStorage.setItem('sisip_token','mati')` → muat panel **Absen Mandiri** → muncul judul khusus + tombol **Keluar** (bukan pesan kosong tanpa jalan keluar); klik tombol → kembali ke halaman login.
+- [ ] **Sesi BUKA di luar jam pelajaran**: guru buka sesi (Kunci Absen → BUKA), lalu uji panel murid **di luar jam mapel** tersebut → kartu **tetap** hijau, dropdown **tetap** bisa dipilih, dan absen **berhasil** tercatat (`absensi` status `'H'`) — server hanya memeriksa `kunci_absen`, captcha/wajah, dan mapel, **bukan** jam; yang muncul hanya catatan informasi jam.
 - [ ] **Pesan Indonesia**: pesan geofence/GPS & label metode absen memakai bahasa Indonesia (mis. "Geofence sekolah aktif, tetapi lokasi GPS tidak diperoleh …", judul "Lokasi Diblokir", "(metode 2 — tanpa kode captcha)").
+- [ ] **Cadangan opsi mapel**: bila sesi BUKA memakai mapel yang tidak ada di `jadwal_pelajaran` kelas murid, opsi mapel **tetap muncul** dari daftar sesi terbuka (dropdown kosong = murid mustahil diabsen).
 - [ ] Selector **Metode Absen** tampil met 2 puns: **Kode Captcha** (actief standaard) en **Face Scan**.
 - [ ] **Metode 1 — Kode Captcha**: kies mapel, ketik kode captcha → klik **Saya Hadir Hari Ini** → baris `absensi` status `'H'` (wajah_cocok=false). Kode kosong → toast "Captcha kosong!" zonder API-request.
 - [ ] **Metode 2 — Face Scan (NIS)**: klik pun **Face Scan** → alleen blok kamera tampil (input kode captcha niet zichtbaar/aktief).
@@ -234,8 +238,9 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 (cek kelengkapan: `npm run check:icons`).
 
 - [ ] **Gate statis**: `npm run check:icons` → `✅ Ikon PWA lengkap`; `node --check web/js/install.js` dan `node --check web/sw.js` → tanpa error.
+- [ ] **Semua host sinkron (anti-drift)**: `npm run check:deploy` → **semua** host (GitHub Pages, mirror Vercel, custom domain) melaporkan stempel build yang sama dengan repo ini; bila satu host tertinggal, skrip berhenti dengan exit code `1` dan menyebut alasannya. Cek manual cepat di **setiap** host: `curl -s <url>/js/utils.js | grep -c akunSesiAbsenMurid` harus `1` (host lama = `0` → menu Absen Mandiri murid mati di host itu).
 - [ ] **Service worker aktif**: buka SISIP → hard refresh (Ctrl+F5) → DevTools → Application → *Service Workers*: status **activated and is running**, scope = `/Administrasi-Sekolah/` (**bukan** `/`). Console: `[PWA] Service worker terdaftar. Scope: …/Administrasi-Sekolah/`.
-- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v4` memuat `index.html`, `offline.html`, `css/style.css?v=20261029b`, `js/app.js?v=20261029b`, `js/install.js?v=20261029b`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
+- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v5` memuat `index.html`, `offline.html`, `css/style.css?v=20261030a`, `js/app.js?v=20261030a`, `js/install.js?v=20261030a`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
 - [ ] **Manifest bersih**: Application → *Manifest* → Name "SISIP…", Short name `SISIP`, Start URL `./index.html`, Display **standalone**, ikon 192 & 512 terdeteksi, **tanpa** peringatan "Must include a 192px/512px icon".
 - [ ] **Android (Chrome/Opera/Samsung)**: tombol **Pasang** muncul di header **dan** kartu "Pasang Aplikasi SISIP" muncul di dashboard → klik → prompt pemasangan muncul → setelah dipasang: toast "Berhasil Dipasang!", tombol & kartu hilang, ikon SISIP ada di launcher **tanpa terpotong** (bukti ikon `maskable` benar).
 - [ ] **Buka dari ikon (standalone)**: tidak ada address bar, header tampil penuh, login → dashboard normal, dan **tidak** ada ajakan pasang lagi.
@@ -244,9 +249,9 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 - [ ] **Prompt notifikasi 1× per perangkat**: muncul sekali (kunci `sisip_pwa_notif_ditanya`); memilih "Tidak" tidak membuatnya bertanya lagi di perangkat yang sama.
 - [ ] **Fallback offline**: DevTools → Network → centang *Offline* → reload → tampil `offline.html` (bukan halaman error browser); tombol **Muat Ulang Halaman** berhasil setelah koneksi kembali.
 - [ ] **Data tidak dilayani dari cache**: saat offline, pembacaan data Supabase gagal wajar (request lintas-origin dilewatkan service worker) — pastikan **tidak ada** data lama/kadaluarsa yang muncul.
-- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261029b`; `<html data-sisip-build="20261029b">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
+- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261030a`; `<html data-sisip-build="20261030a">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
 - [ ] **Update versi otomatis**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia — mengaktifkan sekarang…` → `[SISIP] Service worker baru aktif — memuat ulang sekali.` → halaman memuat ulang sendiri → aset yang dipakai ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`). Tidak perlu hard refresh manual.
-- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v4` (+ `sisip-runtime-v4` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
+- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v5` (+ `sisip-runtime-v5` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
 - [ ] **Ritual naik versi**: `web/index.html` (`?v=`) dan `PRECACHE`/`VERSION` di `web/sw.js` sudah sejalan, dan kedua situs (GitHub Pages **dan** mirror Vercel) sama-sama menerima `web/` terbaru — lihat README §8c.
 
 ---

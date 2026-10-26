@@ -167,11 +167,11 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   skrip ini membandingkan 66 titik panggilan RPC di frontend dengan signature
   di `supabase/sql/*.sql` (plus self-test yang membuktikan detektornya bekerja).
 - **Urutan deploy wajib:** (1) jalankan `20261028a` → `20261028b` → `20261028b2`
-  di Supabase, (2) deploy frontend (`js/app.js?v=20261029b` — tag terbaru saat
+  di Supabase, (2) deploy frontend (`js/app.js?v=20261030a` — tag terbaru saat
   dokumen ini diperbarui), (3) baru jalankan
   `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Untuk perbaikan
   menu murid **Absen Mandiri**, jalankan `fix_20261029_murid_kanal_absen.sql`
-  **sebelum** frontend `?v=20261029b` ter-deploy — RPC `ambil_sesi_absen_murid`
+  **sebelum** frontend `?v=20261030a` ter-deploy — RPC `ambil_sesi_absen_murid`
   wajib sudah ada di database, kalau tidak panel murid tetap kosong. Rollback
   RLS cukup
   satu perintah: `alter table akun disable row level security;`.
@@ -179,10 +179,18 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   tag `?v=` di `web/index.html` setiap kali `app.js`/`utils.js`/`face.js`
   berubah (tag `20261028f` = perbaikan argumen RPC + tombol "Simpan Perubahan"
   di Data Akun Murid yang dulu gagal dengan PGRST202, ditambah **tombol
-  "Install Aplikasi"** PWA & service worker `sw.js`). Tag terakhir `20261029b`
-  = **kanal absen murid** (`ambil_sesi_absen_murid`, entri 74) + pesan geofence
-  berbahasa Indonesia; `VERSION` di `web/sw.js` naik ke `v4` dan stempel
-  `BUILD` di `web/js/install.js` ikut bernilai `20261029b`.
+  "Install Aplikasi"** PWA & service worker `sw.js`). Tag terakhir `20261030a`
+  = **Absen Mandiri murid tahan beda host**: panel murid membaca sesi lewat RPC
+  `ambil_sesi_absen_murid` (entri 74), pesan kosong kini mendiagnosis sebabnya
+  (sesi memang belum dibuka / token murid basi — lengkap dengan tombol keluar /
+  RPC belum terpasang / gagal jaringan), sesi ber-`kunci_absen='BUKA'` tetap
+  dapat diabsen **di luar jam pelajaran** (server memang hanya memeriksa
+  `kunci_absen`, captcha/wajah, dan mapel — tidak memeriksa jam), dan opsi
+  Mapel/Ekstrakurikuler punya cadangan bila sesi terbuka tidak ada di jadwal
+  kelas; `VERSION` di `web/sw.js` naik ke `v5` dan stempel
+  `BUILD` di `web/js/install.js` ikut bernilai `20261030a`. Setelah deploy,
+  **jalankan `npm run check:deploy`** — skrip ini membandingkan stempel build +
+  hash berkas tiap host dan gagal bila ada host yang tertinggal (§7 butir 8).
 
 ---
 
@@ -404,7 +412,7 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
 5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
-6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261029b'`; muncul di
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261030a'`; muncul di
    console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
    Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
    memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama
@@ -430,7 +438,18 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    git worktree remove --force /tmp/mirror-sync
    ```
 
-   Verifikasi setelah push: `curl -s https://smkn2banjar.vercel.app/index.html | grep -o 'v=[0-9a-z]*'`
+   **Penting:** `git archive HEAD web` hanya membawa berkas **terlacak**, jadi
+   `web/js/utils.js` milik mirror (ber-kredensial) tetap utuh — memang itu yang
+   diinginkan. Namun berkas itu **juga harus ikut naik** setiap kali
+   `web/js/utils.example.js` berubah (template baru + `utils.js` lama = fitur
+   baru mati di host itu, persis kasus `akunSesiAbsenMurid`). Kredensial kedua
+   situs identik (`https://lkhuyoihrrnzvrmhquln.supabase.co`), jadi cukup salin
+   berkas lokal ke worktree sebelum commit:
+   `cp web/js/utils.js /tmp/mirror-sync/web/js/utils.js`.
+
+   Verifikasi setelah push — cara tercepat sekaligus memeriksa **semua** host:
+   `npm run check:deploy` (harus hijau). Setara manual:
+   `curl -s https://smkn2banjar.vercel.app/index.html | grep -o 'v=[0-9a-z]*'`
    harus menampilkan tag terbaru, dan `manifest.json` harus JSON sah
    (`curl -s …/manifest.json | node -e "JSON.parse(require('fs').readFileSync(0))"`).
 
@@ -449,5 +468,24 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    `npm run build:css && node scripts/generate-utils.mjs`, plus Environment Variables
    `SUPABASE_URL` & `SUPABASE_ANON_KEY` — mirror tidak diperlukan lagi dan risiko
    drift hilang.
+8. **Penjaga drift build antar-host** (`scripts/deploy-urls.json` +
+   `scripts/cek-deploy.mjs`). Berkas JSON itu mendaftar **semua** host yang
+   menyajikan aplikasi (Pages, mirror Vercel, custom domain `.my.id` nanti).
+   `npm run check:deploy` mengunduh `index.html`, `sw.js`, `js/install.js`,
+   `js/app.js`, dan `js/utils.js` dari **setiap** host lalu membandingkannya
+   dengan folder `web/` repo ini: meta `sisip-build`, `BUILD` di `install.js`,
+   `VERSION` di `sw.js`, tag `?v=` di daftar `PRECACHE`, hash `js/app.js`,
+   keberadaan simbol `akunSesiAbsenMurid`/`ambil_sesi_absen_murid` di
+   `utils.js`, dan tidak adanya penanda template. Satu host berbeda → exit code
+   `1` + daftar alasannya (ditambah blok "stempel" agar mudah dibandingkan).
+   Jalankan **setiap habis deploy**; workflow Pages juga memanggilnya otomatis
+   sebagai *peringatan* (CDN bisa tayang beberapa menit setelah job selesai).
+   Menambah host sementara:
+   `npm run check:deploy -- --tambah sekolah=https://sekolahku.my.id/`; permanen
+   dengan menambah `{ "nama": "sekolah", "url": "https://sekolahku.my.id/" }` ke
+   `scripts/deploy-urls.json` (URL **wajib** diakhiri `/`). Untuk olah-mesin:
+   `npm run check:deploy -- --json`; batasi host tertentu dengan
+   `--host github-pages`. Skrip ini **tidak** menyentuh server mana pun
+   (HTTP GET saja), jadi aman dijalankan kapan saja.
 
 

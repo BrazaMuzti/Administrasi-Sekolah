@@ -73,3 +73,10 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+      # Penjaga DRIFT build antar-host (scripts/cek-deploy.mjs + scripts/deploy-urls.json).
+      # Kasus nyata: host mirror menyajikan build lama sehingga fitur baru
+      # (Absen Mandiri murid) hanya mati di host itu. Hanya PERINGATAN karena CDN
+      # Pages/Vercel butuh beberapa menit tayang setelah job ini selesai — jalankan
+      # `npm run check:deploy` manual beberapa menit kemudian untuk kepastian.
+      - name: Cek drift build antar-host (peringatan)
+        run: npm run check:deploy || echo "::warning::Ada host yang menyajikan build berbeda dari repo ini — lihat log di atas, lalu sinkronkan host tersebut (README §7 butir 7-8)."

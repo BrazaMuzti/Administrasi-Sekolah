@@ -2102,9 +2102,15 @@ async function renderAbsenMandiriMurid(container) {
   // digerbang fn_is_admin()/fn_is_guru(), jadi SELALU `[]` untuk sesi murid —
   // gejalanya "Tidak Ada Sesi Absen Terbuka" DAN dropdown Mapel/Ekskul kosong
   // (daftar pilihan dibangun dari `sesiGuru` di bawah).
+  // `akunSesiAbsenMurid()` mengembalikan array + properti `.sebab` (lihat
+  // utils.js) supaya panel bisa menjelaskan SEBAB daftarnya kosong:
+  // 'kosong' (belum ada guru BUKA) vs 'token-basi' (login kedaluwarsa) vs
+  // 'rpc-tidak-ada' (server belum dimigrasi) vs 'gagal' (jaringan).
   let sesiGuru = [];
+  let sebabSesiKosong = 'kosong';
   try {
     sesiGuru = await akunSesiAbsenMurid();
+    sebabSesiKosong = String(sesiGuru.sebab || 'kosong');
   } catch (e) { console.warn('sesi absen:', e); }
 
   const jamSekarang = `${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
@@ -2129,35 +2135,101 @@ async function renderAbsenMandiriMurid(container) {
         const guruSesi = sesiGuru.find(g => String(g.mapel || '').toLowerCase().includes(String(j.Mapel || '').toLowerCase()));
         if (!guruSesi) return;
         const sesiJam = dalamJamSesi(j.Waktu);
-        opsi.push({ value: `Mapel|${j.Mapel}`, label: `${j.Mapel} — ${jamDariWaktuDgn(j.Waktu)}${sesiJam ? '' : ' (di luar jam pelajaran)'}`, ok: sesiJam });
+        // [ABSEN-2] Sesi berstatus BUKA tetap DAPAT dipilih walau jam pelajaran
+        // sudah lewat/bergeser: RPC `absen_mandiri` di server hanya memvalidasi
+        // `kunci_absen = 'BUKA'` + captcha/wajah (+ mapel/ekskul cocok) dan
+        // TIDAK memeriksa jam pelajaran. Memblokir di klien membuat murid tidak
+        // bisa absen padahal guru sudah membuka sesinya. `diLuarJam` hanya
+        // dipakai untuk keterangan, bukan untuk mematikan tombol.
+        opsi.push({ value: `Mapel|${j.Mapel}`, label: `${j.Mapel} — ${jamDariWaktuDgn(j.Waktu)}${sesiJam ? '' : ' (di luar jam pelajaran)'}`, ok: true, diLuarJam: !sesiJam });
       });
     sesiGuru.forEach(g => {
       String(g.ekstrakurikuler || '').split(',').map(e => e.trim()).filter(Boolean).forEach(ek => {
         if (!ekskulSaya.includes(ek)) return;
         if (opsi.some(o => o.value === `Ekskul|${ek}`)) return;
-        opsi.push({ value: `Ekskul|${ek}`, label: `${ek} (Ekstrakurikuler)`, ok: true });
+        opsi.push({ value: `Ekskul|${ek}`, label: `${ek} (Ekstrakurikuler)`, ok: true, diLuarJam: false });
       });
+    });
+    // [ABSEN-3] Sesi BUKA yang mapelnya tidak ketemu di jadwal kelas hari ini
+    // (jadwal belum diisi / beda penulisan) tetap ditawarkan, supaya murid tidak
+    // terkunci dari sesi yang jelas-jelas sudah dibuka guru. Nilai `mapel` yang
+    // dikirim persis sama dengan kolom `akun.mapel` guru → cocok dengan uji
+    // `g.mapel ilike '%' || p_mapel || '%'` di server.
+    sesiGuru.forEach(g => {
+      const mp = String(g.mapel || '').trim();
+      if (!mp) return;
+      const sudahAda = opsi.some(o => String(o.value).toLowerCase() === 'mapel|' + mp.toLowerCase());
+      if (sudahAda) return;
+      // Sudah terwakili opsi jadwal lain (nama mapel saling memuat) → jangan dobel.
+      const terwakiliJadwal = opsi.some(o => o.value.indexOf('Mapel|') === 0
+        && String(o.value.slice(6) || '').toLowerCase().includes(mp.toLowerCase()));
+      if (terwakiliJadwal) return;
+      opsi.push({ value: `Mapel|${mp}`, label: `${mp} — ${g.nama_lengkap || 'guru'} (sesi terbuka)`, ok: true, diLuarJam: false });
     });
   }
   const opsiAktif = opsi.filter(o => o.ok);
+  const adaDiLuarJam = opsiAktif.length > 0 && opsiAktif.every(o => o.diLuarJam);
+
+  // Pesan diagnosis: SEBAB daftar sesi kosong (dari `akunSesiAbsenMurid().sebab`).
+  // Tujuannya supaya murid/admin tidak salah menyimpulkan "guru belum buka sesi"
+  // padahal masalahnya di build/DB host yang sedang dibuka.
+  const pesanSesiKosong = {
+    'token-basi': {
+      judul: 'Sesi Login Anda Kedaluwarsa',
+      isi: 'Daftar sesi absen tidak dapat dibaca karena token login Anda sudah tidak dikenali server. Keluar dari aplikasi lalu masuk kembali (NIS + password), kemudian buka lagi Absen Mandiri.',
+      placeholder: '— Sesi login kedaluwarsa: masuk ulang dulu —'
+    },
+    'rpc-tidak-ada': {
+      judul: 'Server Belum Diperbarui',
+      isi: 'Halaman ini terhubung ke server (Supabase) yang belum memiliki fungsi pembaca sesi absen murid. Hubungi admin agar migrasi SQL terbaru dijalankan, atau buka aplikasi dari alamat (host) yang sudah diperbarui.',
+      placeholder: '— Server belum diperbarui (hubungi admin) —'
+    },
+    'gagal': {
+      judul: 'Gagal Memuat Sesi Absen',
+      isi: 'Aplikasi tidak dapat menghubungi server. Periksa koneksi internet lalu muat ulang halaman ini.',
+      placeholder: '— Gagal menghubungi server —'
+    },
+    'kosong': {
+      judul: 'Tidak Ada Sesi Absen Terbuka',
+      isi: 'Minta guru pengampu membuka sesi absen (Kunci Absen → BUKA) dan bagikan kode captcha (Metode 1). Metode wajah (Face Scan NIS) tetap memerlukan sesi terbuka.',
+      placeholder: '— Belum ada sesi absen yang dibuka guru —'
+    }
+  };
+  const pesanKosong = pesanSesiKosong[sebabSesiKosong] || pesanSesiKosong['kosong'];
+  // Placeholder dropdown: bedakan "tidak ada sesi terbuka" dari "ada sesi terbuka
+  // tetapi tidak cocok dengan kelas/mapel murid ini" (mis. sesi untuk kelas lain).
+  const placeholderOpsi = sesiGuru.length > 0
+    ? '— Ada sesi terbuka, tetapi belum cocok dengan kelas/mapel Anda: hubungi guru pengampu —'
+    : pesanKosong.placeholder;
+
   const sesiHTML = sesiGuru.length === 0
     ? `<div class="bg-red-600/20 border border-red-500/40 rounded-xl p-4 text-center">
         <i class="fa-solid fa-lock text-3xl text-red-400 mb-2"></i>
-        <p class="text-sm font-bold text-red-300">Tidak Ada Sesi Absen Terbuka</p>
-        <p class="text-[10px] text-slate-400 mt-1">Minta guru pengampu membuka sesi absen (Kunci Absen → BUKA) dan bagikan kode captcha (Metode 1). Metode wajah (Face Scan NIS) tetap memerlukan sesi terbuka.</p>
+        <p class="text-sm font-bold text-red-300">${escapeHtml(pesanKosong.judul)}</p>
+        <p class="text-[10px] text-slate-400 mt-1">${escapeHtml(pesanKosong.isi)}</p>
+        ${sebabSesiKosong === 'token-basi' ? '<button type="button" onclick="logout()" class="mt-3 bg-slate-800 hover:bg-slate-700 border border-white/20 text-white text-[10px] font-bold px-3 py-2 rounded-lg transition"><i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar & Masuk Ulang</button>' : ''}
       </div>`
     : `<div class="bg-green-600/20 border border-green-500/40 rounded-xl p-3">
         <p class="text-[10px] font-bold text-green-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-circle-check mr-1"></i> Sesi Absen Terbuka (${sesiGuru.length})</p>
         <div class="space-y-1">${sesiGuru.map(g => `<div class="text-[10px] text-white bg-white/5 rounded px-2 py-1"><i class="fa-solid fa-chalkboard-user text-green-400 mr-1"></i> ${escapeHtml(g.nama_lengkap || '-')} · ${escapeHtml(g.mapel || g.ekstrakurikuler || '-')}</div>`).join('')}</div>
       </div>`;
 
-  const formHTML = liburHariIni
+  // [ABSEN-4] Hari libur TIDAK lagi menutup form bila ada sesi yang benar-benar
+  // dibuka guru (mis. kegiatan susulan/ujian): penentu akhirnya server
+  // (`absen_mandiri` memvalidasi `kunci_absen = 'BUKA'` + captcha/wajah).
+  // Bila memang tidak ada sesi terbuka, perilaku lama (form ditutup) tetap.
+  const liburMenutup = liburHariIni && opsiAktif.length === 0;
+  const catatanJamHTML = adaDiLuarJam
+    ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-lg px-3 py-2 text-[9px] text-amber-200"><i class="fa-solid fa-clock mr-1"></i>Sesi ini dibuka guru di luar jam pelajaran Anda. Absen tetap dapat dikirim — keabsahannya diverifikasi server. Bila ragu, konfirmasi ke guru pengampu.</div>`
+    : '';
+  const formHTML = liburMenutup
     ? `<div class="bg-white/5 border border-white/10 rounded-xl p-4 text-center"><i class="fa-solid fa-umbrella-beach text-2xl text-slate-400 mb-2"></i><p class="text-[11px] text-slate-400 italic">Hari libur — absen mandiri ditutup.</p></div>`
     : `<div class="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+        ${catatanJamHTML}
         <div>
           <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Mapel / Ekstrakurikuler <span class="text-red-400">*</span></label>
           <select id="murid-mapel" onchange="berhentiPindaiWajahMandiri()" class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
-            ${opsiAktif.length === 0 ? '<option value="">— Tidak ada sesi yang cocok dengan jadwal Anda —</option>' : opsiAktif.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+            ${opsiAktif.length === 0 ? `<option value="">${escapeHtml(placeholderOpsi)}</option>` : opsiAktif.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
           </select>
         </div>
         <div>

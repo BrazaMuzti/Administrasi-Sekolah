@@ -1,0 +1,16 @@
+{
+  "_catatan": [
+    "Daftar host (situs) yang menyajikan aplikasi SISIP. Dipakai oleh `npm run check:deploy`",
+    "(scripts/cek-deploy.mjs) untuk mendeteksi DRIFT build antar-host.",
+    "Kasus nyata: host Vercel menyajikan build 20261029a sementara GitHub Pages 20261029b —",
+    "akibatnya Absen Mandiri murid mati di satu host tetapi normal di host lain, pada aplikasi yang sama.",
+    "Tambah host baru (mis. custom domain .my.id / domain sekolah) sebagai objek { nama, url }.",
+    "URL wajib diakhiri '/' karena index.html dicari relatif terhadap folder itu.",
+    "Verifikasi cepat tanpa mengubah berkas: `node scripts/cek-deploy.mjs --tambah sekolah=https://sekolahku.my.id/`"
+  ],
+  "_contoh_tambah_host": { "nama": "domain-sekolah", "url": "https://sekolahku.my.id/" },
+  "hosts": [
+    { "nama": "github-pages", "url": "https://brazamuzti.github.io/Administrasi-Sekolah/" },
+    { "nama": "vercel-mirror", "url": "https://smkn2banjar.vercel.app/" }
+  ]
+}
