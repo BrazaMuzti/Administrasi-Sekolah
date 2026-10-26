@@ -167,7 +167,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   skrip ini membandingkan 66 titik panggilan RPC di frontend dengan signature
   di `supabase/sql/*.sql` (plus self-test yang membuktikan detektornya bekerja).
 - **Urutan deploy wajib:** (1) jalankan `20261028a` → `20261028b` → `20261028b2`
-  di Supabase, (2) deploy frontend (`js/app.js?v=20261030a` — tag terbaru saat
+  di Supabase, (2) deploy frontend (`js/app.js?v=20261031a` — tag terbaru saat
   dokumen ini diperbarui), (3) baru jalankan
   `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Untuk perbaikan
   menu murid **Absen Mandiri**, jalankan `fix_20261029_murid_kanal_absen.sql`
@@ -179,7 +179,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   tag `?v=` di `web/index.html` setiap kali `app.js`/`utils.js`/`face.js`
   berubah (tag `20261028f` = perbaikan argumen RPC + tombol "Simpan Perubahan"
   di Data Akun Murid yang dulu gagal dengan PGRST202, ditambah **tombol
-  "Install Aplikasi"** PWA & service worker `sw.js`). Tag terakhir `20261030a`
+  "Install Aplikasi"** PWA & service worker `sw.js`). Tag `20261030a`
   = **Absen Mandiri murid tahan beda host**: panel murid membaca sesi lewat RPC
   `ambil_sesi_absen_murid` (entri 74), pesan kosong kini mendiagnosis sebabnya
   (sesi memang belum dibuka / token murid basi — lengkap dengan tombol keluar /
@@ -191,6 +191,18 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   `BUILD` di `web/js/install.js` ikut bernilai `20261030a`. Setelah deploy,
   **jalankan `npm run check:deploy`** — skrip ini membandingkan stempel build +
   hash berkas tiap host dan gagal bila ada host yang tertinggal (§7 butir 8).
+- **Akses admin di menu Data Akun Murid (tag terbaru `20261031a`):** dua aksi admin
+  — tombol **"Wajah Masal"** (RPC `simpan_wajah_murid`) dan tombol **"Simpan Data"**
+  pada form Edit/Tambah (RPC `buat_akun_murid`) — kini dijaga di **kedua sisi**.
+  Klien memakai helper bernama `aksesRegistrasiWajahMasal()` &
+  `aksesSimpanDataAkunMurid(data, isNew)` (sembunyi-tombol + penjaga lapis kedua),
+  sedangkan server dirapikan oleh
+  `supabase/sql/upgrade_20261031_akses_admin_akun_murid.sql`: `fn_role()`/`fn_nis()`
+  jadi deterministik **admin-first**, `fn_is_admin()` berbasis `exists`, plus
+  backfill `akun.user_id` untuk baris admin/guru yang belum tertaut ke akun login.
+  ⚠ **Jalankan SQL itu sebelum frontend `?v=20261031a` ter-deploy** — tanpa itu
+  admin tetap bisa ditolak server. `VERSION` di `web/sw.js` naik ke `v6` dan
+  `BUILD` di `web/js/install.js` bernilai `20261031a`.
 
 ---
 
@@ -260,6 +272,21 @@ Google Drive API v3 langsung dari Edge Function — *bukan* GAS Web App, yang te
 DriveApp untuk pemanggil anonim), **media sosial** (jsonb), **alamat Google Maps** (tautan,
 dibuka tab baru — iframe tidak dipasang karena kebijakan CSP `frame-ancestors`), **dropdown
 agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lembar foto siswa**.
+
+### Hak akses dua aksi admin (build `20261031a`)
+
+| Aksi di menu Data Akun Murid | RPC server | Siapa yang boleh |
+|---|---|---|
+| Tombol **Wajah Masal** (`scanWajahMasal()`) | `simpan_wajah_murid` | admin, guru wali kelas/pembina ekskul (murid: hanya wajahnya sendiri, bukan alur masal) |
+| Tombol **Simpan Data** pada form Edit/Tambah (`simpanAkunMurid()`) | `buat_akun_murid` | admin (tambah & edit, termasuk password), guru (edit murid yang diampu, tanpa ubah password) |
+
+Klien memakai helper bernama `aksesRegistrasiWajahMasal()` & `aksesSimpanDataAkunMurid(data, isNew)`
+di `web/js/app.js` untuk menyembunyikan tombol **dan** menolak aksi di lapis kedua. Server
+menjaminnya lewat `supabase/sql/upgrade_20261031_akses_admin_akun_murid.sql`
+(`fn_role`/`fn_nis` deterministik admin-first, `fn_is_admin` berbasis `exists`, backfill
+`akun.user_id`). Bila admin masih ditolak: cek `select nis_nip, tipe, user_id, email from akun
+where tipe = 'admin';` — baris admin harus `user_id` terisi (login sekali di aplikasi, atau
+jalankan file SQL di atas dan baca pesan `raise notice`/`raise warning`-nya).
 
 ### Persyaratan (sekali saja)
 
@@ -412,7 +439,7 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
 5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
-6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261030a'`; muncul di
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261031a'`; muncul di
    console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
    Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
    memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama
