@@ -1,12 +1,12 @@
 /* =====================================================================
  * face.js — Pengenalan Wajah SISIP (DUA MOTOR)
  * ---------------------------------------------------------------------
- * Motor wajah dihilihan per-browser (localStorage `sbg_wajah_motor`):
+ * Motor wajah dipilih per-browser (localStorage `sbg_wajah_motor`):
  *   'faceapi'   → vladmandic/face-api (TFJS, descriptor 128) — BAKU.
  *   'mediapipe' → MediaPipe Face Landmarker (wasm lokal) + MobileFaceNet
  *                 via ONNX Runtime Web (descriptor 512, models/mobilefacenet.onnx).
- * Semua motor sorun identiek interface: teteki serangkai FaceWajah
- * (pindai, registrasi, status) — de keuze blijft binnen deze file.
+ * Semua motor menyediakan antarmuka yang identik: satu objek `FaceWajah`
+ * (pindai, registrasi, status) — pilihan mesin tetap di dalam berkas ini.
  * Library & model dimuat dari folder lokal (vendor/ + models/),
  * bukan CDN — ramah jaringan sekolah (offline setelah cache pertama).
  * ===================================================================== */
@@ -48,6 +48,11 @@
   const DETECT_INTERVAL_MS = 400;   // jeda antar-frame analisis saat pindai live (dulu 180 ms — terlalu berat utk ponsel kelas menengah)
   const JUMLAH_SAMPEL_MAKS = 6;     // jumlah maksimal sampel descriptor per murid (array-of-arrays, adopsi multi-pose repo referensi)
   const HENTIAN_AUTO_MS = 8000;     // jeda masa tenggang utk siswa terlambat setelah SEMUA terdaftar terdeteksi → kamera henti otomatis
+  // Skor deteksi minimal frame LIVE agar ikut dicocokkan. Frame blur/jauh/gelap menghasilkan
+  // crop deskriptor yang menyimpang → jarak ke data registrasi membengkak (salah tolak),
+  // atau (lebih buruk) mirip wajah lain. Ambang foto (SKOR_MIN_FOTO 0.5) terlalu ketat utk
+  // video kelas (wajah kecil di baris belakang), jadi frame live memakai ambang sendiri.
+  const SKOR_MIN_PINDAI = 0.45;
 
   // ------------------------------------------------------------------
   // 0a. MOTOR WAJAH: DUA ENGINE (face-api baku ATAU MediaPipe + MobileFaceNet)
@@ -298,9 +303,9 @@
         throw new Error('Model descriptor wajah tidak dapat diunduh (HTTP ' + resp.status + '). Periksa file models/mobilefacenet.onnx.');
       }
       const bytes = await resp.arrayBuffer();
-      // wasmPaths (object): gebruik het RINGERE paar ort-wasm-simd-threaded.{mjs,wasm}
-      // uit vendor/onnx/ (14MB) in plaats van het 28MB jsep-paar dat het script-tag
-      // default zou zoeken. Fallback naar default gebeurt automatisch bij fout.
+      // wasmPaths (objek): pakai pasangan ort-wasm-simd-threaded.{mjs,wasm} yang lebih
+      // ringan dari vendor/onnx/ (14 MB), bukan pasangan jsep 28 MB yang dicari bawaan
+      // script-tag. Fallback ke bawaan terjadi otomatis bila gagal.
       mpOrtSession = await window.ort.InferenceSession.create(bytes, {
         executionProviders: ['WebAssembly'],
         numThreads: 1,
@@ -318,7 +323,7 @@
         const key = Object.keys(out || {})[0];
         const sh = key && out[key] && out[key].shape ? out[key].shape : null;
         if (sh && sh.length && sh[1]) mpDimensiWajah = sh[1];
-      } catch (e) { /* diplos hanya wanring — dim baku blijft 512 */ }
+      } catch (e) { /* uji output gagal — hanya peringatan; dimensi baku tetap 512 */ }
       if (!mpDimensiWajah) mpDimensiWajah = DIM_WAJAH_MEDIAPIPE;
     })();
     try {
@@ -497,9 +502,9 @@
    * Normalisasi wajah_descriptor dari DB (jsonb) → array berisi SATU ATAU LEBIH
    * vektor angka (128 utk face-api / 512 utk MobileFaceNet-mediapipe). Data lama
    * (flat vektor) otomatis dibungkus → [[...]], sehingga pembacaan tetap
-   * kompatibel voor en na migrasi multi-sampel.
-   * @param dim - dimensi vektor waiterin; baku per motor aktief (dimWajahMotor()).
-   * Mengembalikan `null` bila geen vektor valid.
+   * kompatibel sebelum dan sesudah migrasi multi-sampel.
+   * @param dim - dimensi vektor yang diharapkan; baku per motor aktif (dimWajahMotor()).
+   * Mengembalikan `null` bila tidak ada vektor valid.
    */
   function normalisasiDescriptorWajah(d, dim) {
     const dimW = dim || dimWajahMotor();
@@ -530,6 +535,17 @@
     return Math.max(0, Math.min(99, Math.round(p)));
   }
 
+  /** Ambang jarak "Hadir" yang BERLAKU (bisa dikalibrasi per perangkat tanpa ubah kode):
+   *  `localStorage.sbg_wajah_ambang` = angka 0.3–0.85 → dipakai menggantikan baku motor.
+   *  Berguna saat kamera kelas (lensa/jarak/cahaya) membuat jarak ke data registrasi
+   *  konsisten lebih besar/kecil dari baku; lihat teks "jarak x.xx" pada status pindai. */
+  function ambangCocok() {
+    let v = NaN;
+    try { v = parseFloat(localStorage.getItem('sbg_wajah_ambang')); } catch (e) { /* baku */ }
+    if (isFinite(v) && v >= 0.3 && v <= 0.85) return v;
+    return (motorWajah() === 'mediapipe') ? JARAK_COCOK_MP : JARAK_COCOK;
+  }
+
   /** Bangun matcher dari daftar { nis, descriptor } (dari DB wajah_descriptor jsonb).
    *  Setiap NIS memakai SEMUA sampel descriptor-nya — matcher mengambil jarak
    *  MINIMUM ke semua sampel (min-distance matching). Satu pose tampak berbeda bagi
@@ -551,7 +567,9 @@
       }
     });
     if (!labeled.length) return null;
-    return new fa.FaceMatcher(labeled, JARAK_KENAL);
+    // Ambang matcher minimal JARAK_KENAL, tetapi ikut naik bila perangkat dikalibrasi
+    // lebih longgar (sbg_wajah_ambang) — tanpa ini jarak >0.6 langsung jadi 'unknown'.
+    return new fa.FaceMatcher(labeled, Math.max(JARAK_KENAL, ambangCocok()));
   }
 
   /** Matcher mediapipe: min-distance Euclidean vektori (512) dinormalisasi (alle sampel). */
@@ -590,10 +608,10 @@
   // ------------------------------------------------------------------
   // 4b. DETEKSI + DESCRIPTOR — MOTOR MEDIAPIPE (Face Landmarker + MobileFaceNet)
   // ------------------------------------------------------------------
-  // Face Landmarker (tasks-vision) draait BlazeFace + landmarks 478-punt dalam
-  // wasm lokale (vendor/mediapipe/wasm/). Box wajah dihitung uit landmarks
-  // (min/max + padding) zodat kontrak semantik met de bestaande overlay-code
-  // identiek blijft: { detection: { box: {x,y,width,height} /* pixel frame */,
+  // Face Landmarker (tasks-vision) menjalankan BlazeFace + landmark 478 titik di
+  // wasm lokal (vendor/mediapipe/wasm/). Kotak wajah dihitung dari landmark
+  // (min/max + padding) agar kontrak semantik dengan kode overlay lama
+  // tetap identik: { detection: { box: {x,y,width,height} /* pixel frame */,
   // score }, landmarks: { positions: [{x,y} /* pixel */] } }.
   // Descriptor 512 via MobileFaceNet (ONNX Runtime Web), L2-dinormalisasi.
   let mpCanvasKe = null; // canvas offscreen pool utk baca pixel wajah
@@ -638,7 +656,7 @@
     let descriptor = null;
     if (o.descriptor) descriptor = await descriptorDariMediapipe(el, boks, w, h);
     return {
-      detection: { box: boks, score: 0.85 }, // landmarks aanwezig ⇒ hoge confidence
+      detection: { box: boks, score: 0.85 }, // landmark terdeteksi ⇒ keyakinan tinggi
       landmarks: { positions },
       descriptor,
       _frame: { w, h, at: Date.now() }
@@ -650,11 +668,11 @@
     await pastikanOrtEmbedder();
     const srcW = w || el.videoWidth || el.naturalWidth || el.width || 0;
     const srcH = h || el.videoHeight || el.naturalHeight || el.height || 0;
-    if (!srcW || !srcH) throw new Error('Frame wajah niet siap — coba lagi.');
+    if (!srcW || !srcH) throw new Error('Frame wajah belum siap — coba lagi.');
     const b = box || { x: 0, y: 0, width: srcW, height: srcH };
     const cw = Math.max(8, Math.min(b.width, srcW - b.x));
     const ch = Math.max(8, Math.min(b.height, srcH - b.y));
-    if (cw < 8 || ch < 8) throw new Error('Wajah terlalu kecil voor diproceso.');
+    if (cw < 8 || ch < 8) throw new Error('Wajah terlalu kecil untuk diproses.');
     const cv = mpCanvasKe || (mpCanvasKe = document.createElement('canvas'));
     cv.width = 112; cv.height = 112;
     const ctx = cv.getContext('2d');
@@ -663,8 +681,8 @@
     return await mpEmbedPixels(px);
   }
 
-  /** Reken descriptor dari pixel RGBA 112×112 (konvension RGB — zelfde pipelin
-   *  als validasi offline: (x−127.5)/127.5, CHW, L2-normalisasi). */
+  /** Hitung descriptor dari pixel RGBA 112×112 (konvensi RGB — pipeline sama
+   *  dengan validasi offline: (x−127.5)/127.5, CHW, normalisasi L2). */
   async function mpEmbedPixels(px) {
     await pastikanOrtEmbedder();
     const n = 112 * 112;
@@ -681,7 +699,7 @@
     const out = await mpOrtSession.run({ [naam]: t });
     const key = Object.keys(out || {})[0];
     const raw = (key && out[key] && out[key].data) ? out[key].data : null;
-    if (!raw) throw new Error('Model descriptor gagal berekenen (output leeg).');
+    if (!raw) throw new Error('Model descriptor gagal dihitung (output kosong).');
     const v = (raw instanceof Float32Array) ? raw : new Float32Array(raw);
     let norm = 0;
     for (let i = 0; i < v.length; i++) norm += v[i] * v[i];
@@ -692,10 +710,10 @@
     return d;
   }
 
-  /** Snapshot crop wajah (ImageData 128×128) op het moment van detectie in de
-   *  ringan-loop — descriptor wordt DETERMINISTISCH uit deze zelfde frame berekend
-   *  (landmarks MediaPipe zijn frame-gebonden; re-crop uit de huidige frame kan
-   *  mismatch geven als leerling beweegt tussen detectie en klik). */
+  /** Snapshot crop wajah (ImageData 128×128) pada saat deteksi di loop
+   *  pemindaian — descriptor dihitung DETERMINISTIS dari frame yang sama
+   *  (landmark MediaPipe terikat frame; crop ulang dari frame terkini bisa
+   *  menghasilkan mismatch bila murid bergerak antara deteksi dan klik). */
   function mpSnapshotFace(el, box) {
     try {
       const w = el.videoWidth || el.naturalWidth || el.width || 0;
@@ -779,9 +797,9 @@
   }
 
   /** Muat peta wajah semua murid terdaftar ({ nis_nip: {descriptor, status} }).
-   *  Cache is MOTOR-specifiek (dimensi descriptor 128/512) — na motor-switch
-   *  wordt de peta vers gebouwd zodat oude (128) rijen niet door de normalisasi
-   *  van de andere motor als 'aktif' blijven meetellen. */
+   *  Cache bersifat SPESIFIK-MOTOR (dimensi descriptor 128/512) — setelah ganti
+   *  motor, peta dibangun ulang agar baris lama (128) tidak ikut dihitung
+   *  'aktif' oleh normalisasi motor lain. */
   async function muatPetaWajah() {
     if (petaWajahCache && petaWajahCacheMotor === motorWajah()) return petaWajahCache;
     const fa = fxSupabase();
@@ -1054,6 +1072,49 @@
     }
   }
 
+  /** Rangkaian indeks landmark 68-titik face-api (kontur wajah) utk overlay scan.
+   *  [mulai, akhir, tutup] — `tutup` = hubungkan titik terakhir ke titik pertama. */
+  const KONTUR_68 = [
+    [0, 16, false], [17, 21, false], [22, 26, false], [27, 30, false], [31, 35, false],
+    [36, 41, true], [42, 47, true], [48, 59, true], [60, 67, true]
+  ];
+
+  /** Gambar kerangka landmark pada overlay pindai (68 titik face-api / 478 mediapipe).
+   *  Koordinat frame video dipetakan ke canvas memakai geometri yang SAMA dengan kotak
+   *  deteksi (object-contain + zoom + mirror) supaya titik menempel persis di wajah.
+   *  @param geo - { s, offX, offY, cW, mirror, warna } */
+  function gambarLandmarkPindai(ctx, positions, geo) {
+    if (!ctx || !positions || !positions.length) return;
+    const s = geo.s, offX = geo.offX, offY = geo.offY, cW = geo.cW;
+    const X = (p) => geo.mirror ? (cW - (offX + p.x * s)) : (offX + p.x * s);
+    const Y = (p) => offY + p.y * s;
+    ctx.save();
+    // Kontur landmark solid (bukan garis putus-putus kotak deteksi yang mungkin masih aktif).
+    ctx.setLineDash([]);
+    // Titik: semua landmark (face-api 68 / mediapipe 478) — mesh tipis, tidak menutupi wajah.
+    ctx.fillStyle = geo.warna || 'rgba(34,211,238,0.9)';
+    const radius = positions.length > 100 ? 0.9 : 1.3;
+    for (let i = 0; i < positions.length; i++) {
+      ctx.beginPath(); ctx.arc(X(positions[i]), Y(positions[i]), radius, 0, Math.PI * 2); ctx.fill();
+    }
+    // Garis kontur: hanya utk 68 titik (indeks dlib baku). Mediapipe 478 titik tidak punya
+    // kontur sederhana → cukup mesh titik (tetap terlihat seperti "scan").
+    if (positions.length === 68) {
+      ctx.strokeStyle = 'rgba(34,211,238,0.55)';
+      ctx.lineWidth = 1;
+      KONTUR_68.forEach(([awal, akhir, tutup]) => {
+        ctx.beginPath();
+        for (let i = awal; i <= akhir; i++) {
+          const px = X(positions[i]), py = Y(positions[i]);
+          if (i === awal) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        if (tutup) ctx.lineTo(X(positions[awal]), Y(positions[awal]));
+        ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+
   /**
    * Loop deteksi RINGAN untuk kamera depan (modal kelolaWajah).
    * inputSize 160 + TANPA FaceRecognitionNet per frame (net terberat) → indikator
@@ -1100,8 +1161,8 @@
       try {
         // Motor face-api: loop TIDAK menghitung descriptor (FaceRecognitionNet =
         // bagian terberat); cukup deteksi + landmarks → indikator hijau 1–3 dtk.
-        // Motor mediapipe: Face Landmarker ook ringan (wasm lokal, zonder ONNX);
-        // snapshot crop wajah bewaard voor DETERMINISTISCHE descriptor bij klik.
+        // Motor mediapipe: Face Landmarker juga ringan (wasm lokal, tanpa ONNX);
+        // snapshot crop wajah disimpan untuk descriptor DETERMINISTIS saat klik.
         const d = (motorWajah() === 'mediapipe')
           ? await detektiWajahMediapipe(videoEl, {})
           : await fa.detectSingleFace(videoEl, opts).withFaceLandmarks(true);
@@ -1256,8 +1317,8 @@
   async function descriptorDariHasilLive(videoEl, hasil) {
     if (!hasil) return null;
     if (motorWajah() === 'mediapipe') {
-      // Deskriptor deterministisch uit de snapshot die bij DETECTIE bewaard is
-      // (zelfde frame als de landmarks) — geen risico mismatch bij beweging.
+      // Deskriptor deterministik dari snapshot yang disimpan saat DETEKSI
+      // (frame yang sama dengan landmark) — tidak berisiko mismatch saat bergerak.
       try {
         const d = hasil._snap
           ? await descriptorDariImageDataKe(hasil._snap)
@@ -1605,9 +1666,10 @@
               await new Promise(r => setTimeout(r, 90));
             }
             // 2) Loop tak memberi hasil segar (mis. wajah baru muncul): hentikan loop dulu
-            //    (anti tumpukan deteksi) lalu satu deteksi — kini inputSize 160 (setara
-            //    loop, jauh lebih cepat dari 224) — dengan pengaman PANJANG (25 dtk)
-            //    + status penghitung — perangkat lambat tidak lagi dicap "terlalu lama".
+            //    (anti tumpukan deteksi) lalu satu deteksi pada inputSize 320 (SAMA dengan
+            //    deteksi foto/absen — landmark lebih presisi utk alignment deskriptor)
+            //    dengan pengaman PANJANG (25 dtk) + status penghitung — perangkat lambat
+            //    tidak lagi dicap "terlalu lama".
             if (!hasil) {
               if (!kameraBerjalan || !videoEl.srcObject) return; // modal/kamera sudah ditutup
               deteksiLoopToken++;                                // hentikan loop ringan sementara
@@ -1618,10 +1680,15 @@
               }, 3000);
               try {
                 const d = await Promise.race([
-                  deteksiSatuWajah(videoEl, { inputSize: 160, scoreThreshold: 0.2 }),
+                  deteksiSatuWajah(videoEl, { inputSize: 320, scoreThreshold: 0.2 }),
                   new Promise((_, rej) => setTimeout(() => rej(new Error('Pemindaian terlalu lama. Perangkat ini tampaknya lambat — hadapkan wajah lurus & tenang ke kamera, cukupi cahaya dari depan, lalu klik lagi.')), 25000))
                 ]);
-                if (d) hasil = { descriptor: Array.from(d.descriptor), skor: d.detection.score };
+                if (d) {
+                  // `deteksiSatuWajah` sudah memakai jalur dlib (alignDlib) yang sama dengan
+                  // sampel loop & pemindaian absen → deskriptornya langsung dipakai, tidak
+                  // dihitung ulang (hemat satu inferensi FaceRecognitionNet per klik).
+                  hasil = { descriptor: Array.from(d.descriptor), skor: (d.detection && d.detection.score) || 0 };
+                }
               } finally {
                 clearInterval(progres);
               }
@@ -2017,14 +2084,25 @@
       // Ambil descriptor kelas (sudah multi-sampel) — paralel dengan kamera & model.
       const janjiData = (async () => {
         const mapKelas = {};
-        if (!nisList.length) return mapKelas;
+        // Jumlah murid yang PUNYA vektor tetapi berdimensi motor lain (128 face-api vs
+        // 512 mediapipe). Tanpa hitungan ini `mapKelas` kosong dan panel menampilkan
+        // "belum terdaftar" — padahal penyebabnya beda mesin (lihat pesan di bawah).
+        let bedaMotor = 0;
+        if (!nisList.length) return { peta: mapKelas, bedaMotor };
         try {
           // [FASE B] Peta wajah NIS terpilih lewat RPC (tabel `akun` RLS ketat).
           const rows = await akunPetaWajah({ nisList });
           (rows || []).forEach(r => {
-            if (r.wajah_status !== 'aktif') return;
+            if (r.wajah_status !== 'aktif' || !r.wajah_descriptor) return;
             const list = normalisasiDescriptorWajah(r.wajah_descriptor);
             if (list && list.length) mapKelas[String(r.nis_nip)] = { descriptor: list };
+            else {
+              // Dimensi vektor apa adanya (flat 128/512 atau array-of-arrays multi-sampel).
+              const d0 = r.wajah_descriptor;
+              const dimV = (Array.isArray(d0) && typeof d0[0] === 'number') ? d0.length
+                : ((Array.isArray(d0) && Array.isArray(d0[0])) ? d0[0].length : 0);
+              if (dimV) bedaMotor += 1; // vektor sah tetapi milik mesin lain → hitung utk pesan
+            }
           });
         } catch (e) {
           const ganti = perjelasErrorJaringan(e,
@@ -2032,7 +2110,7 @@
           if (ganti) throw new Error(ganti);
           throw e;
         }
-        return mapKelas;
+        return { peta: mapKelas, bedaMotor };
       })();
 
       // Buka kamera: fallback berantai environment → user → tanpa facingMode.
@@ -2086,13 +2164,27 @@
       }
 
       // Tunggu data → matcher multi-sampel (min-distance).
-      const peta = await janjiData;
+      const hasilData = await janjiData;
+      const peta = hasilData.peta;
       const matcher = buatMatcherDariPeta(peta);
       if (!matcher) {
         berhentiPindaiWajah();
-        wrap.innerHTML = `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Belum ada siswa di kelas ini yang terdaftar wajah.<br><span class="text-amber-100/70">Daftarkan lewat tombol <b>Registrasi</b> pada baris murid di menu <b>Data Akun Murid</b>.</span></div>`;
+        // Bedakan dua penyebab: (a) memang belum ada wajah terdaftar, (b) ADA data
+        // tetapi dimensi vektornya milik motor lain (128 face-api vs 512 mediapipe) —
+        // normalisasiDescriptorWajah membuang vektor beda dimensi sehingga matcher kosong.
+        // Tanpa pesan ini, guru hanya melihat "belum terdaftar" padahal penyebabnya motor.
+        const adaData = Object.keys(peta || {}).length > 0 || hasilData.bedaMotor > 0;
+        wrap.innerHTML = adaData
+          ? `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Data wajah kelas ini terdaftar dengan <b>mesin pengenalan lain</b> (${motorWajah() === 'mediapipe' ? 'face-api 128-angka' : 'mediapipe 512-angka'}), sedangkan mesin aktif sekarang <b>${motorWajah()}</b> — vektor beda mesin tidak bisa dicocokkan.<br><span class="text-amber-100/70">Samakan mesin di perangkat ini (<code>localStorage.setItem('sbg_wajah_motor', …)</code> lalu muat ulang halaman) ATAU daftarkan ulang wajah siswa memakai mesin yang aktif.</span></div>`
+          : `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Belum ada siswa di kelas ini yang terdaftar wajah.<br><span class="text-amber-100/70">Daftarkan lewat tombol <b>Registrasi</b> pada baris murid di menu <b>Data Akun Murid</b>.</span></div>`;
         return;
       }
+
+      // Jumlah label yang BENAR-BENAR ikut matcher (vektor beda dimensi sudah dibuang)
+      // → dasar auto-hentian "semua terdaftar terdeteksi", bukan jumlah baris peta.
+      const dimAktif = dimWajahMotor();
+      const targheAktif = Object.keys(peta || {}).filter(nis =>
+        !!normalisasiDescriptorWajah(peta[nis] && peta[nis].descriptor, dimAktif)).length;
 
       // Indikator progres unduhan model (layar tidak diam membisu).
       let progresModel = null;
@@ -2113,7 +2205,7 @@
 
       setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera menyala — hadapkan wajah ke kamera.');
 
-      await loopDeteksiPindai({ wrap, video, overlay, matcher, peta, cooldown, setStatus, onMatch, nisList });
+      await loopDeteksiPindai({ wrap, video, overlay, matcher, peta, targhe: targheAktif, cooldown, setStatus, onMatch, nisList });
     } catch (e) {
       console.error('mulaiPindaiWajahAbsen:', e);
       const pesanKamera = /notallowederror|permissiondenied|denied/i.test(String((e && e.message) || e))
@@ -2125,9 +2217,10 @@
   }
 
   /** Loop deteksi wajah pada video live sampai dihentikan / modal tertutup.
-   *  inputSize 224 (bukan 320) + jeda DETECT_INTERVAL_MS (400 ms): beban inferensi
-   *  per frame turun drastis → perangkat menengah tidak panas/lag dan deteksi tidak
-   *  menumpuk. SEMUA sampel per NIS diikutkan via LabeledFaceDescriptors (min-distance).
+   *  inputSize 320 (SAMA dengan registrasi) + jeda DETECT_INTERVAL_MS (400 ms): kotak &
+   *  landmark cukup presisi utk crop deskriptor, sementara jeda antar-frame membatasi
+   *  beban inferensi (perangkat menengah tidak panas/lag dan deteksi tidak menumpuk).
+   *  SEMUA sampel per NIS diikutkan via LabeledFaceDescriptors (min-distance).
    *  AUTO-HENTIAN: bila SEMUA siswa terdaftar (targhe = jumlah label peta, min 2 — mode
    *  mandiri single-label tidak terpengaruh) sudah cocok, countdown masa tenggang HENTIAN_AUTO_MS;
    *  siswa terlambat masih bisa cocok & reset countdown → loop berhenti otomatis
@@ -2135,18 +2228,28 @@
    *  Catatan: `cooldown` dibaca dari `o.cooldown` (versi lama memakai nama `cooldown`
    *  yang tidak terdefinisi → ReferenceError begitu pertama kali cocok). */
   async function loopDeteksiPindai(o) {
-    // `fa`/opts alleen voor de face-api-tak; mediapipe tak gebruikt zijn eigen
-    // landmarker (geen afhankelijkheid van window.faceapi zodat die ook mag falen).
+    // `fa`/opts hanya untuk cabang face-api; cabang mediapipe memakai landmarker
+    // sendiri (tidak bergantung pada window.faceapi, sehingga face-api boleh gagal).
+    // inputSize 320 = RESOLUSI YANG SAMA dengan registrasi (`hasilDeteksiKuat` →
+    // deteksiSatuWajah inputSize 320). Dengan 224, kotak wajah & landmark kurang presisi
+    // sehingga crop deskriptor bergeser dan jarak Euclidean ke data registrasi membengkak
+    // (wajah benar dinyatakan "tidak dikenal"). 400 ms antar-frame tetap membatasi beban.
     const opts = (motorWajah() === 'mediapipe')
       ? null
-      : new window.faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.2 });
+      : new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.2 });
     const cooldown = o.cooldown || {};        // nis → timestamp cocok terakhir
-    const targheCocok = (o.peta && typeof o.peta === 'object') ? Object.keys(o.peta).length : 0;
+    const targheCocok = (typeof o.targhe === 'number')
+      ? o.targhe
+      : ((o.peta && typeof o.peta === 'object') ? Object.keys(o.peta).length : 0);
     const telahCocok = new Set();             // nis unik yang sudah cocok — utk deteksi "semua terdaftar ✓"
     let semuaSelamate = false;                // semua terdaftar cocok → countdown masa tenggang siswa terlambat
     let sejakSemua = 0;
     let terakhir = 0;
     let hadirCount = 0;
+    // Konfirmasi multi-frame: label harus stabil 2 frame berurutan sebelum dicatat hadir
+    // (satu frame blur/ambigu tidak langsung menandai siswa → mengurangi salah absen).
+    let kandidatNis = '';
+    let kandidatN = 0;
 
     while (scanAktif && !scanAktif.hentikan && o.wrap.isConnected) {
       // Gambar tiap frame video atau canvas overlay agar bersih
@@ -2178,7 +2281,7 @@
 
       // Jeda bila video belum siap (baru diganti kamera / pertama dibuka).
       // readyState < 2 (HAVE_CURRENT_DATA) → frame belum bisa dibaca face-api;
-      // men-detectSingleFace terlalu dini bikin error/\"video tidak siap\" dan
+      // men-detectSingleFace terlalu dini bikin error/"video tidak siap" dan
       // loop mati diam-diam sehingga pemindaian berhenti setelah ganti kamera.
       if (video.readyState < 2) {
         o.setStatus('<i class="fa-solid fa-video mr-1"></i>Menyiapkan frame kamera…', 'text-amber-200');
@@ -2187,10 +2290,30 @@
       }
 
       let deteksi = null;
+      let descriptor = null;
       try {
+        // Deteksi + landmarks; deskriptor dihitung lewat `descriptorDariHasilLive` supaya
+        // jalur registrasi (kamera) dan absen MEMAKAI SATU fungsi yang sama
+        // (landmarks.align({useDlibAlignment}) → extractFaces → FaceRecognitionNet).
+        // Catatan verifikasi: `.withFaceDescriptor()` bawaan face-api juga memakai
+        // useDlibAlignment (lihat alignDlib di vendor/face-api.min.js) → hasil vektornya
+        // setara; berbagi satu helper mencegah dua jalur menyimpang bila padding crop
+        // atau durasi frame berubah di kemudian hari.
         deteksi = (motorWajah() === 'mediapipe')
           ? await detektiWajahMediapipe(video, { descriptor: true })
-          : await window.faceapi.detectSingleFace(video, opts).withFaceLandmarks(true).withFaceDescriptor();
+          : await window.faceapi.detectSingleFace(video, opts).withFaceLandmarks(true);
+        if (deteksi) {
+          if (motorWajah() === 'mediapipe') {
+            descriptor = deteksi.descriptor ? Array.from(deteksi.descriptor) : null;
+          } else {
+            const h = await descriptorDariHasilLive(video, {
+              landmarks: deteksi.landmarks,
+              skor: deteksi.detection && deteksi.detection.score,
+              deteksi: deteksi.detection
+            });
+            descriptor = (h && h.descriptor) ? h.descriptor : null;
+          }
+        }
       } catch (e) {
         if (scanAktif && !scanAktif.hentikan) o.setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e && e.message ? e.message : 'Gagal memproses frame.'), 'text-amber-200');
         await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
@@ -2198,6 +2321,7 @@
       }
 
       if (!deteksi) {
+        kandidatNis = ''; kandidatN = 0; // wajah hilang → putus konfirmasi berurutan
         o.setStatus('<i class="fa-solid fa-face-smile mr-1"></i>Tidak ada wajah terdeteksi.');
         continue;
       }
@@ -2219,15 +2343,39 @@
       // Kotak deteksi: hijau (dash) → kotak cocok: hijau solid & lebih tebal.
       ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
       ctx.strokeRect(bx, by, b.width * s, b.height * s);
+      // Kerangka landmark (68 titik face-api / 478 mediapipe) — indikator visual bahwa
+      // wajah benar-benar terbaca & crop deskriptor tepat, bukan sekadar kotak.
+      gambarLandmarkPindai(ctx, deteksi.landmarks && deteksi.landmarks.positions, {
+        s, offX: offKX, offY: offKY, cW, mirror: mirrorK, warna: 'rgba(34,211,238,0.9)'
+      });
+      ctx.setLineDash([]);
+
+      // Kualitas frame: skor deteksi terlalu rendah (blur/jauh/gelap) atau deskriptor
+      // gagal dihitung → JANGAN dicocokkan. Frame buruk adalah sumber utama salah cocok.
+      const skorFrame = (deteksi.detection && deteksi.detection.score != null) ? deteksi.detection.score : 0;
+      if (!descriptor || skorFrame < SKOR_MIN_PINDAI) {
+        kandidatNis = ''; kandidatN = 0; // frame buruk memutus konfirmasi berurutan
+        o.setStatus('<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Wajah terbaca — mendekat &amp; tahan (' + Math.round(skorFrame * 100) + '%).', 'text-cyan-100');
+        await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
+        continue;
+      }
 
       let best = null;
-      try { best = o.matcher.findBestMatch(deteksi.descriptor); } catch (e) { /* lanjut */ }
+      try {
+        const q = (descriptor instanceof Float32Array) ? descriptor : new Float32Array(descriptor);
+        best = o.matcher.findBestMatch(q);
+      } catch (e) { /* lanjut — frame berikutnya dicoba */ }
 
-      const cocokDi = (motorWajah() === 'mediapipe') ? JARAK_COCOK_MP : JARAK_COCOK;
+      const cocokDi = ambangCocok(); // baku per motor, bisa dikalibrasi per perangkat
       if (best && best.label !== 'unknown' && best.distance <= cocokDi) {
         const nis = best.label;
+        // Konfirmasi 2 frame berurutan untuk label yang sama → satu frame blur/ambigu
+        // tidak langsung mencatat kehadiran (mengurangi salah absen).
+        if (nis === kandidatNis) kandidatN = kandidatN + 1;
+        else { kandidatNis = nis; kandidatN = 1; }
         const dahulu = cooldown[nis] || 0;
-        if (now - dahulu >= COOLDOWN_MS) {
+        if (kandidatN >= 2 && now - dahulu >= COOLDOWN_MS) {
+          kandidatN = 0; // wajib konfirmasi ulang utk penandaan berikutnya (sesudah cooldown)
           cooldown[nis] = now;
           let baruDitandai = true;
           if (typeof o.onMatch === 'function') {
@@ -2251,10 +2399,11 @@
           o.setStatus('<i class="fa-solid fa-circle-check mr-1" style="color:#4ade80"></i>Cocok! ' + fxEscape(nis) + ' — Hadir (' + hadirCount + '×) · kemiripan ~' + persenKemiripan(best.distance) + '%.', 'text-green-100');
         }
       } else {
+        kandidatNis = ''; kandidatN = 0; // label tak cocok → putus konfirmasi berurutan
         const namaCocok = best && best.label !== 'unknown'
           ? (best.label + ' jarak ' + best.distance.toFixed(2) + ' (~' + persenKemiripan(best.distance) + '% mirip)')
-          : 'tidak dikenal (jarak ' + (best ? best.distance.toFixed(2) : '–') + ')';
-        o.setStatus('<i class="fa-solid fa-arrows-up-down mr-1"></i>Wajah terdeteksi — ' + fxEscape(namaCocok) + '.', 'text-cyan-100');
+          : 'tidak dikenal' + (best ? ' (jarak terdekat ' + best.distance.toFixed(2) + ')' : '');
+        o.setStatus('<i class="fa-solid fa-arrows-up-down mr-1"></i>Wajah terdeteksi — ' + fxEscape(namaCocok) + '. <span class="opacity-70">Ambang ' + cocokDi.toFixed(2) + '.</span>', 'text-cyan-100');
       }
       await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
     }
@@ -2300,7 +2449,15 @@
       const row = (rows || [])[0];
       const daftarSampel = row ? normalisasiDescriptorWajah(row.wajah_descriptor) : null;
       if (!daftarSampel || !daftarSampel.length) {
-        wrap.innerHTML = `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-[10px] p-2 mb-2 text-center">Wajah ${fxEscape(nama || nisS)} belum terdaftar/aktif.<br><span class="text-amber-100/70">Daftarkan lewat Manajemen Akun Murid — klik ikon wajah pada baris siswa.</span></div>`;
+        // Vektor ada tetapi dimensinya milik motor LAIN (128 face-api vs 512 mediapipe):
+        // normalisasiDescriptorWajah membuangnya → beri penyebab sebenarnya, bukan
+        // "belum terdaftar" (yang membuat siswa mendaftar ulang tanpa guna).
+        const d0 = row && row.wajah_descriptor;
+        const dimV = (Array.isArray(d0) && typeof d0[0] === 'number') ? d0.length
+          : ((Array.isArray(d0) && Array.isArray(d0[0])) ? d0[0].length : 0);
+        wrap.innerHTML = dimV
+          ? `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-[10px] p-2 mb-2 text-center">Wajah ${fxEscape(nama || nisS)} terdaftar dengan <b>mesin pengenalan lain</b> (${dimV}-angka), sedangkan mesin aktif <b>${motorWajah()}</b> (${dimWajahMotor()}-angka).<br><span class="text-amber-100/70">Samakan mesin di perangkat ini (<code>localStorage.setItem('sbg_wajah_motor', …)</code>) atau daftarkan ulang wajah di Manajemen Akun Murid.</span></div>`
+          : `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-[10px] p-2 mb-2 text-center">Wajah ${fxEscape(nama || nisS)} belum terdaftar/aktif.<br><span class="text-amber-100/70">Daftarkan lewat Manajemen Akun Murid — klik ikon wajah pada baris siswa.</span></div>`;
         return false;
       }
 

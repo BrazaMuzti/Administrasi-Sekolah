@@ -23,7 +23,7 @@ Semua data uji ber-prefiks `UJI-` dan dibuat oleh `supabase/sql/uji_data.sql`, d
    - `upgrade_20261028c_rls_akun_ketat.sql` (**BARU jalankan setelah frontend baru ter-deploy** — RLS ketat `akun` + `revoke all from anon`)
    - `fix_20261028d_sesi_wajib.sql` (**terakhir** — klaim NIS tanpa token ditolak; murid lama diminta login ulang)
    - `fix_20261029_murid_kanal_absen.sql` (jalankan sebelum frontend `?v=20261030a` ter-deploy; RPC `ambil_sesi_absen_murid` untuk menu murid "Absen Mandiri")
-   - `upgrade_20261031_akses_admin_akun_murid.sql` (**BARU — jalankan sebelum frontend `?v=20261031a` ter-deploy**; akses admin untuk tombol **Wajah Masal** & **Simpan Data**: `fn_role`/`fn_nis` deterministik admin-first, `fn_is_admin` berbasis `exists`, backfill `akun.user_id`, `buat_akun_murid` dirakit ulang)
+   - `upgrade_20261031_akses_admin_akun_murid.sql` (**BARU — jalankan sebelum frontend `?v=20261031b` ter-deploy**; akses admin untuk tombol **Wajah Masal** & **Simpan Data**: `fn_role`/`fn_nis` deterministik admin-first, `fn_is_admin` berbasis `exists`, backfill `akun.user_id`, `buat_akun_murid` dirakit ulang)
    - `uji_data.sql`
 2. Buka aplikasi SISIP, **hard refresh** (Ctrl+F5).
 3. Catatan: data uji memakai TA `2026/2027` (berjalan) & `2027/2028` (tujuan). Jika TA sekolah berbeda, sesuaikan pilihan TA di wizard/filter saat menguji.
@@ -152,13 +152,13 @@ Akun uji:
 - [ ] **Sesi BUKA di luar jam pelajaran**: guru buka sesi (Kunci Absen → BUKA), lalu uji panel murid **di luar jam mapel** tersebut → kartu **tetap** hijau, dropdown **tetap** bisa dipilih, dan absen **berhasil** tercatat (`absensi` status `'H'`) — server hanya memeriksa `kunci_absen`, captcha/wajah, dan mapel, **bukan** jam; yang muncul hanya catatan informasi jam.
 - [ ] **Pesan Indonesia**: pesan geofence/GPS & label metode absen memakai bahasa Indonesia (mis. "Geofence sekolah aktif, tetapi lokasi GPS tidak diperoleh …", judul "Lokasi Diblokir", "(metode 2 — tanpa kode captcha)").
 - [ ] **Cadangan opsi mapel**: bila sesi BUKA memakai mapel yang tidak ada di `jadwal_pelajaran` kelas murid, opsi mapel **tetap muncul** dari daftar sesi terbuka (dropdown kosong = murid mustahil diabsen).
-- [ ] Selector **Metode Absen** tampil met 2 puns: **Kode Captcha** (actief standaard) en **Face Scan**.
-- [ ] **Metode 1 — Kode Captcha**: kies mapel, ketik kode captcha → klik **Saya Hadir Hari Ini** → baris `absensi` status `'H'` (wajah_cocok=false). Kode kosong → toast "Captcha kosong!" zonder API-request.
-- [ ] **Metode 2 — Face Scan (NIS)**: klik pun **Face Scan** → alleen blok kamera tampil (input kode captcha niet zichtbaar/aktief).
-- [ ] Hadapkan wajah lurus ke kamera → saat cocok (descriptor eigen NIS), **hadir langsung tercatat** in tabel `absensi` (status `'H'` & `wajah_cocok=true`) **zonder kode captcha** en zonder klik "Saya Hadir Hari Ini".
-- [ ] UI tampil "Wajah terverifikasi — … — hadir langsung tercatat"; kamera berhenti; tombol reset "Pindai Wajah Saya".
-- [ ] Metode 2 zonder wajah geregistreerd/actief → geen hadir (face.js melding amber).
-- [ ] Metode 2 terwijl kamera loopt → klik pun **Kode Captcha** → kamera stopt ("Pemindaian wajah dihentikan omdat aksi lain").
+- [ ] Selector **Metode Absen** tampil dengan 2 opsi: **Kode Captcha** (aktif secara bawaan) dan **Face Scan**.
+- [ ] **Metode 1 — Kode Captcha**: pilih mapel, ketik kode captcha → klik **Saya Hadir Hari Ini** → baris `absensi` status `'H'` (wajah_cocok=false). Kode kosong → toast "Captcha kosong!" tanpa request API.
+- [ ] **Metode 2 — Face Scan (NIS)**: klik **Face Scan** → hanya blok kamera yang tampil (input kode captcha tidak terlihat/aktif).
+- [ ] Hadapkan wajah lurus ke kamera → saat cocok (deskriptor milik NIS sendiri), **kehadiran langsung tercatat** di tabel `absensi` (status `'H'` & `wajah_cocok=true`) **tanpa kode captcha** dan tanpa klik "Saya Hadir Hari Ini".
+- [ ] UI menampilkan "Wajah terverifikasi — … — hadir langsung tercatat"; kamera berhenti; tombol reset "Pindai Wajah Saya".
+- [ ] Metode 2 tanpa wajah terdaftar/aktif → tidak ada kehadiran (pesan amber dari face.js).
+- [ ] Metode 2 saat kamera berjalan → klik **Kode Captcha** → kamera berhenti ("Pemindaian wajah dihentikan karena aksi lain").
 
 ### S14d — Kamera berhenti di aksi lain saat face scan (Req B2)
 - [ ] Mulai pemindaian wajah → **fokus/ketik kode captcha** → kamera berhenti & status "Pemindaian dihentikan".
@@ -168,8 +168,8 @@ Akun uji:
 - [ ] Kamera berjalan saat klik **Pindai Wajah** (toggle) ulang → berhenti.
 
 ### S14e — Switching kamera depan/belakang tidak flip/mirror lagi (Req B3)
-- [ ] Mulai pemindaian wajah → klik **Belakang** (ha perangkat kamera-singleton, kamu tetap depan) → pratinjau **tidak** terflip/mirrored.
-- [ ] Klik **Depan** → mirror normal (selfie); switch idem ganti label & ring pada tombol aktif.
+- [ ] Mulai pemindaian wajah → klik **Belakang** (pada perangkat kamera tunggal Anda tetap memakai kamera depan) → pratinjau **tidak** terbalik/mirror.
+- [ ] Klik **Depan** → mirror normal (selfie); label & ring tombol aktif ikut berpindah dengan benar.
 
 ### S14f — Header dashboard tampil penuh di Firefox Android / layar sempit (Req A)
 - [ ] Login (admin/guru/murid) → **Firefox Android** (atau jendela browser sempit <640px) → header menampilkan: **logo sekolah, nama sekolah, waktu sekarang (jam berjalan), tanggal sekarang (hari, tgl, bulan, tahun)**.
@@ -178,25 +178,25 @@ Akun uji:
 - [ ] Nama sekolah panjang → menyingkat (truncate) tanpa mendorong tombol Tentang/Profil keluar layar; jam & tanggal tetap terlihat.
 - [ ] Date berjalan setiap detik bersama jam (tidak lagi `hidden sm:inline`).
 
-### S14g — Akses \"Tambah Anggota\" Ekstrakurikuler: Admin, Wali kelas, Pembina, Jabatan Anggota (Req B)
+### S14g — Akses "Tambah Anggota" Ekstrakurikuler: Admin, Wali kelas, Pembina, Jabatan Anggota (Req B)
 - [ ] Login **Admin** → menu Ekstrakurikuler → tombol **Tambah Anggota** tampil & bisa dipakai.
 - [ ] Login **guru Wali Kelas** → Tambah Anggota tampil & bisa dipakai (semua ekskul).
 - [ ] Login **guru Pembina** ekskul X → Tambah Anggota tampil untuk ekskul X (yang diampu) & bekerja; untuk ekskul yang TIDAK diampu → tombol tidak tampil.
 - [ ] Login **guru biasa** (bukan wali kelas / bukan pembina) → Tambah Anggota **tidak** tampil.
 - [ ] Login **murid pengurus** (menjabat) ekskul X → Tambah Anggota tampil untuk ekskul X & bekerja.
-- [ ] (backend) Panggil langsung RPC `ubah_anggota_ekskul` sebagai guru biasa → ditolak pesan \"Hanya wali kelas atau pembina …\".
+- [ ] (backend) Panggil langsung RPC `ubah_anggota_ekskul` sebagai guru biasa → ditolak pesan "Hanya wali kelas atau pembina …".
 ### S14h — Motor wajah mediapipe (MediaPipe + MobileFaceNet/ONNX)
-Vereiste: migratie `upgrade_20261023_wajah_motor_mediapipe.sql` al gedraaid in SQL Editor; de bestanden
+Prasyarat: migrasi `upgrade_20261023_wajah_motor_mediapipe.sql` sudah dijalankan di SQL Editor; berkas
 `web/vendor/mediapipe/*`, `web/vendor/onnx/*`, `web/models/face_landmarker.task`,
-`web/models/mobilefacenet.onnx` aanwezig.
-- [ ] **Activatie**: browser-console `localStorage.setItem('sbg_wajah_motor','mediapipe')` → hard refresh → console geen `FaceLandmarker`/`ort`-fouten; Network tab toont `vision_wasm_internal.wasm` + `ort-wasm-simd-threaded.{mjs,wasm}` + `face_landmarker.task` + `mobilefacenet.onnx` (200 / cache 200).
-- [ ] **Fallback/uit**: `localStorage.setItem('sbg_wajah_motor','faceapi')` (of `removeItem`) → refresh → `face-api` motor weer normaal (S14 blijft groen).
-- [ ] **Registrasi (re-enrollment)**: modal wajah van een murid → model laadt (landmarker ±3,7MB + wasm) → "Gunakan Foto" of "Gunakan Kamera" werkt; **Simpan Data Wajah** → in SQL: `wajah_descriptor` voor die NIS heeft nu array(s) met **512** getallen (voorheen 128); RPC accepteert het (geen "array 128 angka" error).
-- [ ] **Oude data**: rij die nog 128-cijferig is blijft gewoon in DB; status-kolom toont "Aktif" maar matcht niet onder mediapipe (descriptor-ruimte verschilt) — zie README §7a voor re-enrollment.
-- [ ] **Face Scan absenti (S14c herhaling)**: tombol "Pindai Wajah Saya" → kamera → bij cocok (eigen NIS) hadir 'H' + wajah_cocok=true **zonder captcha**; bij niet-cocok (ander gezicht / murid zonder geldige 512-d registratie) geen hadir + status melding.
-- [ ] **Eerste-scan latentie meten op ZWAKSTE apparaat**: eerste `detectForVideo` na model-load respondeert (warm) en per-frame embed ≤ 300 ms; noteer de gemeten getallen hier: ____________.
-- [ ] **iOS Safari / toestellen zonder WASM-SIMD** (indien in parool): `vision_wasm_nosimd_internal.*` niet gevend → duidelijke MediaPipe-foutmelding in de modal (geen hang/modal-stil); fallback: `sbg_wajah_motor='faceapi'` of vendor de `_nosimd`-paren (README §7a).
-- [ ] **Ambang**: twee selfies van dezelfde leerling (licht toch anders) → cocok; leerling met zonnebril/masker → "tidak dikenal" (geen valse hadir). Bij twijfel pas `JARAK_COCOK_MP`/`JARAK_KENAL_MP` aan in `face.js` (regio 0a).
+`web/models/mobilefacenet.onnx` sudah tersedia.
+- [ ] **Aktivasi**: konsol browser `localStorage.setItem('sbg_wajah_motor','mediapipe')` → hard refresh → konsol tanpa galat `FaceLandmarker`/`ort`; tab Network menampilkan `vision_wasm_internal.wasm` + `ort-wasm-simd-threaded.{mjs,wasm}` + `face_landmarker.task` + `mobilefacenet.onnx` (200 / cache 200).
+- [ ] **Fallback/kembali**: `localStorage.setItem('sbg_wajah_motor','faceapi')` (atau `removeItem`) → refresh → motor `face-api` normal lagi (S14 tetap hijau).
+- [ ] **Registrasi ulang (re-enrollment)**: modal wajah seorang murid → model termuat (landmarker ±3,7 MB + wasm) → "Gunakan Foto" atau "Gunakan Kamera" bekerja; **Simpan Data Wajah** → di SQL: `wajah_descriptor` untuk NIS itu kini berisi array dengan **512** angka (sebelumnya 128); RPC menerimanya (tidak ada galat "array 128 angka").
+- [ ] **Data lama**: baris yang masih 128 dimensi tetap tersimpan di DB; kolom status menampilkan "Aktif" tetapi tidak cocok di bawah mediapipe (ruang deskriptor berbeda) — lihat README §7a untuk registrasi ulang.
+- [ ] **Face Scan absensi (pengulangan S14c)**: tombol "Pindai Wajah Saya" → kamera → saat cocok (NIS sendiri) hadir 'H' + wajah_cocok=true **tanpa captcha**; saat tidak cocok (wajah lain / murid tanpa registrasi 512-d yang sah) tidak ada kehadiran + pesan status.
+- [ ] **Ukur latensi pemindaian pertama di perangkat TERLEMAH**: `detectForVideo` pertama setelah model termuat merespons (hangat) dan embed per frame ≤ 300 ms; catat angka hasil ukur di sini: ____________.
+- [ ] **iOS Safari / perangkat tanpa WASM-SIMD** (bila ada di sekolah): `vision_wasm_nosimd_internal.*` tidak tersedia → pesan galat MediaPipe yang jelas di modal (tidak menggantung/modal diam); fallback: `sbg_wajah_motor='faceapi'` atau vendor-kan pasangan `_nosimd` (README §7a).
+- [ ] **Ambang**: dua selfie murid yang sama (cahaya berbeda) → cocok; murid bercermin matahari/masker → "tidak dikenal" (tidak ada kehadiran palsu). Bila ragu, sesuaikan `JARAK_COCOK_MP`/`JARAK_KENAL_MP` di `face.js` (wilayah 0a).
 
 ### S14i — Jadwal Piket v3: kartu per hari + popup pemilih + filter (Req B)
 Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di SQL Editor.
@@ -245,7 +245,7 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 - [ ] **Gate statis**: `npm run check:icons` → `✅ Ikon PWA lengkap`; `node --check web/js/install.js` dan `node --check web/sw.js` → tanpa error.
 - [ ] **Semua host sinkron (anti-drift)**: `npm run check:deploy` → **semua** host (GitHub Pages, mirror Vercel, custom domain) melaporkan stempel build yang sama dengan repo ini; bila satu host tertinggal, skrip berhenti dengan exit code `1` dan menyebut alasannya. Cek manual cepat di **setiap** host: `curl -s <url>/js/utils.js | grep -c akunSesiAbsenMurid` harus `1` (host lama = `0` → menu Absen Mandiri murid mati di host itu).
 - [ ] **Service worker aktif**: buka SISIP → hard refresh (Ctrl+F5) → DevTools → Application → *Service Workers*: status **activated and is running**, scope = `/Administrasi-Sekolah/` (**bukan** `/`). Console: `[PWA] Service worker terdaftar. Scope: …/Administrasi-Sekolah/`.
-- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v6` memuat `index.html`, `offline.html`, `css/style.css?v=20261031a`, `js/app.js?v=20261031a`, `js/install.js?v=20261031a`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
+- [ ] **Cache statis terisi**: Application → *Cache Storage* → `sisip-static-v7` memuat `index.html`, `offline.html`, `css/style.css?v=20261031b`, `js/app.js?v=20261031b`, `js/face.js?v=20261031b`, `js/install.js?v=20261031b`, seluruh ikon (18 entri). Tidak boleh ada entri yang gagal (404) — kegagalan dilaporkan sebagai `[SW] Gagal precache: …` di console.
 - [ ] **Manifest bersih**: Application → *Manifest* → Name "SISIP…", Short name `SISIP`, Start URL `./index.html`, Display **standalone**, ikon 192 & 512 terdeteksi, **tanpa** peringatan "Must include a 192px/512px icon".
 - [ ] **Android (Chrome/Opera/Samsung)**: tombol **Pasang** muncul di header **dan** kartu "Pasang Aplikasi SISIP" muncul di dashboard → klik → prompt pemasangan muncul → setelah dipasang: toast "Berhasil Dipasang!", tombol & kartu hilang, ikon SISIP ada di launcher **tanpa terpotong** (bukti ikon `maskable` benar).
 - [ ] **Buka dari ikon (standalone)**: tidak ada address bar, header tampil penuh, login → dashboard normal, dan **tidak** ada ajakan pasang lagi.
@@ -254,10 +254,22 @@ Prasyarat: frontend sudah ter-deploy dengan `web/sw.js`, `web/manifest.json`,
 - [ ] **Prompt notifikasi 1× per perangkat**: muncul sekali (kunci `sisip_pwa_notif_ditanya`); memilih "Tidak" tidak membuatnya bertanya lagi di perangkat yang sama.
 - [ ] **Fallback offline**: DevTools → Network → centang *Offline* → reload → tampil `offline.html` (bukan halaman error browser); tombol **Muat Ulang Halaman** berhasil setelah koneksi kembali.
 - [ ] **Data tidak dilayani dari cache**: saat offline, pembacaan data Supabase gagal wajar (request lintas-origin dilewatkan service worker) — pastikan **tidak ada** data lama/kadaluarsa yang muncul.
-- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261031a`; `<html data-sisip-build="20261031a">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
+- [ ] **Stempel build**: console menampilkan `[SISIP] build 20261031b`; `<html data-sisip-build="20261031b">` (Elements). Bila angkanya beda dari `?v=` di `index.html`, perangkat masih memakai berkas lama.
 - [ ] **Update versi otomatis**: setelah deploy baru, buka aplikasi lama → console `[PWA] Versi baru tersedia — mengaktifkan sekarang…` → `[SISIP] Service worker baru aktif — memuat ulang sekali.` → halaman memuat ulang sendiri → aset yang dipakai ber-tag `?v=` terbaru (Sources → `js/app.js?v=…`). Tidak perlu hard refresh manual.
-- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v6` (+ `sisip-runtime-v6` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
+- [ ] **Self-heal cache lama**: perangkat yang sebelumnya membawa SW rusak/`sisip-v1` → buka SISIP sekali → console `[SISIP] Hapus cache lama: sisip-v1` (juga `sisip-api-v1`) → Application → *Cache Storage* hanya menyisakan `sisip-static-v7` (+ `sisip-runtime-v7` bila ada). Muat ulang tidak berulang (penjaga `sessionStorage`).
 - [ ] **Ritual naik versi**: `web/index.html` (`?v=`) dan `PRECACHE`/`VERSION` di `web/sw.js` sudah sejalan, dan kedua situs (GitHub Pages **dan** mirror Vercel) sama-sama menerima `web/` terbaru — lihat README §8c.
+
+### S14m — Face Scan kelas: akurasi + overlay landmark (README §7b)
+Prasyarat: minimal 3 sampel wajah per murid (Registrasi → kamera 6 pose atau foto + kamera).
+- [ ] **Gate otomatis**: `npm run test:face` → `30 lulus, 0 gagal.` (geometri overlay landmark, ambang baku/kalibrasi, deteksi vektor motor lain).
+- [ ] **Overlay landmark**: Input Hadir Tatap Muka → **Face Scan** → selain kotak hijau, muncul **kerangka titik** di wajah (68 titik face-api / 478 titik mediapipe) yang **menempel** saat zoom +/− dan saat kamera depan (mirror) — bukan titik yang bergeser/tertinggal. Garis kerangka **solid/menyambung** (tidak mewarisi gaya putus-putus kotak deteksi).
+- [ ] **Wajah benar dikenali**: murid dengan ≥3 sampel berdiri ±40–100 cm → status "Cocok! <NIS> — Hadir" dalam ≤ 2–3 detik, tanpa perlu menempel ke kamera.
+- [ ] **Bukan salah orang**: dua murid berbeda bergantian di depan kamera → masing-masing NIS yang benar; murid lain (belum terdaftar) → "tidak dikenal" dan **tidak** tercatat hadir.
+- [ ] **Frame buruk dilewati**: kamera digoyang / wajah blur / ruangan gelap → status "Wajah terbaca — mendekat & tahan (…%)" dan **tidak** ada penandaan hadir dari frame blur.
+- [ ] **Konfirmasi 2 frame**: hadap wajah **< 1 detik** lalu menoleh tajam → kehadiran **tidak** tercatat (butuh 2 frame berurutan label sama).
+- [ ] **Diagnostik ambang**: saat wajah tidak dikenali, status menampilkan "jarak terdekat x.xx" + "Ambang 0.50"; bila jarak murid yang benar konsisten 0.51–0.60, kalibrasi perangkat dengan `localStorage.setItem('sbg_wajah_ambang','0.55')` → muat ulang → murid yang sama kini "Hadir".
+- [ ] **Salah motor**: peta wajah berisi 128-angka tetapi `localStorage.sbg_wajah_motor='mediapipe'` (atau sebaliknya) → **Face Scan kelas** menampilkan pesan **"mesin pengenalan lain"** (bukan "belum ada siswa terdaftar"), dan **Absen Mandiri** murid tersebut juga menampilkan pesan mesin lain (bukan "belum terdaftar/aktif"). Setelah `localStorage.removeItem('sbg_wajah_motor')` + muat ulang, murid kembali dikenali.
+- [ ] **Auto-hentian**: kelas dengan 2+ murid terdaftar → setelah semua terdeteksi muncul "Semua n siswa terdaftar terdeteksi ✓" dan kamera berhenti sendiri (±8 dtk); jumlah `n` sama dengan jumlah murid yang **punya vektor valid untuk motor aktif**.
 
 ---
 

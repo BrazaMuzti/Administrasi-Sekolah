@@ -9,7 +9,7 @@ PostgREST & fungsi RPC.
 | Bagian | Lokasi | Keterangan |
 |---|---|---|
 | Frontend | `web/` | HTML + JS murni + Tailwind v4, `@supabase/supabase-js` via CDN |
-| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (83 blok, dirakit otomatis oleh `npm run build:sql`) |
+| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (84 blok, dirakit otomatis oleh `npm run build:sql`) |
 | Deploy | GitHub Pages (default) / Vercel (alternatif) | GitHub Pages: otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`). Vercel: lihat [bagian 5](#5-deploy--vercel-alternatif) |
 
 ## Menjalankan Lokal
@@ -81,7 +81,7 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
 
 | Kondisi | File yang dijalankan |
 |---|---|
-| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **83 berkas upgrade** (2026-09-03 s.d. 2026-10-29), sekali jalan |
+| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **84 berkas upgrade** (2026-09-03 s.d. 2026-10-31), sekali jalan |
 | **Project sudah berjalan**, tertinggal beberapa upgrade | file satu-persatu di `supabase/sql/`, **urut tanggal**, hanya yang belum ada di database |
 
 3. Salin seluruh isi file ke SQL Editor (atau pakai tombol **upload** file `.sql`)
@@ -90,7 +90,7 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
    (`akun`, `master_data`, `absensi`, `nilai`, `ekstrakurikuler`, dst.).
 
 > Semua file SQL **idempotent** (aman dijalankan berulang). Daftar lengkap isi &
-> urutan 83 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
+> urutan 84 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
 > (`npm run build:sql`) — jangan diedit manual; `npm run check:sql` akan gagal bila basi.
 > File `uji_data.sql` / `uji_bersih.sql` khusus pengujian E2E — jangan dijalankan di produksi.
 
@@ -167,7 +167,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   skrip ini membandingkan 66 titik panggilan RPC di frontend dengan signature
   di `supabase/sql/*.sql` (plus self-test yang membuktikan detektornya bekerja).
 - **Urutan deploy wajib:** (1) jalankan `20261028a` → `20261028b` → `20261028b2`
-  di Supabase, (2) deploy frontend (`js/app.js?v=20261031a` — tag terbaru saat
+  di Supabase, (2) deploy frontend (`js/app.js?v=20261031b` — tag terbaru saat
   dokumen ini diperbarui), (3) baru jalankan
   `20261028c` (RLS ketat) dan `fix_20261028d` (sesi wajib). Untuk perbaikan
   menu murid **Absen Mandiri**, jalankan `fix_20261029_murid_kanal_absen.sql`
@@ -191,7 +191,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   `BUILD` di `web/js/install.js` ikut bernilai `20261030a`. Setelah deploy,
   **jalankan `npm run check:deploy`** — skrip ini membandingkan stempel build +
   hash berkas tiap host dan gagal bila ada host yang tertinggal (§7 butir 8).
-- **Akses admin di menu Data Akun Murid (tag terbaru `20261031a`):** dua aksi admin
+- **Akses admin di menu Data Akun Murid (sejak `20261031a`, ikut di build `20261031b`):** dua aksi admin
   — tombol **"Wajah Masal"** (RPC `simpan_wajah_murid`) dan tombol **"Simpan Data"**
   pada form Edit/Tambah (RPC `buat_akun_murid`) — kini dijaga di **kedua sisi**.
   Klien memakai helper bernama `aksesRegistrasiWajahMasal()` &
@@ -200,9 +200,10 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   `supabase/sql/upgrade_20261031_akses_admin_akun_murid.sql`: `fn_role()`/`fn_nis()`
   jadi deterministik **admin-first**, `fn_is_admin()` berbasis `exists`, plus
   backfill `akun.user_id` untuk baris admin/guru yang belum tertaut ke akun login.
-  ⚠ **Jalankan SQL itu sebelum frontend `?v=20261031a` ter-deploy** — tanpa itu
-  admin tetap bisa ditolak server. `VERSION` di `web/sw.js` naik ke `v6` dan
-  `BUILD` di `web/js/install.js` bernilai `20261031a`.
+  ⚠ **Jalankan SQL itu sebelum frontend build `20261031b` ter-deploy** — tanpa itu
+  admin tetap bisa ditolak server. Riwayat: perubahan ini mula-mula naik di
+  `20261031a` (`VERSION` SW `v6`); build `20261031b` menaikkan `VERSION` ke `v7`
+  dan `BUILD` di `web/js/install.js` ke `20261031b` (lihat §7b).
 
 ---
 
@@ -335,10 +336,11 @@ jalankan file SQL di atas dan baca pesan `raise notice`/`raise warning`-nya).
 ```bash
 npm run build:css      # build CSS produksi (minify)
 npm run dev:css        # watch mode CSS
-npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (83 blok)
+npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (84 blok)
 npm run check:sql      # periksa gabungan.sql sudah sinkron/terdaftar semua
 npm run build:icons    # buat ulang ikon PWA (PNG 192/512/maskable + apple-touch)
 npm run test:rpc-args  # penjaga PGRST202: argumen RPC frontend vs signature SQL
+npm run test:face      # regresi face.js tanpa browser (overlay landmark + ambang, §7b)
 npm run test:e2e       # uji E2E API (butuh kredensial & data uji terpasang)
 npm run deploy         # sama dengan build:css
 ```
@@ -368,26 +370,75 @@ Supabase** (bukan Google Sheets / Apps Script seperti repo aslinya).
 
 ### 7a. Motor wajah: `face-api` (baku) ATAU `mediapipe` (MobileFaceNet + ONNX)
 
-`face.js` ondersteunt **twee engines** teruggabelen aan dezelfde interface (`window.FaceWajah`).
-De keuze is per-browser (per apparaat), niet per database — gezet via:
+`face.js` mendukung **dua mesin** di balik antarmuka yang sama (`window.FaceWajah`).
+Pilihannya per-browser (per perangkat), bukan per database — diatur lewat:
 
 ```js
 localStorage.setItem('sbg_wajah_motor', 'mediapipe'); // ATAU 'faceapi' (baku)
 ```
 
-| Motor                                      | Deteksi + landmarks             | Descriptor           | Feature space |
-| -------------------------------------------| ------------------------------- | ---------------------| --------------|
-| `faceapi` (BAKU, ongewijzid)               | face-api / TFJS (lokal)         | FaceRecognitionNet    | 128           |
-| `mediapipe` (nieuw)                        | MediaPipe Face Landmarker (wasm)| MobileFaceNet (ONNX)  | 512           |
+| Motor                                      | Deteksi + landmark              | Deskriptor           | Ruang fitur  |
+| -------------------------------------------| ------------------------------- | ---------------------| ------------ |
+| `faceapi` (BAKU, bawaan)                   | face-api / TFJS (lokal)         | FaceRecognitionNet    | 128          |
+| `mediapipe` (baru)                         | MediaPipe Face Landmarker (wasm)| MobileFaceNet (ONNX)  | 512          |
 
-- **Zet om**: in de browser-console van het schoolapparaat `localStorage.setItem('sbg_wajah_motor','mediapipe')` → ververs de pagina. Terug: waarde `'faceapi'` of `localStorage.removeItem('sbg_wajah_motor')`.
-- **Lokale bestanden** (geen CDN, offline na eerste cache):
+- **Cara ganti**: di konsol browser perangkat sekolah jalankan `localStorage.setItem('sbg_wajah_motor','mediapipe')` → muat ulang halaman. Kembali: nilai `'faceapi'` atau `localStorage.removeItem('sbg_wajah_motor')`.
+- **Berkas lokal** (tanpa CDN, offline setelah cache pertama):
   - `web/vendor/mediapipe/vision_bundle.js` + `wasm/vision_wasm_internal.{js,wasm}` (MediaPipe Tasks Vision)
   - `web/vendor/onnx/ort.min.js` + `ort-wasm-simd-threaded.{mjs,wasm}` (ONNX Runtime Web)
-  - `web/models/face_landmarker.task` (MediaPipe) en `web/models/mobilefacenet.onnx` (MobileFaceNet, **512-d**)
-- **Belangrijk — re-enrollment**: 128-d (face-api) en 512-d (MobileFaceNet) zijn **verschillende feature-ruimten**. Na de switch moeten murids opnieuw geregistreerd worden (modal wajah → "Simpan Data Wajah" met mode `ganti`; de multi-pose pipeline en de 6-sampel cap blijven hetzelfde). Oude 128-rijen blijven in de DB en werken onder motor `faceapi`.
-- **Deploy-eis**: draai één keer `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` in de Supabase SQL Editor (geen data-migratie; RPC accepteert 128 & 512). Zie ook `CHECKLIST_E2E.md` → **S14h**.
-- **Kwaliteit (offline validatie van dit model)**: identical-face cos≈0.85 (d≈0.54), cross-person cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; waterscheiding ruim, maar E2E op de zwakste schoolapparaat blijft verplicht (eerste-scan latentie meten).
+  - `web/models/face_landmarker.task` (MediaPipe) dan `web/models/mobilefacenet.onnx` (MobileFaceNet, **512-d**)
+- **Penting — registrasi ulang**: 128-d (face-api) dan 512-d (MobileFaceNet) berada di **ruang fitur berbeda**. Setelah berganti mesin, murid harus didaftarkan ulang (modal wajah → "Simpan Data Wajah" mode `ganti`; pipeline multi-pose dan batas 6 sampel tetap sama). Baris lama 128 tetap tersimpan di DB dan berfungsi bila motor kembali ke `faceapi`. Face Scan/Absen Mandiri kini mendeteksi kondisi ini dan menampilkan pesan "mesin pengenalan lain" (bukan "belum terdaftar") — lihat §7b.
+- **Syarat deploy**: jalankan sekali `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` di Supabase SQL Editor (tanpa migrasi data; RPC menerima 128 & 512). Lihat juga `CHECKLIST_E2E.md` → **S14h**.
+- **Kualitas (validasi offline model ini)**: wajah sama cos≈0.85 (d≈0.54), antar-orang cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; pemisahannya lebar, tetapi E2E di perangkat sekolah terlemah tetap wajib (ukur latensi pemindaian pertama).
+
+### 7b. Akurasi pemindaian absen (Face Scan kelas)
+
+Tombol **Face Scan** pada Input Hadir Tatap Muka dan **Face Scan** di Absen Mandiri memakai
+loop yang sama (`loopDeteksiPindai` di `web/js/face.js`). Perbaikan akurasi terbaru
+(build `20261031b`, `VERSION` service worker `v7`):
+
+- **Resolusi deteksi = registrasi.** `TinyFaceDetectorOptions.inputSize` kini **320** (dulu 224).
+  Kotak & 68 landmark jadi sepresisi data registrasi (`deteksiSatuWajah` juga 320) — dengan 224
+  crop deskriptor bergeser sehingga jarak Euclidean ke data registrasi membengkak dan wajah yang
+  benar dinyatakan "tidak dikenal" (terutama wajah siswa di baris belakang).
+- **Satu jalur deskriptor.** Pemindaian memakai `descriptorDariHasilLive` — fungsi yang sama
+  dengan registrasi kamera/normalisasi foto (`landmarks.align({useDlibAlignment:true})` →
+  `extractFaces` → `FaceRecognitionNet`). Catatan verifikasi: `.withFaceDescriptor()` bawaan
+  face-api **juga** memakai `useDlibAlignment` (`alignDlib` di `vendor/face-api.min.js`), jadi
+  kedua jalur menghasilkan vektor setara; menyatukannya mencegah dua jalur menyimpang nanti.
+- **Gerbang kualitas frame.** Frame dengan skor deteksi `< 0.45` (`SKOR_MIN_PINDAI`) atau gagal
+  menghitung deskriptor **tidak dicocokkan** — status menampilkan "Wajah terbaca — mendekat &
+  tahan (…%)" sebagai panduan, bukan mencatat kehadiran dari frame blur.
+- **Konfirmasi 2 frame.** Label yang sama harus muncul **2 frame berurutan** (jarak ≤ ambang)
+  sebelum kehadiran dicatat; satu frame blur/ambigu tidak lagi menandai siswa. `COOLDOWN_MS`
+  (2,5 dtk) per NIS tetap berlaku.
+- **Overlay landmark.** Selain kotak, overlay menggambar **kerangka landmark** (68 titik
+  face-api / 478 mediapipe) dengan geometri `object-contain` + zoom + mirror yang sama
+  (`gambarLandmarkPindai`) — terlihat langsung apakah wajah terbaca penuh. Garis kerangka
+  digambar **solid** (`ctx.setLineDash([])` di awal fungsi), jadi tidak mewarisi gaya
+  putus-putus milik kotak deteksi dari frame sebelumnya.
+- **Auto-hentian "semua terdaftar ✓"** kini menghitung label yang **benar-benar ikut matcher**
+  (vektor beda dimensi dibuang), bukan jumlah baris peta.
+- **Salah motor terdeteksi lebih awal.** Bila ada data wajah tetapi semuanya berdimensi motor
+  lain (128 vs 512), panel menampilkan penjelasan + cara memperbaikinya (dulu: "belum terdaftar").
+  Berlaku di **Face Scan kelas** (matcher kosong) dan **Absen Mandiri** (wajah satu siswa).
+- **Kalibrasi ambang per perangkat (tanpa ubah kode).** Status pemindaian menampilkan
+  "jarak terdekat"/"Ambang" sebagai dasar penilaian. Untuk kamera kelas yang jaraknya konsisten
+  lebih longgar/ketat:
+  ```js
+  localStorage.setItem('sbg_wajah_ambang', '0.55'); // 0.3–0.85; hapus = baku per motor
+  ```
+  Nilai ini menggantikan `JARAK_COCOK` (face-api) / `JARAK_COCOK_MP` (mediapipe) dan
+  menaikkan ambang matcher face-api (`Math.max(JARAK_KENAL, ambang)`) agar jarak di atas
+  `JARAK_KENAL` tidak langsung menjadi "unknown". Matcher mediapipe memakai batas
+  `JARAK_KENAL_MP` tetap (`0.95` > batas kalibrasi `0.85`), jadi kalibrasi di sana hanya
+  menggeser gerbang "Hadir" — jarak di atasnya tetap ditampilkan lengkap dengan labelnya.
+- **Uji regresi tanpa browser.** `npm run test:face` (`scripts/uji-face.mjs`) mengekstrak
+  fungsi murni dari `face.js` lalu memeriksa geometri overlay landmark (mirror/zoom),
+  ambang baku + kalibrasi + perilaku saat `localStorage` diblokir, dan deteksi vektor
+  motor lain. Jalankan setelah menyentuh `gambarLandmarkPindai`/`ambangCocok`/konstanta
+  jarak; skrip keluar dengan kode `1` bila ada yang gagal (dan menggagalkan job
+  **Validasi repo** di GitHub Actions, jadi regresi terdeteksi sebelum deploy).
 
 ---
 
@@ -438,14 +489,19 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
 4. Folder `models/` sengaja **tidak** di-precache (ukurannya besar); model
    wajah diambil dari jaringan. Saat offline, beranda & menu tetap terbuka,
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
-5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l**.
-6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261031a'`; muncul di
+5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l** (PWA/offline) dan **S14m**
+   (akurasi Face Scan + overlay landmark, README §7b).
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261031b'`; muncul di
    console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
    Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
    memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama
    (termasuk service worker rusak / cache `sisip-v1`) sembuh sendiri tanpa siswa
    perlu menghapus data situs. Naikkan `BUILD` bersama tag `?v=` dan `VERSION` di
-   `sw.js`.
+   `sw.js`. **Semua** tag `?v=` untuk berkas yang di-precache (`css/style.css`,
+   `js/utils.js`, `js/app.js`, `js/face.js`, `js/install.js`) wajib ikut naik: `npm
+   run check:deploy` mencocokkan `BUILD` dengan tag `js/app.js?v=`/`css/style.css?v=`/
+   `js/utils.js?v=` di `index.html` **dan** di `PRECACHE`, jadi satu tag tertinggal
+   langsung dilaporkan merah.
 7. **Dua situs, satu folder `web/`.** Selain GitHub Pages, aplikasi juga disajikan
    Vercel dari repo mirror `BrazaMuzti/SMKN2Banjar` (**Root Directory = `web/`**,
    tanpa `vercel.json`). Folder `web/` di mirror itu **harus selalu identik dengan

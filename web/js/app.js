@@ -1436,10 +1436,10 @@ function berhentiPindaiWajahMandiri() {
 }
 
 /** Ganti metode absen mandiri murid via selector Metode 1/Metode 2.
- *  - 'captcha': blok kode captcha + tombol "Saya Hadir Hari Ini" aktief.
- *  - 'wajah'  : blok face scan (Pindai Wajah Saya) aktief — captcha niet nodig.
- *  Wissel stopt de camera & reset de wajah-verificatie (metode 1 kan dus niet
- *  profiteren van een wajah-scan van metode 2). */
+ *  - 'captcha': blok kode captcha + tombol "Saya Hadir Hari Ini" aktif.
+ *  - 'wajah'  : blok face scan (Pindai Wajah Saya) aktif — captcha tidak perlu.
+ *  Perpindahan menghentikan kamera & mereset verifikasi wajah (metode 1 tidak
+ *  bisa memanfaatkan hasil scan wajah metode 2). */
 function gantiMetodaAbsen(m) {
   metodaAbsenMandiri = (m === 'wajah') ? 'wajah' : 'captcha';
   wajahMandiriCocok = false;
@@ -1466,7 +1466,7 @@ async function bacaGpsMandiri() {
   catch (e) { console.warn('bacaGpsMandiri:', e); return ''; }
 }
 
-/** Afstand grootcirkel (haversine) tussen twee koordinat WGS-84. @returns {number} meter. */
+/** Jarak lingkaran besar (haversine) antara dua koordinat WGS-84. @returns {number} meter. */
 function jarakHaversineM(aLat, aLng, bLat, bLng) {
   const R = 6371000; // meter
   const toRad = (d) => (d * Math.PI) / 180.0;
@@ -1478,11 +1478,11 @@ function jarakHaversineM(aLat, aLng, bLat, bLng) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Geofence sekolah uit baris identitas master_data (kolom "Latitude Sekolah",
- *  "Longitude Sekolah" + "Radius Geofence (m)"). Altijd FRESH lezen (niet cache)
- *  → admin-wijzigingen (SISIP → Konfigurasi) werken direct, zonder reload.
+/** Geofence sekolah dari baris identitas master_data (kolom "Latitude Sekolah",
+ *  "Longitude Sekolah" + "Radius Geofence (m)"). Selalu dibaca FRESH (tanpa cache)
+ *  → perubahan admin (SISIP → Konfigurasi) langsung berlaku tanpa muat ulang.
  *  @returns {Promise<null|{lat:number,lng:number,radiusM:number}>} null bila
- *  niet geconfigureerd / koordinat ongeldig / radius <= 0. */
+ *  belum dikonfigurasi / koordinat tidak sah / radius <= 0. */
 async function ambilGeofenceSekolah() {
   try {
     const { data, error } = await supaClient
@@ -1500,15 +1500,15 @@ async function ambilGeofenceSekolah() {
   } catch (e) { console.warn('ambilGeofenceSekolah:', e); return null; }
 }
 
-/** Cek lokasi GPS murid tegenover geofence sekolah (bila geconfigureerd).
- *  @param {string} gpsLokasi format getDeviceGPS: "lat, lng" (of pesan GPS).
- *  @returns {Promise<{ok:boolean, distM?:number, pesan?:string}>} ok=true → laten
- *  lopen (geofence uit / niet geconfigureerd, of binnen radius). */
+/** Cek lokasi GPS murid terhadap geofence sekolah (bila dikonfigurasi).
+ *  @param {string} gpsLokasi format getDeviceGPS: "lat, lng" (atau pesan GPS).
+ *  @returns {Promise<{ok:boolean, distM?:number, pesan?:string}>} ok=true → boleh
+ *  lanjut (geofence mati / belum dikonfigurasi, atau di dalam radius). */
 async function cekGeofenceGPS(gpsLokasi, kategori, namaMapel) {
   // [B2] Setting lokasi GPS khusus mapel/ekskul (menu Hadir Tatap Muka → Setting) didahulukan;
   // bila tidak ada / nonaktif → geofence sekolah (Master Data → Konfigurasi).
   const gf = (await ambilGeofenceMapel(kategori, namaMapel)) || await ambilGeofenceSekolah();
-  if (!gf) return { ok: true }; // geofence uit → geen blokkade
+  if (!gf) return { ok: true }; // geofence mati → tidak memblokir
   const gpsTxt = String(gpsLokasi || '').trim();
   const m = gpsTxt.match(/^\s*(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)\s*$/);
   if (!m) {
@@ -1546,21 +1546,21 @@ async function jalankanAbsenMandiri(o) {
   const wajahCocokMandiri = (o && o.wajahCocok) || wajahMandiriCocok;
   if(!captcha) {
     if (sumber === 'wajah') {
-      // Metode 2: captcha leeg → wajah MOET al gecocok zijn (anders geen hadir).
+      // Metode 2: captcha kosong → wajah HARUS sudah cocok (kalau tidak, tidak hadir).
       if (!wajahCocokMandiri) {
         const stW = document.getElementById('wajah-mandiri-status');
         if (stW) stW.innerHTML = '<span class="text-amber-300 font-bold"><i class="fa-solid fa-face-smile mr-1"></i>Wajah belum terverifikasi — hadapkan wajah ke kamera lalu scan ulang.</span>';
         return { status: 'error', message: 'Wajah belum terverifikasi.' };
       }
-      // wajah cocok → ga verder ZONDER captcha (RPC v3 voert sessie BUKA-check uit).
+      // wajah cocok → lanjut TANPA captcha (RPC v3 tetap memeriksa sesi BUKA).
     } else {
       return Swal.fire({toast: true, position: 'top-end', icon: 'warning', title: 'Captcha kosong!', showConfirmButton: false, timer: 2000});
     }
   }
 
-  // [Geofence] Verifieer lokasi GPS murid tegenover koordinat school
-  // (beheerd via SISIP → Master Data → Konfigurasi → Geofence Lokasi Sekolah).
-  // Blokkeerd alleen bila admin radius geconfigureerd (>0); anders geen blokkade.
+  // [Geofence] Verifikasi lokasi GPS murid terhadap koordinat sekolah
+  // (dikelola via SISIP → Master Data → Konfigurasi → Geofence Lokasi Sekolah).
+  // Hanya memblokir bila admin mengisi radius (>0); selain itu tidak memblokir.
   const cekLoc = await cekGeofenceGPS(gpsLokasi, mapelRaw[0], mapelRaw[1]);
   if (!cekLoc.ok) {
     const pesanLoc = cekLoc.pesan || 'Di luar radius geofence sekolah.';
@@ -1616,12 +1616,12 @@ async function submitAbsenMandiri() {
   await jalankanAbsenMandiri({ captcha, gps: gpsLokasi, wajahCocok: wajahMandiriCocok, sumber: 'manual' });
 }
 
-/** Metode 2 — Verifikasi wajah pada Absen Mandiri: mencocokkan wajah murid met
- *  zijn EIGEN descriptor (face.js → pindaiWajahMandiri, NIS ingelogd).
- *  [B1] Saat wajah cocok → HADIR langsung ter-catat di tabel absensi (daftar
- *  hadir) lewat jalankanAbsenMandiri — ZONDER kode captcha & zonder tombol
- *  manual aan te raken. Gagal/tidak tersedia → geen hadir (metode 1 captcha
- *  blijft beschikbaar in de andere tab). */
+/** Metode 2 — Verifikasi wajah pada Absen Mandiri: mencocokkan wajah murid dengan
+ *  deskriptor miliknya sendiri (face.js → pindaiWajahMandiri, NIS yang login).
+ *  [B1] Saat wajah cocok → HADIR langsung tercatat di tabel absensi (daftar
+ *  hadir) lewat jalankanAbsenMandiri — TANPA kode captcha & tanpa menekan tombol
+ *  manual. Gagal/tidak tersedia → tidak hadir (metode 1 captcha tetap tersedia
+ *  di tab lain). */
 async function pindaiWajahMandiriSaya() {
   const btn = document.getElementById('btn-pindai-wajah-mandiri');
   const st = document.getElementById('wajah-mandiri-status');
@@ -1633,7 +1633,7 @@ async function pindaiWajahMandiriSaya() {
     if (st) st.innerHTML = '<span class="text-red-400">Fitur wajah tidak tersedia (face.js belum dimuat).</span>';
     return;
   }
-  // [B2/toggle] Ha kamera lagi berjalan → hentikan (tombol berfungsi utk stop).
+  // [B2/toggle] Bila kamera masih berjalan → hentikan (tombol berfungsi sebagai stop).
   if (window.FaceWajah.berhentiPindaiWajah && wajahMandiriAktif()) {
     window.FaceWajah.berhentiPindaiWajah();
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-face-smile mr-1"></i> Pindai Wajah Saya'; }
@@ -1650,11 +1650,11 @@ async function pindaiWajahMandiriSaya() {
         wajahMandiriCocok = true;
         if (st) st.innerHTML = `<span class="text-green-400 font-bold"><i class="fa-solid fa-circle-check mr-1"></i>Wajah terverifikasi — ${escapeHtml(nama)} — hadir langsung tercatat</span>`;
         if (btn) btn.innerHTML = '<i class="fa-solid fa-face-grin-beam mr-1"></i> Terverifikasi';
-        // [B1] HADIR langsung ter-catat (daftar hadir) — otomatis, tanpa klik extra.
+        // [B1] HADIR langsung tercatat (daftar hadir) — otomatis, tanpa klik tambahan.
         (async () => {
           const gps = await bacaGpsMandiri();
-          // Metode 2: captcha NIET meegestuurd ('' expliciet) — RPC v3 staat
-          // wajah-cocok zonder captcha toe zolang de sessie BUKA is.
+          // Metode 2: captcha TIDAK dikirim ('' eksplisit) — RPC v3 mengizinkan
+          // kehadiran via wajah tanpa captcha selama sesi BUKA.
           const r = await jalankanAbsenMandiri({ captcha: '', gps, wajahCocok: true, sumber: 'wajah' });
           if (r && r.status === 'success' && btn) { btn.innerHTML = '<i class="fa-solid fa-face-grin-beam mr-1"></i> Hadir Tercatat'; }
         })();
@@ -14075,7 +14075,7 @@ async function renderTabKonfigurasi() {
 
                 <div class="pt-3 border-t border-white/10 mt-4">
                     <h3 class="text-sm font-bold text-cyan-300 uppercase tracking-wide"><i class="fa-solid fa-location-dot mr-1"></i> Geofence Lokasi Sekolah <span class="text-[9px] text-slate-400 normal-case font-normal">(Absen Mandiri — wajah + GPS)</span></h3>
-                    <p class="text-[10px] text-slate-400">Koordinat GPS sekolah + radius geofence. Murid alleen kan absen mandiri di dalam radius ini (GPS ditolak → absen diblock). Buka <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-cyan-300 underline">Google Maps</a>, klik rechten pada lokasi sekolah → kopi koordinat.</p>
+                    <p class="text-[10px] text-slate-400">Koordinat GPS sekolah + radius geofence. Murid hanya bisa absen mandiri di dalam radius ini (GPS ditolak → absen diblokir). Buka <a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-cyan-300 underline">Google Maps</a>, klik kanan pada lokasi sekolah → salin koordinat.</p>
                     <div class="grid grid-cols-2 gap-3 mt-1">
                         <div><label class="font-bold text-cyan-300">Latitude Sekolah</label>
                             <input id="mi_lat_sekolah" value="${escJs(idn['Latitude Sekolah'] || '')}" placeholder="-7.2382" inputmode="decimal" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-cyan-500"></div>
@@ -14084,7 +14084,7 @@ async function renderTabKonfigurasi() {
                     </div>
                     <div class="mt-2"><label class="font-bold text-cyan-300">Radius Geofence (m)</label>
                         <input id="mi_radius_geofence" value="${escJs(idn['Radius Geofence (m)'] || '150')}" placeholder="150" inputmode="numeric" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-cyan-500"></div>
-                    <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i> Radius 0 / kosong → geofence ditutup (semua lokasi diizinkan, kompatibilitas lama). Kolom nog niet gezet → default '150'.</p>
+                    <p class="text-[10px] text-slate-400"><i class="fa-solid fa-circle-info mr-1"></i> Radius 0 / kosong → geofence ditutup (semua lokasi diizinkan, kompatibilitas lama). Kolom yang belum diisi → default '150'.</p>
                     <div class="pt-2"><button onclick="simpanIdentitasMaster('${idn.id ?? ''}')" class="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md"><i class="fa-solid fa-location-dot"></i> Simpan Lokasi / Geofence</button></div>
                 </div>
             </div>

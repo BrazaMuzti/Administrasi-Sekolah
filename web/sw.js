@@ -11,7 +11,7 @@
  * (beda origin) dilewatkan langsung ke jaringan (data selalu real-time).
  * ========================================================================== */
 
-const VERSION = 'v6'; // ← WAJIB dinaikkan setiap index.html berubah (lihat PRECACHE)
+const VERSION = 'v7'; // ← WAJIB dinaikkan setiap index.html berubah (lihat PRECACHE)
 const STATIC_CACHE = `sisip-static-${VERSION}`;
 const RUNTIME_CACHE = `sisip-runtime-${VERSION}`;
 
@@ -30,11 +30,11 @@ const PRECACHE = [
   'index.html',
   'offline.html',
   'manifest.json',
-  'css/style.css?v=20261031a',
-  'js/utils.js?v=20261031a',
-  'js/app.js?v=20261031a',
-  'js/face.js?v=20261031a',
-  'js/install.js?v=20261031a',
+  'css/style.css?v=20261031b',
+  'js/utils.js?v=20261031b',
+  'js/app.js?v=20261031b',
+  'js/face.js?v=20261031b',
+  'js/install.js?v=20261031b',
   'vendor/face-api.min.js?v=20261014a',
   'vendor/mediapipe/vision_bundle.js?v=20261020c',
   'vendor/onnx/ort.min.js?v=20261020c',
