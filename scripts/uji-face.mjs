@@ -13,6 +13,13 @@
  *      `kualitasCitraCukup`), gerbang pose (`deteksiPoseDepan`), ambang 1:1
  *      (`ambangMandiri`), pemilihan mesin dari dimensi descriptor, dan pemeriksaan
  *      struktural agar jalur fusi/pose/`motorPaksa` benar-benar terpasang di loop.
+ *   5. Lapisan kamera universal: tangga kandidat `susunKandidatKamera` (deviceId →
+ *      facingMode → bawaan, TIDAK pernah `width/height: exact`, penutup tanpa
+ *      permintaan resolusi), `normalkanKandidatKamera` untuk kandidat gaya lama,
+ *      `deteksiLingkunganKamera`, `pesanKameraError` (izin ditolak/NotFound/
+ *      NotReadable/Overconstrained/TypeError) + pemeriksaan struktural bahwa
+ *      registrasi, Absen Mandiri, dan Face Scan kelas memakai lapisan ini, serta
+ *      fallback selfie & pemilih kamera benar-benar terpasang.
  *
  * Jalankan: `npm run test:face` (atau `node scripts/uji-face.mjs`; di sandbox
  * tanpa Node: `deno run -A scripts/uji-face.mjs`).
@@ -299,6 +306,118 @@ cek('mesin dipaksa otomatis sesuai dimensi data', /motorPaksa = \(dimV === DIM_W
 cek('mesin dipulihkan di finally', /finally \{[\s\S]{0,200}?motorPaksa = null;/.test(SUMBER));
 cek('pesan "mesin pengenalan lain" Absen Mandiri diganti diagnosis',
   !/terdaftar dengan <b>mesin pengenalan lain<\/b> \(\$\{dimV\}/.test(SUMBER));
+
+// ---------------------------------------------------------------------------
+// 5. Lapisan kamera universal (tangga constraint, normalisasi, pesan izin)
+// ---------------------------------------------------------------------------
+const kodeKamera = [
+  potong(/const KAMERA_UKURAN_BAKU = \{[\s\S]*?\n/, 'KAMERA_UKURAN_BAKU'),
+  potong(/function deteksiLingkunganKamera\(\) \{[\s\S]*?\n  \}/, 'deteksiLingkunganKamera'),
+  potong(/function kandidatKeCfg\(k, ukuran\) \{[\s\S]*?\n  \}/, 'kandidatKeCfg'),
+  potong(/function susunKandidatKamera\(opsi\) \{[\s\S]*?\n  \}/, 'susunKandidatKamera'),
+  potong(/function normalkanKandidatKamera\(kandidat, ukuran\) \{[\s\S]*?\n  \}/, 'normalkanKandidatKamera'),
+  potong(/function pesanKameraError\(e\) \{[\s\S]*?\n  \}/, 'pesanKameraError')
+].join('\n');
+
+const kam = new Function(
+  kodeKamera + '\nreturn { KAMERA_UKURAN_BAKU, deteksiLingkunganKamera, kandidatKeCfg, susunKandidatKamera, normalkanKandidatKamera, pesanKameraError };'
+)();
+
+// --- 5a. Tangga baku: `ideal` saja, penutup tanpa permintaan resolusi ---
+const tanggaBaku = kam.susunKandidatKamera({});
+cek('tangga baku punya kandidat penutup tanpa permintaan resolusi',
+  tanggaBaku.length >= 2 && Object.keys(tanggaBaku[tanggaBaku.length - 1].cfg).length === 0,
+  'jumlah kandidat ' + tanggaBaku.length);
+cek('tidak ada width/height `exact` di tangga baku', !tanggaBaku.some(k => {
+  const w = k.cfg && k.cfg.width, h = k.cfg && k.cfg.height;
+  return (w && w.exact != null) || (h && h.exact != null);
+}));
+cek('kandidat beresolusi selalu memakai `ideal`',
+  tanggaBaku.filter(k => Object.keys(k.cfg).length).every(k =>
+    k.cfg.width && k.cfg.width.ideal && k.cfg.height && k.cfg.height.ideal));
+
+// --- 5b. deviceId didahulukan, diulang sebagai `ideal` ---
+const tanggaDev = kam.susunKandidatKamera({ deviceId: 'ID-KAMERA' });
+cek('kandidat pertama = deviceId exact',
+  tanggaDev[0].cfg.deviceId && tanggaDev[0].cfg.deviceId.exact === 'ID-KAMERA', tanggaDev[0].nama);
+cek('kandidat kedua = deviceId ideal (cadangan saat `exact` ditolak)',
+  tanggaDev[1].cfg.deviceId && tanggaDev[1].cfg.deviceId.ideal === 'ID-KAMERA'
+    && tanggaDev[1].cfg.deviceId.exact === undefined, tanggaDev[1].nama);
+
+// --- 5c. Urutan facingMode: muka yang diminta lebih dulu, cadangan tetap ada ---
+const namaEnv = kam.susunKandidatKamera({ muka: 'environment' }).map(k => k.nama);
+cek('environment dicoba sebelum user',
+  namaEnv.indexOf('facingMode-exact-environment') < namaEnv.indexOf('facingMode-exact-user'), namaEnv.join('|'));
+const namaUser = kam.susunKandidatKamera({ muka: 'user' }).map(k => k.nama);
+cek('user dicoba sebelum environment',
+  namaUser.indexOf('facingMode-exact-user') < namaUser.indexOf('facingMode-exact-environment'));
+cek('cadangan muka bisa dimatikan (tanpaCadanganMuka)',
+  kam.susunKandidatKamera({ muka: 'user', tanpaCadanganMuka: true }).every(k => !/environment/.test(k.nama)));
+
+// --- 5d. Ukuran khusus (potret registrasi 720×1280) dipakai konsisten ---
+const tanggaPotret = kam.susunKandidatKamera({ muka: 'user', ukuran: { width: { ideal: 720 }, height: { ideal: 1280 } } });
+cek('ukuran potret dipakai kandidat pertama',
+  tanggaPotret[0].cfg.width.ideal === 720 && tanggaPotret[0].cfg.height.ideal === 1280);
+
+// --- 5e. Normalisasi kandidat gaya lama (string/objek kosong/null) ---
+const normal = kam.normalkanKandidatKamera(['user', {}]);
+cek('kandidat string → facingMode', normal[0].cfg.facingMode === 'user', JSON.stringify(normal[0].cfg));
+cek('kandidat objek kosong → tetap mendapat ukuran `ideal`',
+  normal[1].cfg.width && normal[1].cfg.width.ideal === 1280);
+const normalKosong = kam.normalkanKandidatKamera(null);
+cek('kandidat kosong → tangga baku (ada facingMode)',
+  Array.isArray(normalKosong) && normalKosong.length >= 2 && !!normalKosong[0].cfg.facingMode);
+
+// --- 5f. Pesan error kamera: Indonesia, spesifik, bisa ditindaklanjuti ---
+cek('izin ditolak → langkah izin Android + iPhone',
+  /Izin kamera ditolak/.test(kam.pesanKameraError({ name: 'NotAllowedError' }))
+    && /Safari/.test(kam.pesanKameraError({ name: 'PermissionDeniedError' })));
+cek('kamera tidak terdeteksi → arahkan ke foto/selfie',
+  /Selfie|Foto/.test(kam.pesanKameraError({ name: 'NotFoundError' })));
+cek('kamera dipakai aplikasi lain → NotReadableError',
+  /dipakai aplikasi/.test(kam.pesanKameraError({ name: 'NotReadableError' })));
+cek('halaman non-HTTPS (TypeError) → pesan HTTPS/localhost',
+  /HTTPS atau localhost/.test(kam.pesanKameraError({ name: 'TypeError' })));
+cek('OverconstrainedError menyebut pilih kamera lain',
+  /kamera lain/.test(kam.pesanKameraError({ name: 'OverconstrainedError', constraint: 'deviceId' })));
+cek('error tanpa nama → pesan aslinya dipakai', kam.pesanKameraError(new Error('boom')) === 'boom');
+
+// --- 5g. deteksiLingkunganKamera: bentuk kontrak selalu sama ---
+const envKam = kam.deteksiLingkunganKamera();
+cek('deteksiLingkunganKamera → { adaAPI, adaEnumerasi, aman, bisa, pesan }',
+  typeof envKam.bisa === 'boolean' && typeof envKam.adaAPI === 'boolean'
+    && typeof envKam.aman === 'boolean' && typeof envKam.pesan === 'string');
+cek('bisa = adaAPI && aman', envKam.bisa === (envKam.adaAPI && envKam.aman));
+cek('tanpa API kamera → pesan menuntun ke foto/selfie',
+  envKam.adaAPI ? true : /Foto|selfie/i.test(envKam.pesan), envKam.pesan);
+
+// --- 5h. Pemeriksaan struktural: semua jalur kamera memakai lapisan universal ---
+// Baris komentar dibuang dulu — dokumentasi justru MENJELASKAN larangan
+// `width/height: { exact }`, jadi hanya kode yang diperiksa.
+const kodeTanpaKomentar = SUMBER.split('\n')
+  .filter(l => { const t = l.trim(); return !(t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')); })
+  .join('\n');
+cek('tidak ada `width/height: { exact }` di kode face.js',
+  !/width:\s*\{\s*exact/.test(kodeTanpaKomentar) && !/height:\s*\{\s*exact/.test(kodeTanpaKomentar));
+cek('registrasi wajah lewat bukaKameraKeVideo + ingat kamera terakhir',
+  /await bukaKameraKeVideo\(\{[\s\S]{0,240}?video: videoEl[\s\S]{0,300}?KUNCI_KAMERA_SIMPAN/.test(SUMBER));
+cek('Absen Mandiri memakai bukaKameraUniversal + slot KUNCI_KAMERA_SIMPAN',
+  /await bukaKameraUniversal\(\{[\s\S]{0,340}?KUNCI_KAMERA_SIMPAN/.test(SUMBER));
+cek('Face Scan kelas memakai bukaKameraUniversal + slot KUNCI_KAMERA_PINDAI',
+  /bukaKameraUniversal\(\{[\s\S]{0,340}?KUNCI_KAMERA_PINDAI/.test(SUMBER));
+cek('ganti kamera memakai gantiKameraAktif (applyConstraints → stop-buka → rollback)',
+  /function gantiKameraAktif/.test(SUMBER) && /applyConstraints/.test(SUMBER)
+    && /gantiKameraAktif\(\{[\s\S]{0,200}?streamLama/.test(SUMBER));
+cek('fallback selfie Absen Mandiri terpasang (tombol + verifikasi foto)',
+  /btn-mandiri-selfie/.test(SUMBER) && /const verifikasiMandiriDariFoto = async/.test(SUMBER));
+cek('registrasi menyediakan tombol Ambil Selfie',
+  /const btnSelfie = cari\('btn-wajah-selfie'\)/.test(SUMBER));
+cek('kamera dilepas saat tab disembunyikan (visibilitychange)',
+  /visibilitychange[\s\S]{0,240}?hentikanKamera\(\)/.test(SUMBER));
+cek('daftar kamera disegarkan saat perangkat berubah (devicechange)',
+  /addEventListener\('devicechange'/.test(SUMBER));
+cek('API publik kamera diekspor (dipakai pemindai QR di app.js)',
+  /daftarKamera,\s*\n\s*kameraTerakhirTersimpan,/.test(SUMBER));
 
 // ---------------------------------------------------------------------------
 console.log(lulus + ' lulus, ' + gagal + ' gagal.');

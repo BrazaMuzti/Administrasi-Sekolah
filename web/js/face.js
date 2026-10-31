@@ -1080,53 +1080,160 @@
       '</div>';
   }
 
-  /** Terjemahkan error getUserMedia menjadi pesan Indonesia yang bisa ditindaklanjuti. */
+  /** Terjemahkan error getUserMedia menjadi pesan Indonesia yang bisa ditindaklanjuti.
+   *  Mencakup kasus berulang di lapangan: izin ditolak (Android/iOS), kamera dipakai
+   *  aplikasi lain, perangkat tanpa kamera, constraint tak didukung, dan play() yang
+   *  dibatalkan (BUKAN kegagalan kamera — stream tetap terpasang). */
   function pesanKameraError(e) {
     const n = (e && e.name) || '';
     if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
-      return 'Izin kamera ditolak peramban. Klik ikon gembok di address bar → izinkan kamera, lalu coba lagi.';
+      return 'Izin kamera ditolak peramban. Buka izin kamera peramban (Android: Setelan → Aplikasi → peramban → Izin → Kamera; iPhone: Setelan → Safari → Kamera → Tanya/Izinkan), lalu muat ulang halaman dan coba lagi — atau pakai tombol "Gunakan Foto"/selfie dari galeri.';
     }
     if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
-      return 'Tidak ada kamera terdeteksi di perangkat ini. Gunakan tombol "Gunakan Foto".';
+      return 'Tidak ada kamera terdeteksi di perangkat ini. Pakai tombol "Gunakan Foto" / "Ambil Selfie" untuk mengambil wajah dari galeri.';
     }
     if (n === 'NotReadableError' || n === 'TrackStartError') {
-      return 'Kamera sedang dipakai aplikasi/peramban lain. Tutup aplikasi itu lalu klik "Gunakan Kamera" lagi.';
+      return 'Kamera sedang dipakai aplikasi/peramban lain, atau driver kamera tidak merespons. Tutup aplikasi kamera/video call (dan tab lain yang memakai kamera), tunggu sebentar, lalu klik lagi.';
     }
     if (n === 'OverconstrainedError') {
-      return 'Kamera tidak mendukung pengaturan yang diminta. Pilih kamera lain dari daftar.';
+      return 'Kamera ini tidak mendukung pengaturan yang diminta'
+        + (e && e.constraint ? ' (' + e.constraint + ')' : '')
+        + '. Pilih kamera lain dari daftar kamera.';
+    }
+    if (n === 'AbortError') {
+      return 'Pembukaan kamera dibatalkan (stream diganti terlalu cepat). Tunggu sesaat lalu klik lagi.';
+    }
+    if (n === 'TypeError') {
+      return 'Kamera tidak dapat diakses halaman ini. Buka aplikasi lewat HTTPS atau localhost.';
     }
     if (n === 'SecurityError' || n === 'PermissionDismissedError') {
-      return 'Peramban memblokir akses kamera (butuh HTTPS atau localhost).';
+      return 'Peramban memblokir akses kamera (butuh HTTPS atau localhost). Muat ulang halaman lalu pilih "Izinkan" saat peramban meminta.';
     }
     return (e && e.message) ? e.message : String(e);
   }
 
-  /** Buka stream kamera dengan FALLBACK BERANTAI.
-   *  `kandidat` adalah daftar string facingMode ('environment'/'user') ATAU objek
-   *  constraint video (mis. { deviceId: { exact } }). Kegagalan satu kandidat
-   *  (perangkat tanpa kamera belakang → 'environment' tidak tersedia) TIDAK boleh
-   *  menggagalkan pemindaian — lanjut ke kandidat berikutnya. Semua gagal → pesan
-   *  ramah via pesanKameraError (dengan sekali percobaan ulang utk NotReadable
-   *  transien, mis. kamera baru dilepas aplikasi lain). */
-  async function bukaStreamKamera(kandidat, ukuran) {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Kamera tidak tersedia di peramban ini (butuh HTTPS atau localhost).');
+  // ==================================================================
+  // 4a2. LAPISAN KAMERA UNIVERSAL — semua merek ponsel & peramban
+  // ==================================================================
+  // Prinsip (hasil audit jalur kamera):
+  //   1. JANGAN memakai `width/height: { exact }` — banyak driver kamera
+  //      (Xiaomi/Realme/Oppo/Infinix, iPad, WebView) menolaknya dengan
+  //      OverconstrainedError padahal kameranya sehat → selalu `ideal`.
+  //   2. Kandidat diturunkan BERTAHAP: deviceId (exact → ideal) → facingMode
+  //      (exact → ideal, kamera yang diminta lebih dulu) → tanpa constraint →
+  //      tanpa permintaan resolusi sama sekali.
+  //   3. Berhenti mencoba HANYA saat izin ditolak (NotAllowedError/SecurityError) —
+  //      sisanya lanjut ke kandidat berikutnya; NotReadableError (kamera baru
+  //      dilepas aplikasi lain) dicoba ulang sekali setelah jeda.
+  //   4. Kamera terakhir yang berhasil diingat di localStorage → siswa/guru tidak
+  //      selalu jatuh ke kamera bawaan yang mungkin bukan yang dipakai sebelumnya.
+  const KAMERA_UKURAN_BAKU = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  const KUNCI_KAMERA_SIMPAN = 'sbg_wajah_kamera';        // registrasi + absen mandiri
+  const KUNCI_KAMERA_PINDAI = 'sbg_wajah_kamera_pindai'; // absen kelas (guru/admin)
+
+  /** Kemampuan lingkungan kamera saat ini (API, HTTPS/aman, enumerasi perangkat). */
+  function deteksiLingkunganKamera() {
+    let md = null;
+    try { md = (typeof navigator !== 'undefined' && navigator.mediaDevices) || null; } catch (e) { md = null; }
+    let aman = true;
+    try { if (typeof window !== 'undefined' && window.isSecureContext === false) aman = false; } catch (e) { /* anggap aman */ }
+    const adaAPI = !!(md && typeof md.getUserMedia === 'function');
+    const adaEnumerasi = !!(md && typeof md.enumerateDevices === 'function');
+    let pesan = '';
+    if (!adaAPI) {
+      pesan = 'Peramban ini tidak menyediakan API kamera. Perbarui peramban, atau pakai tombol "Gunakan Foto"/selfie untuk mengambil wajah dari galeri.';
+    } else if (!aman) {
+      pesan = 'Kamera hanya berfungsi di HTTPS atau localhost. Halaman ini dibuka lewat HTTP — pakai tombol "Gunakan Foto"/selfie, atau buka aplikasi lewat https:// / localhost.';
     }
-    const size = ukuran || { width: { ideal: 1280 }, height: { ideal: 720 } };
-    const daftar = (kandidat && kandidat.length) ? kandidat : ['user'];
+    return { adaAPI, adaEnumerasi, aman, bisa: adaAPI && aman, pesan };
+  }
+
+  /** Satu kandidat (string facingMode / objek constraint) → constraint video lengkap.
+   *  Ukuran selalu disisipkan sebagai `ideal` (lihat prinsip 1 di atas). */
+  function kandidatKeCfg(k, ukuran) {
+    const size = ukuran || KAMERA_UKURAN_BAKU;
+    if (typeof k === 'string') return Object.assign({ facingMode: k }, size);
+    if (k && typeof k === 'object') return Object.assign({}, size, k);
+    return Object.assign({}, size);
+  }
+
+  /** Susun tangga kandidat constraint kamera (MURNI — bisa diuji tanpa peramban).
+   *  @param opsi - { deviceId, muka ('user'|'environment'), ukuran,
+   *                  tanpaCadanganMuka, cadanganMuka }
+   *  @returns Array [{ nama, cfg }] — urutan percobaan dari yang paling spesifik.
+   *  Semua entri memakai width/height `ideal` (tidak pernah `exact`). */
+  function susunKandidatKamera(opsi) {
+    const o = opsi || {};
+    const muka = (o.muka === 'environment') ? 'environment' : 'user';
+    const ukuran = o.ukuran || KAMERA_UKURAN_BAKU;
+    const hasil = [];
+    const tambah = (nama, isi, pakaiUkuran) => {
+      hasil.push({
+        nama,
+        cfg: (pakaiUkuran === false) ? Object.assign({}, isi) : Object.assign({}, ukuran, isi)
+      });
+    };
+    if (o.deviceId) {
+      tambah('deviceId-exact', { deviceId: { exact: o.deviceId } });
+      // Peramban tertentu menolak `exact` untuk deviceId yang belum "dilihat" di sesi
+      // ini (mis. kamera USB baru) → ulangi sebagai `ideal` sebelum menyerah.
+      tambah('deviceId-ideal', { deviceId: { ideal: o.deviceId } });
+    }
+    const pakaiCadangan = !(o.tanpaCadanganMuka || o.cadanganMuka === false);
+    const urutMuka = [muka].concat(pakaiCadangan ? [muka === 'user' ? 'environment' : 'user'] : []);
+    urutMuka.forEach((m) => tambah('facingMode-exact-' + m, { facingMode: { exact: m } }));
+    urutMuka.forEach((m) => tambah('facingMode-ideal-' + m, { facingMode: { ideal: m } }));
+    tambah('bawaan', {});
+    // Penutup: TANPA permintaan resolusi — sebagian driver menolak setiap permintaan
+    // width/height; kamera apa pun (walau beresolusi kecil) lebih berguna daripada gagal.
+    tambah('bawaan-tanpa-ukuran', {}, false);
+    return hasil;
+  }
+
+  /** Normalisasi daftar kandidat bukaStreamKamera (string / objek / { nama, cfg }). */
+  function normalkanKandidatKamera(kandidat, ukuran) {
+    const masuk = Array.isArray(kandidat) ? kandidat : (kandidat ? [kandidat] : []);
+    const hasil = [];
+    masuk.forEach((k, i) => {
+      if (k && typeof k === 'object' && k.cfg) {
+        hasil.push({ nama: k.nama || ('kandidat-' + i), cfg: k.cfg });
+        return;
+      }
+      hasil.push({ nama: 'kandidat-' + i, cfg: kandidatKeCfg(k, ukuran) });
+    });
+    if (!hasil.length) return susunKandidatKamera({ muka: 'user' });
+    return hasil;
+  }
+
+  /** Buka stream kamera dengan FALLBACK BERANTAI (lihat susunKandidatKamera).
+   *  @param kandidat - daftar kandidat: string facingMode, objek constraint, atau
+   *                    `{ nama, cfg }` hasil susunKandidatKamera(). Kosong = tangga baku.
+   *  @param ukuran   - resolusi (`ideal`) yang disisipkan ke kandidat gaya lama.
+   *  Berhenti segera saat izin ditolak; satu percobaan ulang utk NotReadableError. */
+  async function bukaStreamKamera(kandidat, ukuran) {
+    const env = deteksiLingkunganKamera();
+    if (!env.adaAPI) throw new Error(env.pesan || 'Kamera tidak tersedia di peramban ini (butuh HTTPS atau localhost).');
+    const daftar = normalkanKandidatKamera(kandidat, ukuran);
     let errTerakhir = null;
-    for (let putaran = 0; putaran < 2; putaran++) {
+    let izinDitolak = false;
+    for (let putaran = 0; putaran < 2 && !izinDitolak; putaran++) {
       for (const k of daftar) {
         try {
-          const videoCfg = (typeof k === 'string')
-            ? Object.assign({ facingMode: k }, size)
-            : Object.assign({}, size, k || {});
-          return await navigator.mediaDevices.getUserMedia({ video: videoCfg, audio: false });
+          return await navigator.mediaDevices.getUserMedia({ video: k.cfg, audio: false });
         } catch (e) {
           errTerakhir = e;
-          console.warn('bukaStreamKamera (putaran ' + putaran + ') kandidat ' + JSON.stringify(k) + ':', (e && e.message) || e);
+          const n = (e && e.name) || '';
+          if (n === 'NotAllowedError' || n === 'PermissionDeniedError' || n === 'SecurityError') {
+            // Izin = keputusan pengguna: mencoba 10 kandidat lain hanya memunculkan 10
+            // pesan error yang sama → berhenti dengan satu pesan yang menuntun.
+            izinDitolak = true;
+            console.warn('bukaStreamKamera: izin kamera ditolak — berhenti mencoba (' + k.nama + ')');
+            break;
+          }
+          console.warn('bukaStreamKamera (putaran ' + putaran + ') kandidat ' + k.nama + ':', (e && e.message) || e);
         }
       }
+      if (izinDitolak) break;
       const transien = errTerakhir && (errTerakhir.name === 'NotReadableError' || errTerakhir.name === 'TrackStartError');
       if (!transien) break;
       await new Promise(r => setTimeout(r, 900));
@@ -1135,42 +1242,274 @@
     throw new Error(pesanKameraError(errAkhir));
   }
 
-  async function mulaiKameraKe(videoEl, deviceId, potret) {
-    hentikanKamera();
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('Kamera tidak tersedia di peramban ini (butuh HTTPS atau localhost).');
+  /** Pasang stream ke elemen video dengan penanganan `play()` yang BENAR.
+   *  Penolakan play() (kebijakan autoplay / AbortError saat stream diganti cepat) BUKAN
+   *  kegagalan kamera — stream sudah terpasang dan frame tetap mengalir; cukup dicoba
+   *  ulang sekali lalu lanjut (dulu exception play() menggagalkan seluruh alur kamera). */
+  async function pasangStreamKeVideo(videoEl, stream) {
+    if (!videoEl || !stream) return stream;
+    videoEl.setAttribute('playsinline', 'true');
+    videoEl.setAttribute('autoplay', 'true');
+    try { videoEl.muted = true; } catch (e) { /* opsional */ }
+    try { videoEl.srcObject = stream; } catch (e) { console.warn('pasangStreamKeVideo srcObject:', e); }
+    try {
+      await videoEl.play();
+    } catch (e) {
+      const n = (e && e.name) || '';
+      console.warn('pasangStreamKeVideo: play() ditolak (' + (n || 'tanpa nama') + '):', (e && e.message) || e);
+      if (n === 'AbortError' || n === 'NotAllowedError' || n === '') {
+        await new Promise(r => setTimeout(r, 150));
+        try { await videoEl.play(); } catch (e2) { console.warn('pasangStreamKeVideo: play() ulang gagal:', (e2 && e2.message) || e2); }
+      }
     }
+    return stream;
+  }
+
+  /** Tunggu elemen video punya frame (readyState ≥ 2). Batas waktu DIHITUNG SEKALI di
+   *  awal — bug lama `Date.now() >= Date.now() + 4000` membuat batas tak pernah tercapai
+   *  (loop cek 60 ms tak berujung saat kamera macet). */
+  function tungguVideoSiapKamera(el, batasMs) {
+    return new Promise(resolve => {
+      if (!el || el.readyState >= 2) return resolve(true);
+      const batas = Date.now() + (batasMs || 4000);
+      let selesai = false;
+      const beres = (ok) => { if (!selesai) { selesai = true; resolve(ok); } };
+      el.addEventListener('loadeddata', () => beres(true), { once: true });
+      const cek = () => {
+        if (selesai) return;
+        if (el.readyState >= 2) return beres(true);
+        if (Date.now() >= batas) return beres(false);
+        setTimeout(cek, 60);
+      };
+      cek();
+    });
+  }
+
+  /** Kompatibilitas: buka kamera & pasang ke elemen video.
+   *  @param videoEl - elemen <video>
+   *  @param deviceId - deviceId kamera (kosong = kamera yang diminta `muka`)
+   *  @param potret   - true → minta orientasi potret 720×1280 untuk registrasi wajah
+   *  Sekarang memakai lapisan universal (tangga kandidat + ingat kamera terakhir),
+   *  sehingga perangkat tanpa kamera depan tetap bisa memakai kamera belakang. */
+  async function mulaiKameraKe(videoEl, deviceId, potret) {
     // Registrasi wajah minta ORIENTASI POTRET (720×1280) — sensor kamera depan modern
     // memberikan native atas-bawah; kamera 4:3 lama tetap berfungsi (`ideal` bukan
     // `exact`: driver kembali ukuran terbaik). Crop 9:16 dikomputasi di snapshot sebagai fallback.
     const ukuran = potret
       ? { width: { ideal: 720 }, height: { ideal: 1280 } }
       : { width: { ideal: 640 }, height: { ideal: 480 } };
-    const videoCfg = deviceId
-      ? Object.assign({ deviceId: { exact: deviceId } }, ukuran)
-      : Object.assign({ facingMode: 'user' }, ukuran);
-    let stream = null;
+    await bukaKameraKeVideo({
+      video: videoEl,
+      deviceId: deviceId || '',
+      muka: 'user',
+      ukuran,
+      slot: KUNCI_KAMERA_SIMPAN
+    });
+    return kameraBerjalan && kameraBerjalan.stream;
+  }
+
+  /** deviceId kamera dari stream ('' bila tak tersedia). */
+  function idDeviceDariStream(stream) {
+    const tr = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!tr || typeof tr.getSettings !== 'function') return '';
+    try { return tr.getSettings().deviceId || ''; } catch (e) { return ''; }
+  }
+
+  /** facingMode NYATA dari stream ('user'/'environment'/'' bila tak dilaporkan). */
+  function bacaMukaStream(stream) {
+    const tr = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!tr || typeof tr.getSettings !== 'function') return '';
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: videoCfg, audio: false });
-    } catch (ePertama) {
-      // NotReadableError sering transien (kamera baru saja dilepas aplikasi lain/
-      // driver) → beri kesempatan kedua setelah jeda singkat sebelum menyerah.
-      if (ePertama && (ePertama.name === 'NotReadableError' || ePertama.name === 'TrackStartError')) {
-        await new Promise(r => setTimeout(r, 900));
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: videoCfg, audio: false });
-        } catch (eKedua) {
-          throw new Error(pesanKameraError(eKedua));
+      const m = tr.getSettings().facingMode;
+      return (m === 'user' || m === 'environment') ? m : '';
+    } catch (e) { return ''; }
+  }
+
+  /** Ingat kamera terakhir yang BERHASIL (per slot: registrasi/mandiri vs pindai kelas).
+   *  Tanpa ini, siswa/guru yang memakai kamera belakang (atau kamera USB) selalu jatuh
+   *  kembali ke kamera bawaan pada kunjungan berikutnya. */
+  function simpanKameraTerakhir(id, slot) {
+    if (!id) return;
+    try { localStorage.setItem(slot || KUNCI_KAMERA_SIMPAN, String(id)); } catch (e) { /* mode privat */ }
+  }
+  function kameraTerakhirTersimpan(slot) {
+    try { return localStorage.getItem(slot || KUNCI_KAMERA_SIMPAN) || ''; } catch (e) { return ''; }
+  }
+
+  /** Buka kamera universal: tangga kandidat (muka yang diminta → cadangan → bawaan)
+   *  lalu INGAT kamera yang berhasil. API utama semua jalur kamera.
+   *  @param opsi - { deviceId, muka, ukuran, slot, tanpaCadanganMuka } */
+  async function bukaKameraUniversal(opsi) {
+    const o = opsi || {};
+    const env = deteksiLingkunganKamera();
+    if (!env.bisa) throw new Error(env.pesan || 'Kamera tidak tersedia (butuh HTTPS atau localhost).');
+    const stream = await bukaStreamKamera(susunKandidatKamera(o), null);
+    const id = idDeviceDariStream(stream);
+    if (id) simpanKameraTerakhir(id, o.slot);
+    return stream;
+  }
+
+  /** Buka kamera universal lalu pasang ke elemen video (registrasi & absen mandiri).
+   *  Selalu melepas stream lama DULU: ponsel kamera-tunggal menolak stream kedua. */
+  async function bukaKameraKeVideo(opsi) {
+    const o = opsi || {};
+    if (!o.video || !o.video.isConnected) throw new Error('Elemen pratinjau kamera tidak ditemukan.');
+    hentikanKamera();
+    const stream = await bukaKameraUniversal(o);
+    await pasangStreamKeVideo(o.video, stream);
+    kameraBerjalan = { stream, video: o.video };
+    return stream;
+  }
+
+  /** Ganti kamera yang sedang aktif tanpa mengulang alur pemindaian.
+   *  @param opsi - { video, streamLama, deviceIdLama, deviceId, muka, ukuran, slot,
+   *                  tanpaCadanganMuka }
+   *  @returns stream yang dipakai sesudahnya (stream lama bila applyConstraints berhasil).
+   *  Melempar Error bila kamera baru gagal membuka — pemanggil mengembalikan pilihan
+   *  dropdown ke kamera yang masih jalan (rollback sudah dilakukan di sini). */
+  async function gantiKameraAktif(opsi) {
+    const o = opsi || {};
+    const videoEl = o.video || null;
+    const streamLama = o.streamLama || null;
+    const idLama = o.deviceIdLama || idDeviceDariStream(streamLama);
+    const idBaru = o.deviceId || '';
+    if (idBaru && idLama && idBaru === idLama) return streamLama;
+    // (a) JALUR CEPAT — minta track yang sedang jalan berpindah perangkat. Tidak ada
+    //     stream kedua → aman di ponsel kamera-tunggal & tanpa kedip hitam.
+    const trackLama = streamLama && streamLama.getVideoTracks && streamLama.getVideoTracks()[0];
+    if (idBaru && trackLama && typeof trackLama.applyConstraints === 'function') {
+      try {
+        await trackLama.applyConstraints({ deviceId: { exact: idBaru } });
+        if (idDeviceDariStream(streamLama) === idBaru) {
+          simpanKameraTerakhir(idBaru, o.slot);
+          return streamLama;
         }
-      } else {
-        throw new Error(pesanKameraError(ePertama));
+        console.warn('gantiKameraAktif: applyConstraints tidak berpindah perangkat — stream dibuka ulang');
+      } catch (e) {
+        console.warn('gantiKameraAktif: applyConstraints gagal — stream dibuka ulang:', (e && e.message) || e);
       }
     }
-    videoEl.srcObject = stream;
-    videoEl.setAttribute('playsinline', 'true');
-    await videoEl.play();
-    kameraBerjalan = { stream, video: videoEl };
-    return stream;
+    // (b) STOP-LALU-BUKA — kamera lama WAJIB dilepas sebelum membuka yang baru (Android/
+    //     iOS sering menjawab NotReadableError bila dua stream dibuka bersamaan).
+    if (streamLama && streamLama.getTracks) streamLama.getTracks().forEach(t => t.stop());
+    let streamBaru = null;
+    try {
+      streamBaru = await bukaKameraUniversal({
+        deviceId: o.deviceId, muka: o.muka, ukuran: o.ukuran,
+        slot: o.slot, tanpaCadanganMuka: o.tanpaCadanganMuka
+      });
+    } catch (e) {
+      // (c) ROLLBACK — kamera baru gagal: hidupkan kembali kamera lama supaya pengguna
+      //     tidak kehilangan gambar sama sekali.
+      if (idLama && idLama !== idBaru) {
+        try {
+          streamBaru = await bukaKameraUniversal({ deviceId: idLama, muka: o.muka, ukuran: o.ukuran, slot: o.slot });
+        } catch (e2) { streamBaru = null; console.warn('gantiKameraAktif rollback gagal:', (e2 && e2.message) || e2); }
+      }
+      if (streamBaru) await pasangStreamKeVideo(videoEl, streamBaru);
+      throw new Error(pesanKameraError(e));
+    }
+    await pasangStreamKeVideo(videoEl, streamBaru);
+    await tungguVideoSiapKamera(videoEl, 4000);
+    return streamBaru;
+  }
+
+  /** Daftar kamera video perangkat ini. Label HANYA terisi setelah izin diberikan
+   *  (perilaku peramban) — itu sebabnya daftar ini selalu diisi SETELAH kamera hidup. */
+  async function daftarKamera() {
+    const env = deteksiLingkunganKamera();
+    if (!env.adaEnumerasi) return [];
+    try {
+      const dev = await navigator.mediaDevices.enumerateDevices();
+      return (dev || [])
+        .filter(d => d && d.kind === 'videoinput')
+        .map(d => ({ id: d.deviceId || '', label: String(d.label || '').trim() }));
+    } catch (e) {
+      console.warn('daftarKamera:', e);
+      return [];
+    }
+  }
+
+  /** Select kamera yang masih terpasang di DOM (utk disegarkan otomatis saat daftar
+   *  perangkat berubah: kamera USB dicabut/dipasang, kamera virtual muncul, izin baru
+   *  diberikan → label perangkat jadi tersedia). */
+  const kameraSelectTerdaftar = [];
+  function segarkanSelectKamera() {
+    for (let i = kameraSelectTerdaftar.length - 1; i >= 0; i--) {
+      const it = kameraSelectTerdaftar[i];
+      if (!it || !it.select || !it.select.isConnected) { kameraSelectTerdaftar.splice(i, 1); continue; }
+      isiDaftarKamera(it.select, it.onGanti, it.aktifIdOpsi, true).catch(e => console.warn('segarkanSelectKamera:', e));
+    }
+  }
+  if (typeof navigator !== 'undefined' && navigator.mediaDevices
+      && typeof navigator.mediaDevices.addEventListener === 'function') {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      try { segarkanSelectKamera(); } catch (e) { console.warn('devicechange:', e); }
+    });
+  }
+
+  /** Decode berkas gambar (selfie/galeri) → ImageBitmap / HTMLImageElement.
+   *  `imageOrientation: 'from-image'` menghormati rotasi EXIF foto ponsel — tanpa itu
+   *  wajah pada foto potret terbaca miring 90° dan deteksi gagal. */
+  async function muatGambarDariFile(berkas) {
+    if (!berkas) throw new Error('Berkas gambar tidak ditemukan.');
+    if (typeof createImageBitmap === 'function') {
+      try { return await createImageBitmap(berkas, { imageOrientation: 'from-image' }); }
+      catch (e) { /* peramban lama: coba tanpa opsi */ }
+      try { return await createImageBitmap(berkas); }
+      catch (e) { /* lanjut ke FileReader */ }
+    }
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error('Gagal membaca berkas gambar.'));
+      fr.readAsDataURL(berkas);
+    });
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise((res, rej) => {
+      img.onload = () => res();
+      img.onerror = () => rej(new Error('Format gambar tidak dikenali.'));
+    });
+    return img;
+  }
+
+  /** Salin sumber gambar (ImageBitmap/HTMLImageElement) ke canvas — sisi terpanjang
+   *  diperkecil ke `maks` px supaya deteksi tetap cepat di perangkat lambat. */
+  function gambarKeKanvas(sumber, maks) {
+    const w = sumber && (sumber.width || sumber.naturalWidth || 0);
+    const h = sumber && (sumber.height || sumber.naturalHeight || 0);
+    if (!w || !h) throw new Error('Ukuran gambar tidak terbaca.');
+    const batas = maks || 640;
+    const skala = Math.min(1, batas / Math.max(w, h));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(w * skala));
+    cv.height = Math.max(1, Math.round(h * skala));
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(sumber, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+
+  /** Buka pemilih berkas gambar (selfie/galeri) & kembalikan File terpilih (null bila batal).
+   *  Dipakai sebagai fallback saat kamera tidak bisa diakses (izin ditolak, HTTP, kamera rusak).
+   *  `capture` DIBIARKAN kosong: pengguna bebas memilih foto galeri ATAU kamera bawaan OS —
+   *  ponsel kadang hanya punya satu jalur yang berfungsi, jadi jangan dikunci ke selfie. */
+  function pilihBerkasGambar(terima) {
+    return new Promise((resolve) => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = terima || 'image/*';
+      inp.style.position = 'fixed';
+      inp.style.left = '-9999px';
+      document.body.appendChild(inp);
+      let selesai = false;
+      const beres = (f) => { if (selesai) return; selesai = true; try { inp.remove(); } catch (e) { /* opsional */ } resolve(f || null); };
+      inp.addEventListener('change', () => beres(inp.files && inp.files[0]));
+      // Peramban ber-iOS menutup pemilih tanpa event `change` saat dibatalkan → jangan
+      // menggantung selamanya: pantau fokus jendela kembali sebagai penanda "selesai".
+      window.addEventListener('focus', () => setTimeout(() => beres(inp.files && inp.files[0]), 600), { once: true });
+      inp.click();
+    });
   }
 
   function hentikanKamera() {
@@ -1376,18 +1715,30 @@
 
   /** Isi dropdown pilihan kamera & pasang listener ganti kamera (sekali per modal).
    *  @param aktifIdOpsi - deviceId stream yang sedang dipakai pemanggil (selain modal
-   *                       registrasi yang memakai kameraBerjalan), mis. pindai live. */
-  async function isiDaftarKamera(selectEl, onGanti, aktifIdOpsi) {
+   *                       registrasi yang memakai kameraBerjalan), mis. pindai live.
+   *  @param paksa       - true → isi ulang walau sudah pernah diisi (dipakai saat daftar
+   *                       perangkat berubah: kamera USB dicabut/dipasang, label baru
+   *                       tersedia setelah izin diberikan, dsb.). */
+  async function isiDaftarKamera(selectEl, onGanti, aktifIdOpsi, paksa) {
     if (!selectEl || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
-    if (selectEl.dataset.terisi === '1') return;
+    if (!paksa && selectEl.dataset.terisi === '1') return;
+    // Ingat select ini supaya daftarnya bisa disegarkan otomatis saat perangkat berubah
+    // (devicechange di perangkat lain memanggil segarkanSelectKamera()).
+    if (!kameraSelectTerdaftar.some(it => it.select === selectEl)) {
+      kameraSelectTerdaftar.push({ select: selectEl, onGanti, aktifIdOpsi: aktifIdOpsi || '' });
+    }
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = (devices || []).filter(d => d.kind === 'videoinput');
       if (!videoDevices.length) return;
       const aktifId = aktifIdOpsi || kameraAktifDeviceId();
+      // Pilihan pengguna saat ini harus DIPERTAHANKAN saat isi ulang (kalau tidak,
+      // dropdown melompat balik ke kamera depan setiap perangkat berubah).
       const pilihanLama = selectEl.value || '';
+      const terpilihLama = selectEl.querySelector('option:checked');
+      const nilaiLama = terpilihLama ? terpilihLama.value : pilihanLama;
       // Relabel ramah + urutkan kamera depan dulu: label baku OS (mis. "Facing front: 1-...")
-      // tidak intuitif bagi siswa/guru — tampilkan "Depan"/"Belakang".
+      // tidak intuitif bagi siswa/guru — tampilkan "Kamera Depan"/"Kamera Belakang".
       const hitungNama = {};
       const urutan = videoDevices
         .map((d, i) => {
@@ -1404,21 +1755,47 @@
           return { d, i, prio, nama: n > 1 ? nama + ' ' + n : nama };
         })
         .sort((a, b) => a.prio - b.prio || a.i - b.i);
+      // Opsi SENTINEL (nilai non-device, mis. __depan__/__belakang__ pada dropdown pindai)
+      // tidak boleh ikut terhapus oleh penulisan ulang daftar perangkat.
+      const sentinel = Array.from(selectEl.querySelectorAll('option'))
+        .filter(o => o.value && o.value.charAt(0) === '_')
+        .map(o => ({ value: o.value, text: o.textContent }));
       selectEl.innerHTML = '';
+      sentinel.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.value;
+        opt.textContent = s.text;
+        selectEl.appendChild(opt);
+      });
       urutan.forEach(({ d, nama }) => {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
         opt.textContent = nama;
-        if (aktifId && d.deviceId === aktifId) opt.selected = true;
         selectEl.appendChild(opt);
       });
-      if (!aktifId) selectEl.value = pilihanLama || (urutan[0] ? urutan[0].d.deviceId : '');
+      // Urutan prioritas pemilihan: pilihan pengguna sekarang (bila perangkatnya masih
+      // ada) → kamera yang sedang aktif → opsi pertama (sentinel dulu, lalu perangkat).
+      const adaLama = !!(nilaiLama && (urutan.some(u => u.d.deviceId === nilaiLama)
+        || sentinel.some(s => s.value === nilaiLama)));
+      const adaAktif = !!(aktifId && urutan.some(u => u.d.deviceId === aktifId));
+      if (adaLama) selectEl.value = nilaiLama;
+      else if (adaAktif) selectEl.value = aktifId;
+      else selectEl.value = sentinel.length ? sentinel[0].value : (urutan[0] ? urutan[0].d.deviceId : '');
       selectEl.dataset.terisi = '1';
       if (selectEl.dataset.dipasang !== '1') {
         selectEl.dataset.dipasang = '1';
-        selectEl.addEventListener('change', () => {
+        selectEl.addEventListener('change', async () => {
           const id = selectEl.value || '';
-          if (id && id !== kameraAktifDeviceId() && typeof onGanti === 'function') onGanti(id);
+          if (!id || typeof onGanti !== 'function') return;
+          // Anti tumpukan: pengguna mengetuk beberapa kamera berurutan → kedip hitam &
+          // NotReadableError (dua permintaan kamera sekaligus). Abaikan saat masih sibuk.
+          if (selectEl.dataset.sibuk === '1') return;
+          selectEl.dataset.sibuk = '1';
+          try {
+            await onGanti(id);
+          } finally {
+            selectEl.dataset.sibuk = '0';
+          }
         });
       }
     } catch (e) {
@@ -1568,11 +1945,12 @@
         <div class="flex justify-center items-center gap-1.5 bg-black/60 p-1 rounded-lg mb-2">
           <button id="btn-wajah-foto" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded px-2 py-1.5 text-[10px] font-bold transition" title="Gunakan foto siswa yang tersimpan di akun"><i class="fa-solid fa-image mr-1"></i>Gunakan Foto</button>
           <button id="btn-wajah-kamera" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded px-2 py-1.5 text-[10px] font-bold transition" title="Pindai langsung dari kamera"><i class="fa-solid fa-camera mr-1"></i>Gunakan Kamera</button>
+          <button id="btn-wajah-selfie" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white rounded px-2 py-1.5 text-[10px] font-bold transition" title="Kamera diblokir/rusak? Ambil wajah dari foto selfie atau galeri"><i class="fa-solid fa-image mr-1"></i>Ambil Selfie</button>
         </div>
         <div id="wajah-camera-area" class="hidden relative rounded-lg overflow-hidden border border-cyan-500 bg-black mb-2" style="display:none">
           <div class="flex items-center gap-2 bg-slate-900/80 px-2 py-1.5">
             <span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span>
-            <select id="camera-select" class="bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 flex-1 min-w-0 focus:outline-none focus:border-cyan-500" title="Pilih kamera"><option value="">Kamera bawaan</option></select>
+            <select id="camera-select" class="bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 flex-1 min-w-0 focus:outline-none focus:border-cyan-500" title="Pilih kamera (depan/belakang/kamera lain)"><option value="__bawaan__">Otomatis (kamera utama)</option></select>
             <button type="button" id="btn-wajah-reg-zoom-out" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perkecil (zoom keluar)">−</button>
             <button type="button" id="btn-wajah-reg-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-1 rounded transition" title="Perbesar (zoom masuk)">+</button>
             <span id="wajah-reg-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
@@ -1606,6 +1984,7 @@
         const hasilEl  = cari('wajah-hasil');
         const btnFoto  = cari('btn-wajah-foto');
         const btnKam   = cari('btn-wajah-kamera');
+        const btnSelfie = cari('btn-wajah-selfie');
         const areaKam  = cari('wajah-camera-area');
         const videoEl  = cari('wajah-video');
         const btnTangkap = cari('btn-wajah-tangkap');
@@ -1616,9 +1995,10 @@
         const poseBoxEl = cari('wajah-pose-box');
         const sampelInfoEl = cari('wajah-sampel-info');
         // Guard: elemen modal yang hilang TIDAK boleh terjadi senyap.
-        ['wajah-preview','wajah-hasil','btn-wajah-foto','btn-wajah-kamera',
+        ['wajah-preview','wajah-hasil','btn-wajah-foto','btn-wajah-kamera','btn-wajah-selfie',
          'wajah-camera-area','wajah-video','btn-wajah-tangkap','btn-wajah-simpan',
-         'wajah-overlay','wajah-pose-box','wajah-sampel-info','btn-wajah-auto','wajah-auto-label'].forEach((id) => {
+         'wajah-overlay','wajah-pose-box','wajah-sampel-info','btn-wajah-auto','wajah-auto-label',
+         'camera-select'].forEach((id) => {
           if (!cari(id)) console.error('[FaceWajah] Elemen #' + id + ' tidak ditemukan di dalam modal.');
         });
 
@@ -1748,15 +2128,57 @@
           }
         });
 
+        // ===== Tombol "Ambil Selfie" — fallback kamera (izin diblokir / HTTP / kamera rusak) =====
+        if (btnSelfie) btnSelfie.addEventListener('click', async () => {
+          if (sampelWajah.length >= JUMLAH_SAMPEL_MAKS) {
+            setHasil('<i class="fa-solid fa-circle-info mr-1"></i>Sampel sudah maksimal (' + JUMLAH_SAMPEL_MAKS + '). Klik <b>Simpan Data Wajah</b> atau hapus sampel dulu.', 'text-amber-200');
+            return;
+          }
+          try {
+            const berkas = await pilihBerkasGambar();
+            if (!berkas) {
+              setHasil('<i class="fa-solid fa-circle-info mr-1"></i>Tidak ada foto dipilih. Klik <b>Ambil Selfie</b> lagi lalu pilih foto selfie dari galeri.', 'text-amber-200');
+              return;
+            }
+            setHasil('<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Membaca foto & mendeteksi wajah…');
+            const img = await muatGambarDariFile(berkas);
+            const kanvas = gambarKeKanvas(img, 640);
+            // Pratinjau memakai gambar yang BENAR-BENAR dideteksi (WYSIWYG) — ganti span
+            // "Tanpa foto" dengan <img> bila murid belum punya foto profil.
+            const snap = cari('wajah-preview');
+            if (snap) {
+              if (snap.tagName !== 'IMG') snap.outerHTML = '<img id="wajah-preview" class="w-24 h-42 rounded-lg object-cover bg-slate-700 border border-white/10" alt="Foto siswa">';
+              const imgSnap = cari('wajah-preview');
+              if (imgSnap) imgSnap.src = kanvas.toDataURL('image/jpeg', 0.85);
+            }
+            const hasil = await hasilDeteksiKuat(kanvas, 'foto selfie');
+            // Sampel selfie DITAMBAH (perilaku sama dengan sampel kamera) supaya beberapa
+            // sudut/pose bisa digabung → akurasi lebih baik. Sampel pertama tetap sah.
+            sampelWajah.push(Array.from(hasil.descriptor));
+            if (sampelWajah.length === 1) skorSementara = hasil.skor;
+            renderInfoSampel();
+            setHasil('<i class="fa-solid fa-check text-green-400 mr-1"></i>Wajah terdeteksi dari foto selfie (skor ' + hasil.skor.toFixed(2) + ') — sampel ke-' + sampelWajah.length + '. Tambah foto sudut lain atau klik <b>Simpan Data Wajah</b>.', 'text-green-300');
+            aktifkanSimpan();
+          } catch (e) {
+            console.error('btnSelfie:', e);
+            setHasil(fxEscape(e.message || e), 'text-red-300');
+          }
+        });
+
         // ===== Tombol "Gunakan Kamera" — cek secure context dulu =====
         if (btnKam) btnKam.addEventListener('click', async () => {
           if (!window.isSecureContext) {
-            setHasil('<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>Kamera hanya berfungsi di HTTPS atau localhost. Halaman ini dibuka lewat HTTP — gunakan <b>Gunakan Foto</b>, atau buka aplikasi lewat https:// / localhost.', 'text-amber-300');
+            setHasil('<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>Kamera hanya berfungsi di HTTPS atau localhost. Halaman ini dibuka lewat HTTP — gunakan <b>Gunakan Foto</b>, <b>Ambil Selfie</b>, atau buka aplikasi lewat https:// / localhost.', 'text-amber-300');
             return;
           }
           try {
             setHasil('<i class="fa-solid fa-video mr-1"></i>Menunggu izin kamera — klik <b>Izinkan</b> bila peramban meminta…', 'text-amber-200');
-            await mulaiKameraKe(videoEl, null, true); // potret 9:16 — crop rasio potret di snapshot
+            // Kamera awal: pilihan dropdown bila itu deviceId, jika tidak kamera yang
+            // TERAKHIR berhasil (diingat per perangkat) — bukan selalu kamera bawaan.
+            const pilihanEl = kameraPilih ? (kameraPilih.value || '') : '';
+            const pilihAwal = (pilihanEl && pilihanEl.charAt(0) !== '_')
+              ? pilihanEl : kameraTerakhirTersimpan(KUNCI_KAMERA_SIMPAN);
+            await mulaiKameraKe(videoEl, pilihAwal, true); // potret 9:16 — crop rasio potret di snapshot
             areaKam.classList.remove('hidden');
             areaKam.style.display = 'block';
             btnKam.disabled = true;
@@ -1777,15 +2199,21 @@
             setTransformReg();
             // Isi daftar kamera setelah izin diberikan (label baru muncul saat itu),
             // lalu pasang listener ganti kamera → mulai ulang stream dengan device baru.
-            await isiDaftarKamera(kameraPilih, async (deviceId) => {
+            await isiDaftarKamera(kameraPilih, async (pilihan) => {
+              // Pilihan '__bawaan__' ("Otomatis") → tanpa deviceId; muka tetap 'user'
+              // supaya tangga universal memilih kamera depan lebih dulu.
+              const deviceId = (pilihan && pilihan.charAt(0) !== '_') ? pilihan : '';
               try {
                 await mulaiKameraKe(videoEl, deviceId, true); // potret juga utk kamera diganti
                 setHasil('<i class="fa-solid fa-video mr-1"></i>Kamera diganti. Atur posisi wajah lalu klik <b>Deteksi dari Kamera</b>.');
               } catch (e) {
                 console.error(e);
                 setHasil(fxEscape(e.message || e), 'text-red-300');
+                // Kembalikan dropdown ke kamera yang masih benar-benar dipakai — jangan
+                // menampilkan kamera mati sebagai pilihan aktif.
                 const aktifId = kameraAktifDeviceId();
-                if (kameraPilih && aktifId) kameraPilih.value = aktifId;
+                if (kameraPilih) kameraPilih.value = aktifId || '__bawaan__';
+                return; // kamera baru gagal → loop lama dibiarkan berjalan
               }
               loopDeteksiKameraLive(videoEl, setHasil, overlayEl); // mulai ulang loop ringan utk kamera baru
             });
@@ -1799,7 +2227,8 @@
             setHasil('<i class="fa-solid fa-video mr-1"></i>Kamera aktif — atur posisi wajah. Mode <b>Auto 6 pose</b> menambah sampel sendiri saat pose bervariasi (klik <b>Deteksi dari Kamera</b> utk manual).');
           } catch (e) {
             console.error(e);
-            setHasil(fxEscape(e.message || e), 'text-red-300');
+            // Kamera gagal → arahkan admin ke jalur yang tetap bekerja (foto akun/selfie).
+            setHasil(fxEscape(e.message || e) + ' <span class="text-amber-200">Gunakan <b>Gunakan Foto</b> atau <b>Ambil Selfie</b> bila kamera tidak bisa dipakai di perangkat ini.</span>', 'text-red-300');
           }
         });
 
@@ -2172,41 +2601,31 @@
     // Tanpa ini, face-api memanggil video yang baru diganti stream-nya pada
     // readyState 0–1 → error/eksepsi & loop deteksi mati diam-diam (kamera
     // "tidak memproses" setelah diganti depan/belakang).
-    const tungguVideoSiap = (el, batasMs) => {
-      return new Promise(resolve => {
-        if (!el) return resolve();
-        if (el.readyState >= 2) return resolve();
-        const batas = Date.now() + (batasMs || 4000);
-        const cek = () => {
-          if (el.readyState >= 2) return resolve();
-          if (Date.now() >= batas) return resolve(); // timeout — loop siap coba-coba
-          setTimeout(cek, 60);
-        };
-        el.addEventListener('loadeddata', () => resolve(), { once: true });
-        cek();
-      });
-    };
+    // Alias ke helper lapisan kamera universal (batas waktu dihitung sekali).
+    const tungguVideoSiap = (el, batasMs) => tungguVideoSiapKamera(el, batasMs);
 
-    // Ganti kamera live tanpa mengulang seluruh pemindaian.
+    // Ganti kamera live tanpa mengulang seluruh pemindaian. `gantiKameraAktif`
+    // memakai applyConstraints (tanpa stream kedua → aman di ponsel kamera-tunggal),
+    // fallback stop-lalu-buka, dan ROLLBACK ke kamera lama bila kamera baru gagal.
     const gantiKameraPindai = async (deviceId) => {
       const streamLama = scanAktif && scanAktif.stream;
-      const streamBaru = await bukaStreamKamera([{ deviceId: { exact: deviceId } }],
-        { width: { ideal: 1280 }, height: { ideal: 720 } });
+      const streamBaru = await gantiKameraAktif({
+        video, streamLama, deviceId,
+        muka: mukaDepanPindai ? 'user' : 'environment',
+        ukuran: KAMERA_UKURAN_BAKU, slot: KUNCI_KAMERA_PINDAI
+      });
       if (!video || !video.isConnected) {
-        streamBaru.getTracks().forEach(t => t.stop());
+        if (streamBaru && streamBaru !== streamLama) streamBaru.getTracks().forEach(t => t.stop());
         return;
       }
-      video.srcObject = streamBaru;
-      await video.play();
-      await tungguVideoSiap(video);
+      await tungguVideoSiap(video, 4000);
       if (scanAktif) { scanAktif.stream = streamBaru; scanAktif.video = video; }
-      if (streamLama) streamLama.getTracks().forEach(t => t.stop());
-      mukaDepanPindai = (() => {
-        const tr = streamBaru.getVideoTracks && streamBaru.getVideoTracks()[0];
-        const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
-        return !!(st && st.facingMode === 'user');
-      })();
+      // facingMode NYATA dari stream yang benar-benar terbuka (perangkat kamera-tunggal
+      // bisa fallback ke depan walau diminta 'environment') → mirror & label tetap benar.
+      const mukaAsli = bacaMukaStream(streamBaru);
+      if (mukaAsli) mukaDepanPindai = mukaAsli === 'user';
       terapkanTfPindai();
+      sinkronkanPilihanKamera();
     };
     // Ganti depan/belakang lewat dropdown (opsi sentinel __depan__/__belakang__).
     let facingMuka = 'environment';
@@ -2216,22 +2635,27 @@
       const val = mukaDepanPindai ? '__depan__' : '__belakang__';
       if (selKamera.querySelector('option[value="' + val + '"]')) selKamera.value = val;
     };
+    // Ganti DEPAN/BELAKANG lewat opsi sentinel dropdown __depan__/__belakang__.
+    // Memakai lapisan kamera universal (bukan hanya satu constraint) supaya perangkat
+    // yang menolak facingMode tetap mendapat gambar dari kandidat cadangan.
     const gantiMukaKamera = async (facing) => {
       try {
         const streamLama = scanAktif && scanAktif.stream;
-        const streamBaru = await bukaStreamKamera([facing, {}],
-          { width: { ideal: 1280 }, height: { ideal: 720 } });
-        if (!video || !video.isConnected) { streamBaru.getTracks().forEach(t => t.stop()); return; }
-        video.srcObject = streamBaru;
-        await video.play();
-        await tungguVideoSiap(video);
+        const streamBaru = await gantiKameraAktif({
+          video, streamLama, deviceId: '', muka: facing,
+          ukuran: KAMERA_UKURAN_BAKU, slot: KUNCI_KAMERA_PINDAI
+        });
+        if (!video || !video.isConnected) {
+          if (streamBaru && streamBaru !== streamLama) streamBaru.getTracks().forEach(t => t.stop());
+          return;
+        }
         if (scanAktif) { scanAktif.stream = streamBaru; scanAktif.video = video; }
-        if (streamLama) streamLama.getTracks().forEach(t => t.stop());
         facingMuka = facing;
-        mukaDepanPindai = facing === 'user';
+        // Baca facingMode NYATA (perangkat kamera-tunggal bisa mengabaikan permintaan).
+        mukaDepanPindai = (bacaMukaStream(streamBaru) || facing) === 'user';
         terapkanTfPindai();
         sinkronkanPilihanKamera();
-        setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facing === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah ke kamera.', 'text-cyan-100');
+        setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (mukaDepanPindai ? 'depan' : 'belakang') + ' aktif — hadapkan wajah ke kamera.', 'text-cyan-100');
       } catch (e2) {
         console.error('ganti muka kamera:', e2);
         setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e2 && e2.message ? e2.message : e2), 'text-amber-200');
@@ -2272,17 +2696,18 @@
         return { peta: mapKelas, bedaMotor };
       })();
 
-      // Buka kamera: fallback berantai environment → user → tanpa facingMode.
+      // Buka kamera lewat lapisan universal: kamera yang TERAKHIR berhasil (bila pernah),
+      // lalu tangga environment → user → bawaan (perangkat tanpa kamera belakang tidak
+      // lagi gagal total), dengan `ideal` (bukan `exact`) agar driver ponsel apa pun mau.
       setStatus('<i class="fa-solid fa-video mr-1"></i>Menyiapkan kamera…');
-      const stream = await bukaStreamKamera(['environment', 'user', {}],
-        { width: { ideal: 1280 }, height: { ideal: 720 } });
-      video.srcObject = stream;
-      await video.play();
-      mukaDepanPindai = (() => {
-        const tr = stream.getVideoTracks && stream.getVideoTracks()[0];
-        const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
-        return !!(st && st.facingMode === 'user');
-      })();
+      const idTersimpan = kameraTerakhirTersimpan(KUNCI_KAMERA_PINDAI);
+      const stream = await bukaKameraUniversal({
+        deviceId: (idTersimpan && selKamera && selKamera.value && selKamera.value !== '__depan__'
+          && selKamera.value !== '__belakang__') ? selKamera.value : idTersimpan,
+        muka: 'environment', ukuran: KAMERA_UKURAN_BAKU, slot: KUNCI_KAMERA_PINDAI
+      });
+      await pasangStreamKeVideo(video, stream);
+      mukaDepanPindai = bacaMukaStream(stream) === 'user';
       terapkanTfPindai();
       sinkronkanPilihanKamera();
       scanAktif = { hentikan: false, stream, video, zoom: zoomPindai, mirror: mukaDepanPindai };
@@ -2730,13 +3155,59 @@
         return false;
       }
 
+      // ---- Jalur CADANGAN tanpa kamera: verifikasi dari FOTO / SELFIE galeri ----
+      // Perangkat tanpa kamera, izin diblokir permanen (banyak ponsel siswa), halaman
+      // dibuka lewat HTTP, atau kamera dipakai aplikasi lain → siswa masih bisa absen
+      // dengan memilih foto selfie dari galeri. Verifikasi tetap 1:1 + ambang mandiri.
+      const selesaiMandiri = () => {
+        try {
+          fxToast('success', 'Hadir — ' + (nama || nisS));
+          if ('speechSynthesis' in window) {
+            const uc = new SpeechSynthesisUtterance('Absen mandiri berhasil. Selamat datang, ' + (nama || 'siswa'));
+            uc.lang = 'id-ID'; uc.rate = 1.35; uc.pitch = 1;
+            window.speechSynthesis.speak(uc);
+          }
+        } catch (e) { /* TTS/toast opsional */ }
+        if (typeof onHasil === 'function') {
+          try { onHasil(nisS); } catch (e) { console.error('onHasil pindaiWajahMandiri:', e); }
+        }
+      };
+      /** @param setStatusKe - fn(teks, warna) utk melaporkan progres ke UI (opsional). */
+      const verifikasiMandiriDariFoto = async (setStatusKe) => {
+        const berkas = await pilihBerkasGambar();
+        if (!berkas) {
+          if (setStatusKe) setStatusKe('<i class="fa-solid fa-circle-info mr-1"></i>Tidak ada foto dipilih. Klik lagi lalu pilih foto selfie dari galeri.', 'text-amber-200');
+          return false;
+        }
+        if (setStatusKe) setStatusKe('<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Membaca foto & memverifikasi wajah…');
+        try {
+          await pastikanModels();
+          const img = await muatGambarDariFile(berkas);
+          const kanvas = gambarKeKanvas(img, 640);
+          const hasil = await hasilDeteksiKuat(kanvas, 'foto selfie');
+          const amb = ambangMandiri();
+          let jarakMin = Infinity;
+          daftarSampel.forEach(s => { const j = jarakEuclidean(s, hasil.descriptor); if (j < jarakMin) jarakMin = j; });
+          if (!(jarakMin <= amb)) {
+            if (setStatusKe) setStatusKe('<i class="fa-solid fa-circle-xmark text-red-300 mr-1"></i>Wajah pada foto TIDAK cocok dengan data ' + fxEscape(nama || nisS) + ' (jarak ' + jarakMin.toFixed(2) + ', butuh ≤ ' + amb.toFixed(2) + '). Gunakan foto selfie yang terang, wajah lurus, tanpa masker — atau coba kamera lagi.', 'text-amber-200');
+            return false;
+          }
+          berhentiPindaiWajah(); // tidak butuh kamera lagi
+          if (setStatusKe) setStatusKe('<i class="fa-solid fa-circle-check text-green-300 mr-1"></i>Wajah cocok dari foto (jarak ' + jarakMin.toFixed(2) + ', ~' + persenKemiripan(jarakMin) + '% mirip) — kehadiran dicatat.', 'text-green-200');
+          selesaiMandiri();
+          return true;
+        } catch (e) {
+          console.error('verifikasiMandiriDariFoto:', e);
+          if (setStatusKe) setStatusKe('<i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>' + fxEscape(e && e.message ? e.message : e), 'text-amber-200');
+          return false;
+        }
+      };
+
       wrap.innerHTML = `
         <div class="rounded-lg overflow-hidden border border-cyan-500 bg-black">
           <div class="flex items-center gap-2 bg-slate-900/85 px-2 py-1">
             <span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span>
-            <button type="button" id="btn-mandiri-cam-user" class="shrink-0 bg-cyan-700 hover:bg-cyan-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Kamera depan (selfie)">Depan</button>
-            <button type="button" id="btn-mandiri-cam-env" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[9px] font-bold px-2 py-1 rounded transition" title="Kamera belakang">Belakang</button>
-            <span style="width:1px" class="h-3 bg-white/15 shrink-0"></span>
+            <select id="wajah-mandiri-kamera" class="bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 flex-1 min-w-0 focus:outline-none focus:border-cyan-500" title="Pilih kamera: Depan / Belakang / kamera lain (USB & kamera tambahan)"><option value="__depan__">Depan</option><option value="__belakang__">Belakang</option></select>
             <button type="button" id="btn-mandiri-zoom-out" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-0.5 rounded transition" title="Perkecil (zoom keluar)">−</button>
             <button type="button" id="btn-mandiri-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-0.5 rounded transition" title="Perbesar (zoom masuk)">+</button>
             <span id="wajah-mandiri-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
@@ -2747,6 +3218,9 @@
             <div id="wajah-mandiri-live-status" class="absolute top-1.5 left-1.5 right-1.5 text-center text-[10px] font-bold text-white drop-shadow-lg bg-black/40 rounded px-2 py-0.5">Menyiapkan kamera...</div>
             <button id="btn-wajah-mandiri-stop" class="absolute bottom-1.5 right-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">Berhenti</button>
           </div>
+          <div class="flex items-center gap-1 bg-slate-900/85 px-2 py-1 border-t border-white/10">
+            <button type="button" id="btn-mandiri-selfie" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-bold px-2 py-1 rounded transition" title="Kamera diblokir/rusak? Verifikasi wajah dari foto selfie atau galeri"><i class="fa-solid fa-image mr-1"></i>Verifikasi dari Foto / Selfie</button>
+          </div>
         </div>`;
 
       const video = document.getElementById('wajah-mandiri-video');
@@ -2754,16 +3228,42 @@
       const statusEl = document.getElementById('wajah-mandiri-live-status');
       const btnStop = document.getElementById('btn-wajah-mandiri-stop');
 
-      // Kamera: user → default (fallback berantai, tanpa 'environment').
+      // Kamera: lapisan universal — kamera TERAKHIR yang berhasil (bila pernah dipilih),
+      // lalu tangga depan → cadangan → bawaan dengan resolusi `ideal`. Perangkat tanpa
+      // kamera depan tetap mendapat gambar (dulu hanya 'user' → gagal total).
       let stream;
       try {
-        stream = await bukaStreamKamera(['user', {}], { width: { ideal: 640 }, height: { ideal: 480 } });
+        stream = await bukaKameraUniversal({
+          deviceId: kameraTerakhirTersimpan(KUNCI_KAMERA_SIMPAN),
+          muka: 'user', ukuran: { width: { ideal: 640 }, height: { ideal: 480 } },
+          slot: KUNCI_KAMERA_SIMPAN
+        });
       } catch (e) {
-        wrap.innerHTML = `<div class="rounded border border-red-500/50 bg-red-900/30 text-red-200 text-[10px] p-2 mb-2 text-center">Kamera tidak dapat diakses: ${fxEscape(e && e.message ? e.message : e)}</div>`;
+        // Kamera gagal → siswa TIDAK buntu: tawarkan ulang kamera & jalur foto/selfie.
+        wrap.innerHTML = `<div class="rounded border border-red-500/50 bg-red-900/30 text-red-200 text-[10px] p-2 mb-2 text-center">
+            <div class="mb-1">Kamera tidak dapat diakses: ${fxEscape(e && e.message ? e.message : e)}</div>
+            <div id="wajah-mandiri-status-err" class="text-amber-200 mb-1"></div>
+            <div class="flex gap-1">
+              <button type="button" id="btn-mandiri-coba-lagi" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-bold px-2 py-1 rounded transition"><i class="fa-solid fa-rotate-right mr-1"></i>Coba Kamera Lagi</button>
+              <button type="button" id="btn-mandiri-selfie-err" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-bold px-2 py-1 rounded transition"><i class="fa-solid fa-image mr-1"></i>Verifikasi dari Foto</button>
+            </div>
+          </div>`;
+        const stErr = document.getElementById('wajah-mandiri-status-err');
+        const setErr = (teks, warna) => {
+          if (!stErr) return;
+          stErr.innerHTML = teks;
+          stErr.className = 'mb-1 ' + (warna || 'text-amber-200');
+        };
+        const btnLagi = document.getElementById('btn-mandiri-coba-lagi');
+        if (btnLagi) btnLagi.addEventListener('click', () => {
+          btnLagi.disabled = true;
+          pindaiWajahMandiri(nisS, nama, cfg).catch(e2 => console.error('ulang pindaiWajahMandiri:', e2));
+        });
+        const btnSelfieErr = document.getElementById('btn-mandiri-selfie-err');
+        if (btnSelfieErr) btnSelfieErr.addEventListener('click', () => verifikasiMandiriDariFoto(setErr));
         return false;
       }
-      video.srcObject = stream;
-      await video.play();
+      await pasangStreamKeVideo(video, stream);
       scanAktif = { hentikan: false, stream, video, zoom: 1, mirror: true };
 
       const setStatus = (teks, warna) => {
@@ -2794,12 +3294,13 @@
 
       btnStop.addEventListener('click', () => berhentiPindaiWajah());
 
-      // ---- Kamera depan/belakang (facingMode) untuk Absen Mandiri ----
-      let facingMandiri = 'user';
+      // ---- Pemilih kamera: Depan / Belakang / SEMUA kamera perangkat ----
+      let facingMandiri = bacaMukaStream(stream) || 'user';
       let zoomMandiri = 1;
       const lblZM = document.getElementById('wajah-mandiri-zoom-label');
       const btnZInM = document.getElementById('btn-mandiri-zoom-in');
       const btnZOutM = document.getElementById('btn-mandiri-zoom-out');
+      const selKameraM = document.getElementById('wajah-mandiri-kamera');
       const setTransformMandiri = () => {
         // Zoom min 0.5 + object-contain: gambar kamera utuh (tepi atas/bawah tidak ter-crop).
         zoomMandiri = Math.min(3, Math.max(0.5, zoomMandiri));
@@ -2812,55 +3313,71 @@
       if (btnZInM) btnZInM.addEventListener('click', () => { zoomMandiri = Math.min(3, Math.round((zoomMandiri + 0.25) * 100) / 100); setTransformMandiri(); });
       if (btnZOutM) btnZOutM.addEventListener('click', () => { zoomMandiri = Math.max(0.5, Math.round((zoomMandiri - 0.25) * 100) / 100); setTransformMandiri(); });
       setTransformMandiri();
+      /** Samakan pilihan dropdown dengan kamera yang BENAR aktif (deviceId bila ada,
+       *  jika tidak → sentinel Depan/Belakang sesuai facingMode stream). */
       const tandaiMukaMandiri = () => {
-        const u = document.getElementById('btn-mandiri-cam-user');
-        const e = document.getElementById('btn-mandiri-cam-env');
-        [u, e].forEach(el => { if (el) { el.classList.remove('ring-2'); el.classList.remove('ring-yellow-400'); } });
-        const t = facingMandiri === 'user' ? u : e;
-        if (t) { t.classList.add('ring-2'); t.classList.add('ring-yellow-400'); }
+        if (!selKameraM) return;
+        const aktifId = idDeviceDariStream(scanAktif && scanAktif.stream);
+        if (aktifId && selKameraM.value === aktifId) return; // pengguna memilih perangkat ini
+        if (aktifId && selKameraM.querySelector('option[value="' + aktifId + '"]')) return; // biarkan pilihan perangkat
+        selKameraM.value = (facingMandiri === 'user') ? '__depan__' : '__belakang__';
       };
-      const tungguSiapMandiri = (el) => {
-        return new Promise(resolve => {
-          if (!el || el.readyState >= 2) return resolve();
-          const cek = () => {
-            if (el.readyState >= 2) return resolve();
-            if (Date.now() >= Date.now() + 4000) return resolve();
-            setTimeout(cek, 60);
-          };
-          el.addEventListener('loadeddata', () => resolve(), { once: true });
-          cek();
-        });
-      };
-      const gantiMukaMandiri = async (facing) => {
+      /** Ganti kamera (deviceId perangkat ATAU facingMode via sentinel '__depan__'/
+       *  '__belakang__'). Memakai gantiKameraAktif: applyConstraints → stop-buka →
+       *  ROLLBACK ke kamera lama bila gagal (dropdown tidak menunjuk kamera mati). */
+      const gantiKameraMandiri = async (deviceId, muka) => {
         try {
           const lama = scanAktif && scanAktif.stream;
-          const baru = await bukaStreamKamera([facing, {}], { width: { ideal: 640 }, height: { ideal: 480 } });
-          if (!video || !video.isConnected) { baru.getTracks().forEach(t => t.stop()); return; }
-          video.srcObject = baru;
-          await video.play();
-          await tungguSiapMandiri(video);
+          const baru = await gantiKameraAktif({
+            video, streamLama: lama, deviceId: deviceId || '',
+            muka: muka || facingMandiri,
+            ukuran: { width: { ideal: 640 }, height: { ideal: 480 } },
+            slot: KUNCI_KAMERA_SIMPAN
+          });
+          if (!video || !video.isConnected) {
+            if (baru && baru !== lama) baru.getTracks().forEach(t => t.stop());
+            return;
+          }
           if (scanAktif) { scanAktif.stream = baru; scanAktif.video = video; }
-          if (lama) lama.getTracks().forEach(t => t.stop());
           // [B3] Jangan percaya permintaan "facing" — baca facingMode ASLI dari kamera
           // yang benar-benar terbuka (perangkat kamera-tunggal bisa fallback ke depan
           // walau diminta 'environment'). Ini menjaga mirror & label tetap benar.
-          facingMandiri = (() => {
-            const tr = baru.getVideoTracks && baru.getVideoTracks()[0];
-            const st = tr && typeof tr.getSettings === 'function' ? tr.getSettings() : null;
-            return (st && (st.facingMode === 'user' || st.facingMode === 'environment')) ? st.facingMode : facing;
-          })();
+          facingMandiri = bacaMukaStream(baru) || muka || facingMandiri;
           setTransformMandiri();
           tandaiMukaMandiri();
           setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera ' + (facingMandiri === 'user' ? 'depan' : 'belakang') + ' aktif — hadapkan wajah lurus ke kamera ±40–80 cm.', 'text-cyan-100');
         } catch (e2) {
-          console.error('gantiMukaMandiri:', e2);
+          console.error('gantiKameraMandiri:', e2);
           setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e2 && e2.message ? e2.message : e2), 'text-amber-200');
+          // Kembalikan dropdown ke kamera yang masih dipakai (rollback sudah dilakukan).
+          if (selKameraM) {
+            const aktifId = idDeviceDariStream(scanAktif && scanAktif.stream);
+            if (aktifId && selKameraM.querySelector('option[value="' + aktifId + '"]')) selKameraM.value = aktifId;
+            else selKameraM.value = (facingMandiri === 'user') ? '__depan__' : '__belakang__';
+          }
         }
       };
-      const btnCamUserM = document.getElementById('btn-mandiri-cam-user');
-      const btnCamEnvM = document.getElementById('btn-mandiri-cam-env');
-      if (btnCamUserM) btnCamUserM.addEventListener('click', () => gantiMukaMandiri('user'));
-      if (btnCamEnvM) btnCamEnvM.addEventListener('click', () => gantiMukaMandiri('environment'));
+      if (selKameraM) {
+        selKameraM.addEventListener('change', () => {
+          const nilai = selKameraM.value || '';
+          if (nilai === '__depan__') gantiKameraMandiri('', 'user');
+          else if (nilai === '__belakang__') gantiKameraMandiri('', 'environment');
+          else gantiKameraMandiri(nilai, '');
+        });
+        // Daftar perangkat diisi SETELAH izin diberikan (label perangkat baru muncul saat
+        // itu); opsi sentinel Depan/Belakang dipasang ulang karena isi select ditulis ulang.
+        isiDaftarKamera(selKameraM, null, idDeviceDariStream(scanAktif && scanAktif.stream))
+          .then(() => {
+            if (!selKameraM.querySelector('option[value="__depan__"]')) {
+              selKameraM.insertAdjacentHTML('afterbegin',
+                '<option value="__depan__">Depan</option><option value="__belakang__">Belakang</option>');
+            }
+            tandaiMukaMandiri();
+          })
+          .catch(e => console.warn('isi daftar kamera mandiri:', e));
+      }
+      const btnSelfieM = document.getElementById('btn-mandiri-selfie');
+      if (btnSelfieM) btnSelfieM.addEventListener('click', () => verifikasiMandiriDariFoto(setStatus));
       tandaiMukaMandiri();
 
       await loopDeteksiPindai({
@@ -2870,18 +3387,9 @@
         mandiri: true, // gerbang pose/kualitas + fusi 3 frame (khusus verifikasi diri)
         onMatch: (nisCocok) => {
           if (String(nisCocok) !== nisS) return false; // hanya identitas sendiri
-          // Notif popup + TTS (sama seperti QR Scan) — nama siswa dibacakan.
-          try {
-            fxToast('success', 'Hadir — ' + (nama || nisS));
-            if ('speechSynthesis' in window) {
-              const uc = new SpeechSynthesisUtterance('Absen mandiri berhasil. Selamat datang, ' + (nama || 'siswa'));
-              uc.lang = 'id-ID'; uc.rate = 1.35; uc.pitch = 1;
-              window.speechSynthesis.speak(uc);
-            }
-          } catch (e) { /* TTS/toast opsional */ }
-          if (typeof onHasil === 'function') {
-            try { onHasil(nisCocok); } catch (e) { console.error('onHasil pindaiWajahMandiri:', e); }
-          }
+          // Notif popup + TTS + pencatatan kehadiran lewat helper yang SAMA dengan
+          // verifikasi dari foto/selfie (satu jalur sukses, tidak ada perilaku ganda).
+          selesaiMandiri();
           berhentiPindaiWajah(); // cukup sekali cocok — hentikan kamera
           return false;
         }
@@ -2972,6 +3480,14 @@
     isWajahMandiriAktif,
     pindaiWajahMandiri,
     registrasiOtomatisDariFoto,
-    urlFotoUntukCanvas
+    urlFotoUntukCanvas,
+    // Lapisan kamera universal — dipakai pemindai QR (app.js) supaya daftar kamera,
+    // ingatan kamera terakhir, dan pesan error SATU sumber dengan Face Scan.
+    daftarKamera,
+    kameraTerakhirTersimpan,
+    simpanKameraTerakhir,
+    bukaStreamKamera,
+    susunKandidatKamera,
+    pesanKameraError
   };
 })();

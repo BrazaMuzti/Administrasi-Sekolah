@@ -21,9 +21,9 @@
 
   /* Stempel build halaman. WAJIB selalu disamakan dengan `?v=` di web/index.html
    * (naikkan bersama `VERSION` di sw.js). Dipakai untuk:
-   *   - log diagnosis: `[SISIP] build 20261031c` (terlihat di console perangkat),
+   *   - log diagnosis: `[SISIP] build 20261031d` (terlihat di console perangkat),
    *   - membersihkan cache SEKALI per perubahan build → anti "versi nyangkut". */
-  const BUILD = '20261031c';
+  const BUILD = '20261031d';
   const KUNCI_BUILD = 'sisip_build';               // build yang terakhir dipasang di perangkat ini
   const KUNCI_RELOAD_CACHE = 'sisip_reload_build'; // penjaga muat-ulang setelah cache dibersihkan
   const KUNCI_RELOAD_SW = 'sisip_reload_sw';       // penjaga muat-ulang setelah SW baru aktif

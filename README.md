@@ -206,7 +206,10 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   dan `BUILD` di `web/js/install.js` ke `20261031b` (lihat §7b). Build
   `20261031c` (`VERSION` SW `v8`) menambah akurasi Absen Mandiri (§7c) dan
   mewajibkan `supabase/sql/fix_20261031b_peta_wajah_murid.sql` agar murid
-  ber-JWT Auth bisa membaca descriptor wajahnya sendiri.
+  ber-JWT Auth bisa membaca descriptor wajahnya sendiri. Build `20261031d`
+  (`VERSION` SW `v9`) menambahkan **lapisan kamera universal** (§7d): pemilih
+  kamera (depan/belakang/semua perangkat), ingatan kamera terakhir, dan fallback
+  **Ambil Selfie / Verifikasi dari Foto** ketika kamera tidak bisa dipakai.
 
 ---
 
@@ -479,6 +482,58 @@ identitas yang boleh cocok. Build `20261031c` menambahkan:
   (`#wajah-mandiri-wrap`); mengubah mapel atau mengetik captcha mereset verifikasi wajah
   (`resetVerifikasiWajahMandiri`) supaya hasil scan lama tidak terbawa ke absensi captcha.
 
+
+### 7d. Kamera universal (semua merek ponsel & peramban)
+
+Dulu tiap jalur kamera membuka `getUserMedia` sendiri dengan permintaan yang kaku
+(`facingMode: 'user'` + `width/height: { ideal }`), sehingga di sebagian ponsel
+(Xiaomi/Realme/Oppo/Infinix, iPad, WebView) muncul `OverconstrainedError`,
+`NotReadableError`, atau kamera tidak pernah menyala. Build `20261031d` memusatkan
+semua pembukaan kamera pada **satu lapisan di `web/js/face.js`**:
+
+- **Tangga kandidat `susunKandidatKamera()`** — dicoba berurutan sampai berhasil:
+  `deviceId: exact` → `deviceId: ideal` → `facingMode: exact` (muka yang diminta
+  lebih dulu, lalu cadangannya) → `facingMode: ideal` → tanpa constraint → **tanpa
+  permintaan resolusi**. `width/height` **selalu `ideal`, tidak pernah `exact`** —
+  inilah penyebab utama kegagalan di driver kamera tertentu.
+- **Berhenti mencoba hanya saat izin ditolak** (`NotAllowedError`/`SecurityError`);
+  error lain lanjut ke kandidat berikutnya, dan `NotReadableError` (kamera baru
+  dilepas aplikasi lain) dicoba ulang sekali setelah jeda 900 ms.
+- **`gantiKameraAktif()`** — berpindah kamera memakai `applyConstraints` pada track
+  yang sedang jalan (tanpa stream kedua, aman di ponsel kamera-tunggal) → bila
+  gagal, stop-lalu-buka → bila tetap gagal, **rollback** ke kamera lama sehingga
+  dropdown tidak pernah menunjuk kamera mati.
+- **Pemilih kamera di semua jalur** — Registrasi wajah (`#camera-select`), Absen
+  Mandiri (`#wajah-mandiri-kamera`, opsi `Depan`/`Belakang` + tiap perangkat),
+  Face Scan kelas (`#wajah-live-kamera`), dan pemindai QR (`#qr-kamera-modal`,
+  `#qr-kamera-nilai-masal`; kamera kartu ekskul memakai tangga otomatis
+  `qrMulaiDenganTangga()`). Label perangkat dirapikan ("Depan"/"Belakang"/nama
+  kamera + nomor bila ganda) dan daftar **disegarkan otomatis** saat
+  `devicechange` (kamera USB dicabut/dipasang).
+- **Ingat kamera terakhir** — `localStorage.sbg_wajah_kamera` (registrasi + Absen
+  Mandiri), `sbg_wajah_kamera_pindai` (Face Scan kelas), `sbg_qr_kamera` (pemindai
+  QR). Pengguna kamera belakang/eksternal tidak lagi dipaksa kembali ke kamera
+  bawaan tiap membuka modal.
+- **Fallback tanpa kamera** — tombol **Ambil Selfie** di modal registrasi
+  (menambah sampel descriptor seperti sampel kamera) dan **Verifikasi dari Foto /
+  Selfie** di Absen Mandiri (verifikasi 1:1 dengan `ambangMandiri()`); bila kamera
+  gagal dibuka, Absen Mandiri menampilkan tombol **Coba Kamera Lagi** dan
+  **Verifikasi dari Foto** (tidak lagi buntu).
+- **Pesan error per kasus** (`pesanKameraError()`) — langkah izin Android/iPhone
+  konkret, "kamera dipakai aplikasi lain", "tidak ada kamera", "butuh HTTPS/
+  localhost", plus arahan ke jalur foto/selfie.
+- **`play()` yang ditolak bukan kegagalan kamera** — `pasangStreamKeVideo()`
+  memasang stream lebih dulu, mencoba `play()` ulang sekali, lalu lanjut (dulu
+  `AbortError` saat mengganti kamera cepat menggagalkan seluruh alur).
+- **Kamera dilepas saat tab disembunyikan** (`visibilitychange` →
+  `hentikanKamera()`): ponsel tidak lagi menahan stream di modal yang tak terlihat
+  (penyebab `NotReadableError` di modal berikutnya).
+
+Regresi dijaga `npm run test:face`: `scripts/uji-face.mjs` bagian **5** menguji
+tangga kandidat (termasuk larangan `width/height: exact`), normalisasi kandidat
+gaya lama, `deteksiLingkunganKamera`, `pesanKameraError`, dan pemeriksaan
+struktural bahwa Registrasi/Absen Mandiri/Face Scan kelas memakai lapisan ini
+serta tombol selfie benar-benar terpasang.
 
 ---
 

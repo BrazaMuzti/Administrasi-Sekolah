@@ -42,7 +42,9 @@ jobs:
       # Penjaga konsistensi repo (murni Node, cepat, tanpa kredensial):
       #  - check:sql      → supabase/sql/gabungan.sql wajib sinkron dg 85 migrasi
       #  - test:rpc-args  → argumen RPC di web/js wajib cocok dg signature SQL (cegah PGRST202)
-      #  - test:face      → geometri overlay landmark, ambang, akurasi Absen Mandiri (README §7b/§7c)
+      #  - test:face      → geometri overlay landmark, ambang, akurasi Absen Mandiri, dan
+      #                     lapisan kamera universal (tangga constraint/pesan izin/fallback
+      #                     selfie) — README §7b/§7c/§7d
       - name: Validasi repo (gabungan.sql + argumen RPC + face.js)
         run: |
           npm run check:sql

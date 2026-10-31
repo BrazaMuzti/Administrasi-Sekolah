@@ -3959,15 +3959,24 @@ function showModalEditAbsen(tanggal) {
   
   Swal.fire({
     title: `<div class="text-lg font-bold mt-2">Tgl ${tanggal} ${currentBulan}</div>`, width: '600px',
-    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div id="toast-scan-inline" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
+    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-kamera-bar-modal" class="hidden mb-3 flex items-center gap-2 bg-slate-800/70 border border-white/10 rounded-lg px-2 py-1.5"><span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span><select id="qr-kamera-modal" class="flex-1 min-w-0 bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 focus:outline-none focus:border-blue-500" title="Pilih kamera pemindai QR (Depan/Belakang/kamera lain)"></select></div><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div id="toast-scan-inline" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
     background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan', cancelButtonText: 'Batal',
         didOpen: () => {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200} }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } }, () => {}); });
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200}, rememberLastUsedCamera: true, videoConstraints: qrConstraintKamera() }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } }, () => {}); });
+      // Pemilih kamera QR (Depan / Belakang / semua kamera) — listener TERPISAH yang
+      // dipasang setelah handler di atas supaya scanner selesai dibuat lebih dulu.
+      // Mengganti kamera → scanner dibuat ulang dengan constraint kamera baru.
+      const btnQrKamera = document.getElementById('btn-qr-modal');
+      if (btnQrKamera) btnQrKamera.addEventListener('click', () => {
+        const onHadirQr = (nis) => { if (typeof tandaiHadirWajah === 'function') tandaiHadirWajah(nis); };
+        qrPasangPilihKamera(document.getElementById('qr-kamera-bar-modal'), document.getElementById('qr-kamera-modal'),
+          () => mulaiQrAbsenKelas(onHadirQr));
+      });
       const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } return !sudah; };
-      document.getElementById('btn-face-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear2 = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear2 && prevClear2.catch) prevClear2.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } const fwQr = document.getElementById('qr-reader-in-modal'); if (fwQr) fwQr.classList.add('hidden'); const fwFace = document.getElementById('face-reader-wrap'); if (!fwFace) return; fwFace.classList.remove('hidden'); if (window.FaceWajah) { window.FaceWajah.mulaiPindaiWajahAbsen(listMuridKelas, { wrap: fwFace, onMatch: tandaiHadirWajah }); } });
+      document.getElementById('btn-face-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear2 = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear2 && prevClear2.catch) prevClear2.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } const fwQr = document.getElementById('qr-reader-in-modal'); if (fwQr) fwQr.classList.add('hidden'); const fwQrBar = document.getElementById('qr-kamera-bar-modal'); if (fwQrBar) fwQrBar.classList.add('hidden'); const fwFace = document.getElementById('face-reader-wrap'); if (!fwFace) return; fwFace.classList.remove('hidden'); if (window.FaceWajah) { window.FaceWajah.mulaiPindaiWajahAbsen(listMuridKelas, { wrap: fwFace, onMatch: tandaiHadirWajah }); } });
       // Pertemuan ke- otomatis: lanjut dari jurnal terakhir guru+kelas+mapel+tahun ini
       (async () => {
         try {
@@ -7361,6 +7370,7 @@ function openPenilaianMasal() {
         </div>
         
         <!-- Ukuran Canvas QR diperkecil -->
+        <div id="qr-kamera-bar-nilai-masal" class="hidden mb-2 flex items-center gap-1.5 bg-slate-800/70 border border-white/10 rounded-lg px-2 py-1"><span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span><select id="qr-kamera-nilai-masal" class="flex-1 min-w-0 bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 focus:outline-none focus:border-blue-500" title="Pilih kamera pemindai QR (Depan/Belakang/kamera lain)"></select></div>
         <div id="qr-reader-nilai-masal" class="hidden border-2 border-blue-500/50 rounded-lg mb-2 overflow-hidden shadow-inner bg-black/50" style="max-width: 180px; margin: 0 auto;"></div>
         <div id="face-reader-nilai-masal" class="hidden rounded-lg overflow-hidden mb-2"></div>
         <div id="toast-scan-nilai" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60 fixed top-3 left-1/2 -translate-x-1/2 z-[9999]" style="max-width:280px"></div>
@@ -7459,13 +7469,21 @@ function openPenilaianMasal() {
         });
         
         let scannerNilai = null;
-        popup.querySelector('#btn-qr-masal-nilai').onclick = () => {
+        /** Buat/segarkan pemindai QR nilai masal. Kamera bisa dipilih (Depan/Belakang/
+         *  semua kamera) & diingat lewat qrSimpanKamera — pemindai lama dilepas lebih
+         *  dulu karena kamera tunggal tidak bisa dipakai dua instance sekaligus. */
+        const buatScannerNilai = () => {
           const qrContainer = popup.querySelector('#qr-reader-nilai-masal');
-          if(qrContainer.classList.contains('hidden')) {
-            qrContainer.classList.remove('hidden');
-            scannerNilai = new Html5QrcodeScanner("qr-reader-nilai-masal", { fps: 10, qrbox: {width: 120, height: 120} });
-            window.__scannerNilai = scannerNilai;
-            scannerNilai.render((nis) => {
+          if (!qrContainer) return;
+          qrHentikanScanner(scannerNilai);
+          scannerNilai = null;
+          qrContainer.classList.remove('hidden');
+          scannerNilai = new Html5QrcodeScanner("qr-reader-nilai-masal", {
+            fps: 10, qrbox: {width: 120, height: 120},
+            rememberLastUsedCamera: true, videoConstraints: qrConstraintKamera()
+          });
+          window.__scannerNilai = scannerNilai;
+          scannerNilai.render((nis) => {
               const chk = popup.querySelector(`#chk-masal-${nis}`);
               if (chk && !chk.checked) {
                 chk.checked = true; 
@@ -7489,9 +7507,19 @@ function openPenilaianMasal() {
                 }
               }
             }, () => {});
+        };
+        popup.querySelector('#btn-qr-masal-nilai').onclick = () => {
+          const qrContainer = popup.querySelector('#qr-reader-nilai-masal');
+          const barQ = popup.querySelector('#qr-kamera-bar-nilai-masal');
+          if (qrContainer.classList.contains('hidden')) {
+            // Kamera: pilihan tersimpan dipakai lebih dulu (lihat qrConstraintKamera);
+            // daftar perangkat baru berlabel setelah izin kamera diberikan.
+            qrPasangPilihKamera(barQ, popup.querySelector('#qr-kamera-nilai-masal'), () => buatScannerNilai());
+            buatScannerNilai();
           } else {
             qrContainer.classList.add('hidden');
-            if(scannerNilai) { scannerNilai.clear(); scannerNilai = null; window.__scannerNilai = null; }
+            if (barQ) barQ.classList.add('hidden');
+            if (scannerNilai) { qrHentikanScanner(scannerNilai); scannerNilai = null; window.__scannerNilai = null; }
           }
         };
 
@@ -7560,6 +7588,8 @@ function openPenilaianMasal() {
           const qrContainerN = popup.querySelector('#qr-reader-nilai-masal');
           if (!qrContainerN.classList.contains('hidden')) {
             qrContainerN.classList.add('hidden');
+            const barQrN = popup.querySelector('#qr-kamera-bar-nilai-masal');
+            if (barQrN) barQrN.classList.add('hidden');
             if (window.__scannerNilai) { try { window.__scannerNilai.clear(); } catch (e) {} window.__scannerNilai = null; }
           }
           if (!window.FaceWajah || typeof window.FaceWajah.mulaiPindaiWajahAbsen !== 'function') {
@@ -7591,6 +7621,122 @@ function openPenilaianMasal() {
   });
 }
 
+// ==========================================================================
+// Pemindai QR (html5-qrcode) — LAPISAN KAMERA UNIVERSAL
+// ==========================================================================
+// Pemindai QR memakai kamera sendiri lewat html5-qrcode, jadi ia tidak otomatis
+// mendapat manfaat lapisan kamera face.js. Helper di bawah menyatukan:
+//   · daftar kamera (delegasi ke FaceWajah.daftarKamera bila tersedia),
+//   · ingatan kamera terakhir (localStorage) sehingga guru tidak perlu memilih
+//     kamera lagi tiap membuka pemindai,
+//   · constraint `ideal` (bukan `exact`) supaya deviceId kedaluwarsa/berbeda
+//     TIDAK membuat pemindai gagal total — kamera bawaan tetap dipakai.
+const KUNCI_QR_KAMERA = 'sbg_qr_kamera';
+
+function qrKameraTersimpan() {
+  try { return localStorage.getItem(KUNCI_QR_KAMERA) || ''; } catch (e) { return ''; }
+}
+function qrSimpanKamera(id) {
+  try {
+    if (id) localStorage.setItem(KUNCI_QR_KAMERA, String(id));
+    else localStorage.removeItem(KUNCI_QR_KAMERA);
+  } catch (e) { /* mode privat: kamera tetap bisa dipilih per sesi */ }
+}
+/** Constraint kamera untuk html5-qrcode (videoConstraints). */
+function qrConstraintKamera() {
+  const id = qrKameraTersimpan();
+  // `ideal`: bila deviceId tidak ada lagi (kamera dicabut/ganti perangkat), peramban
+  // memilih kamera bawaan daripada melempar OverconstrainedError.
+  return id ? { deviceId: { ideal: id } } : { facingMode: { ideal: 'environment' } };
+}
+/** Daftar kamera lintas-aplikasi (label ramah: Depan/Belakang/nama perangkat). */
+async function qrDaftarKamera() {
+  try {
+    const FW = window.FaceWajah;
+    if (FW && typeof FW.daftarKamera === 'function') {
+      const d = await FW.daftarKamera();
+      if (d && d.length) return d;
+    }
+  } catch (e) { console.warn('qrDaftarKamera (FaceWajah):', e); }
+  try {
+    const dev = await navigator.mediaDevices.enumerateDevices();
+    return (dev || []).filter(d => d && d.kind === 'videoinput')
+      .map((d, i) => ({ id: d.deviceId || '', label: String(d.label || '').trim() || ('Kamera ' + (i + 1)) }));
+  } catch (e) { console.warn('qrDaftarKamera:', e); return []; }
+}
+function qrLabelKamera(label, i) {
+  const l = String(label || '').trim();
+  const lr = l.toLowerCase();
+  if (/front|user|selfie|depan/i.test(lr)) return 'Depan';
+  if (/back|rear|environment|belakang|world/i.test(lr)) return 'Belakang';
+  const bersih = l.split(':')[0].split('(')[0].split('@')[0].trim();
+  return bersih || ('Kamera ' + (i + 1));
+}
+/** Isi <select> pilihan kamera: opsi kosong = "Otomatis (kamera belakang)". */
+async function qrIsiPilihKamera(sel) {
+  if (!sel) return;
+  const daftar = await qrDaftarKamera();
+  const lama = sel.value || qrKameraTersimpan();
+  const hitung = {};
+  sel.innerHTML = '<option value="">Otomatis (kamera belakang)</option>';
+  daftar.forEach((d, i) => {
+    if (!d.id) return;
+    let nama = qrLabelKamera(d.label, i);
+    const n = (hitung[nama] = (hitung[nama] || 0) + 1);
+    if (n > 1) nama += ' ' + n;
+    const o = document.createElement('option');
+    o.value = d.id;
+    o.textContent = nama;
+    sel.appendChild(o);
+  });
+  sel.value = (lama && sel.querySelector('option[value="' + lama + '"]')) ? lama : '';
+}
+/** Pasang bar pemilih kamera QR (isi daftar + listener ganti kamera → muat ulang scanner). */
+function qrPasangPilihKamera(bar, sel, onGanti) {
+  if (!bar || !sel) return;
+  bar.classList.remove('hidden');
+  qrIsiPilihKamera(sel).catch(e => console.warn('qrIsiPilihKamera:', e));
+  if (sel.dataset.dipasang === '1') return;
+  sel.dataset.dipasang = '1';
+  sel.addEventListener('change', () => {
+    if (sel.dataset.sibuk === '1') return;
+    sel.dataset.sibuk = '1';
+    try {
+      qrSimpanKamera(sel.value || '');
+      if (typeof onGanti === 'function') onGanti();
+    } finally {
+      setTimeout(() => { sel.dataset.sibuk = '0'; }, 800);
+    }
+  });
+}
+/** Hentikan & lepas instance html5-qrcode sebelum membuat yang baru (kamera tunggal
+ *  tidak bisa dipakai dua instance sekaligus). */
+function qrHentikanScanner(scanner) {
+  if (!scanner) return;
+  try {
+    const p = scanner.clear && scanner.clear();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) { /* sudah tertutup */ }
+}
+/** Mulai/segarkan pemindai QR absensi kelas (dipakai tombol QR Scan & ganti kamera). */
+function mulaiQrAbsenKelas(onHadir) {
+  const wadah = document.getElementById('qr-reader-in-modal');
+  if (!wadah) return;
+  qrHentikanScanner(html5QrcodeScanner);
+  html5QrcodeScanner = null;
+  wadah.classList.remove('hidden');
+  const cfg = {
+    fps: 10,
+    qrbox: { width: 200, height: 200 },
+    rememberLastUsedCamera: true,
+    videoConstraints: qrConstraintKamera()
+  };
+  html5QrcodeScanner = new Html5QrcodeScanner('qr-reader-in-modal', cfg, false);
+  html5QrcodeScanner.render((nis) => {
+    if (typeof onHadir === 'function') { try { onHadir(String(nis)); } catch (e) { console.error('onHadir QR:', e); } }
+  }, () => {});
+}
+
 // Fungsi untuk memanggil Scanner di dalam Modal
 function bukaScannerModal() {
     const modal = document.getElementById('modal-scanner');
@@ -7601,7 +7747,7 @@ function bukaScannerModal() {
     if (!html5QrcodeScanner) {
         html5QrcodeScanner = new Html5QrcodeScanner(
             "qr-reader-in-modal", 
-            { fps: 10, qrbox: { width: 250, height: 250 } }, 
+            { fps: 10, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true, videoConstraints: qrConstraintKamera() }, 
             false // set true jika butuh log detail
         );
     }
@@ -22537,32 +22683,57 @@ async function formKasUmum(isNew, data = {}) {
     } catch (e) { Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || '', background: '#1e293b', color: '#fff' }); }
   });
 }
+/** Mulai pemindai QR berbasis `Html5Qrcode.start()` dengan TANGGA KAMERA UNIVERSAL:
+ *  kamera pilihan tersimpan → kamera belakang → kamera depan → kamera apa pun.
+ *  Perangkat tanpa kamera belakang / deviceId kedaluwarsa tidak lagi gagal total.
+ *  @returns true bila kamera berhasil dibuka. */
+async function qrMulaiDenganTangga(qr, onSukses, onGagal) {
+  if (!qr || typeof qr.start !== 'function') return false;
+  const kandidat = [];
+  const idTersimpan = qrKameraTersimpan();
+  if (idTersimpan) kandidat.push({ deviceId: { ideal: idTersimpan } });
+  kandidat.push({ facingMode: { ideal: 'environment' } });
+  kandidat.push({ facingMode: { ideal: 'user' } });
+  kandidat.push({});
+  let errAkhir = null;
+  for (const kand of kandidat) {
+    try {
+      await qr.start(kand, { fps: 10, qrbox: 220 }, onSukses, () => {});
+      return true;
+    } catch (e) {
+      errAkhir = e;
+      console.warn('QR start gagal pada kandidat kamera:', kand, (e && e.message) || e);
+    }
+  }
+  const FW = window.FaceWajah;
+  const pesan = (FW && typeof FW.pesanKameraError === 'function')
+    ? FW.pesanKameraError(errAkhir) : 'Gagal mengakses kamera.';
+  if (typeof onGagal === 'function') onGagal(pesan); else showToast('error', pesan);
+  return false;
+}
+
 /** Scan QR kartu anggota untuk mengisi otomatis field "Nama Siswa" pada form Kas Umum. */
 function scanQRSiswaKasUmum() {
   if (typeof Html5Qrcode === 'undefined') return showToast('error', 'Library pemindai QR tidak tersedia.');
   Swal.fire({
     title: '<i class="fa-solid fa-qrcode"></i> Scan QR Kartu Anggota',
-    html: `<div id="kum_qr_reader" style="width:100%"></div><p class="text-[10px] text-slate-400 mt-2">Arahkan kamera ke QR pada kartu anggota.</p>`,
+    html: `<div id="kum_qr_reader" style="width:100%"></div><p class="text-[10px] text-slate-400 mt-2">Arahkan kamera ke QR pada kartu anggota. Kamera dipilih otomatis (belakang → depan → bawaan).</p>`,
     background: '#1e293b', color: '#fff', showConfirmButton: false, showCancelButton: true, cancelButtonText: 'Tutup',
     didOpen: () => {
       const qr = new Html5Qrcode('kum_qr_reader');
       window.__kumQrInstance = qr;
-      qr.start(
-        { facingMode: 'environment' }, { fps: 10, qrbox: 220 },
-        (decodedText) => {
-          const kode = String(decodedText || '').trim();
-          const sel = document.getElementById('kum_siswa_pilih');
-          const opt = sel ? [...sel.options].find(o => o.value === kode) : null;
-          if (opt) {
-            sel.value = kode;
-            document.getElementById('kum_siswa').value = opt.text;
-            showToast('success', `Siswa ditemukan: ${opt.text}`);
-          } else {
-            showToast('error', `NIS "${kode}" tidak ditemukan di daftar anggota ekskul ini.`);
-          }
-        },
-        () => {}
-      ).catch(() => showToast('error', 'Gagal mengakses kamera.'));
+      qrMulaiDenganTangga(qr, (decodedText) => {
+        const kode = String(decodedText || '').trim();
+        const sel = document.getElementById('kum_siswa_pilih');
+        const opt = sel ? [...sel.options].find(o => o.value === kode) : null;
+        if (opt) {
+          sel.value = kode;
+          document.getElementById('kum_siswa').value = opt.text;
+          showToast('success', `Siswa ditemukan: ${opt.text}`);
+        } else {
+          showToast('error', `NIS "${kode}" tidak ditemukan di daftar anggota ekskul ini.`);
+        }
+      });
     },
     willClose: () => {
       const qr = window.__kumQrInstance;
@@ -23450,26 +23621,21 @@ function scanQRAnggotaIuranForm() {
   if (typeof Html5Qrcode === 'undefined') return showToast('error', 'Library pemindai QR tidak tersedia.');
   Swal.fire({
     title: '<i class="fa-solid fa-qrcode"></i> Scan QR Kartu Anggota',
-    html: `<div id="kia_qr_reader" style="width:100%"></div><p class="text-[10px] text-slate-400 mt-2">Arahkan kamera ke QR pada kartu anggota.</p>`,
+    html: `<div id="kia_qr_reader" style="width:100%"></div><p class="text-[10px] text-slate-400 mt-2">Arahkan kamera ke QR pada kartu anggota. Kamera dipilih otomatis (belakang → depan → bawaan).</p>`,
     background: '#1e293b', color: '#fff', showConfirmButton: false, showCancelButton: true, cancelButtonText: 'Tutup',
     didOpen: () => {
-      const el = document.getElementById('kia_qr_reader');
       const qr = new Html5Qrcode('kia_qr_reader');
       window.__kiaQrInstance = qr;
-      qr.start(
-        { facingMode: 'environment' }, { fps: 10, qrbox: 220 },
-        (decodedText) => {
-          const kode = String(decodedText || '').trim();
-          const chk = [...document.querySelectorAll('.kia-chk')].find(c => c.value === kode);
-          if (chk) {
-            chk.checked = true;
-            showToast('success', `Anggota ditemukan & dicentang: ${kode}`);
-          } else {
-            showToast('error', `NIS "${kode}" tidak ditemukan di daftar anggota ekskul ini.`);
-          }
-        },
-        () => {}
-      ).catch(() => showToast('error', 'Gagal mengakses kamera.'));
+      qrMulaiDenganTangga(qr, (decodedText) => {
+        const kode = String(decodedText || '').trim();
+        const chk = [...document.querySelectorAll('.kia-chk')].find(c => c.value === kode);
+        if (chk) {
+          chk.checked = true;
+          showToast('success', `Anggota ditemukan & dicentang: ${kode}`);
+        } else {
+          showToast('error', `NIS "${kode}" tidak ditemukan di daftar anggota ekskul ini.`);
+        }
+      });
     },
     willClose: () => {
       const qr = window.__kiaQrInstance;
