@@ -203,7 +203,10 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   ⚠ **Jalankan SQL itu sebelum frontend build `20261031b` ter-deploy** — tanpa itu
   admin tetap bisa ditolak server. Riwayat: perubahan ini mula-mula naik di
   `20261031a` (`VERSION` SW `v6`); build `20261031b` menaikkan `VERSION` ke `v7`
-  dan `BUILD` di `web/js/install.js` ke `20261031b` (lihat §7b).
+  dan `BUILD` di `web/js/install.js` ke `20261031b` (lihat §7b). Build
+  `20261031c` (`VERSION` SW `v8`) menambah akurasi Absen Mandiri (§7c) dan
+  mewajibkan `supabase/sql/fix_20261031b_peta_wajah_murid.sql` agar murid
+  ber-JWT Auth bisa membaca descriptor wajahnya sendiri.
 
 ---
 
@@ -435,10 +438,47 @@ loop yang sama (`loopDeteksiPindai` di `web/js/face.js`). Perbaikan akurasi terb
   menggeser gerbang "Hadir" — jarak di atasnya tetap ditampilkan lengkap dengan labelnya.
 - **Uji regresi tanpa browser.** `npm run test:face` (`scripts/uji-face.mjs`) mengekstrak
   fungsi murni dari `face.js` lalu memeriksa geometri overlay landmark (mirror/zoom),
-  ambang baku + kalibrasi + perilaku saat `localStorage` diblokir, dan deteksi vektor
-  motor lain. Jalankan setelah menyentuh `gambarLandmarkPindai`/`ambangCocok`/konstanta
+  ambang baku + kalibrasi + perilaku saat `localStorage` diblokir, deteksi vektor mesin
+  lain, fusi multi-frame, gerbang kualitas citra & pose, ambang 1:1 Absen Mandiri, serta
+  pemeriksaan struktural jalur `mandiri` (fusi/pose/`motorPaksa` benar-benar terpasang).
+  Jalankan setelah menyentuh `gambarLandmarkPindai`/`ambangCocok`/`ambangMandiri`/konstanta
   jarak; skrip keluar dengan kode `1` bila ada yang gagal (dan menggagalkan job
   **Validasi repo** di GitHub Actions, jadi regresi terdeteksi sebelum deploy).
+
+### 7c. Akurasi Absen Mandiri (verifikasi selfie 1:1)
+
+Absen Mandiri memakai loop yang sama, tetapi dengan **profil berbeda** (`{ mandiri: true }`)
+karena kondisinya berbeda: kamera depan, jarak dekat, cahaya tak menentu, dan hanya satu
+identitas yang boleh cocok. Build `20261031c` menambahkan:
+
+- **Fusi 3 frame.** Tiga frame yang lolos gerbang dirata-ratakan (`rataRataDescriptor`)
+  sebelum dicocokkan; minimal **2 dari 3** frame harus sudah mirip secara individual
+  (konsensus). Noise blur/ekspresi antar-frame saling meniadakan → jarak ke data registrasi
+  mengecil, sehingga siswa yang benar lebih jarang ditolak. Vektor 512 (MobileFaceNet)
+  dinormalisasi L2 ulang setelah dirata-ratakan.
+- **Gerbang pose.** `deteksiPoseDepan` menolak wajah yang menoleh (asimetri hidung terhadap
+  sudut mata > `YAW_MAKS` 0,42), wajah terlalu kecil (< 22% tinggi frame), atau terpotong
+  tepi frame — dengan pesan perbaikan yang spesifik di layar ("Hadapkan wajah LURUS…",
+  "Mendekatlah ke kamera…", "Posisikan SELURUH wajah…").
+- **Gerbang kualitas.** `statistikKualitasCitra` (64×64 grayscale) menolak frame gelap
+  (luminans < 45), silau (> 225), atau blur (rata-rata |Laplacian| < 12). Bila statistik tak
+  bisa dihitung (video belum siap) gerbang dilewati — tidak memblokir.
+- **Ambang 1:1.** `ambangMandiri()` = ambang perangkat/kalibrasi − 0,03 (dijepit 0,30–0,85;
+  face-api 0,50 → 0,47 · mediapipe 0,80 → 0,77). Matcher face-api memakai ambang yang sama
+  agar jarak yang lolos verifikasi tidak lebih dulu dipotong matcher.
+- **Mesin otomatis sesuai data.** Bila descriptor murid berdimensi 128/512 dan berbeda dari
+  setelan perangkat, mesin untuk **satu pemindaian itu** dipaksa (`motorPaksa`, dibaca lewat
+  `motorAktif()`) dan dipulihkan di `finally`. Setelan `localStorage` tidak diubah. Tanpa ini
+  siswa yang registrasinya dibuat di perangkat lain selalu ditolak ("mesin pengenalan lain").
+  Kedua pustaka (`face-api` + MediaPipe/ONNX) memang selalu dimuat oleh `index.html`; model
+  besar tetap dimuat lazy per mesin (`modelsFaceApiSiap` / `mpModelsSiap` terpisah).
+- **Diagnosis "belum terdaftar" yang jujur.** `akunPetaWajah` kini mengembalikan `.sebab`
+  (`ok`/`kosong`/`sesi`/`rpc-tidak-ada`/`gagal`) sehingga panel membedakan "wajah belum
+  didaftarkan" dari "sesi kedaluwarsa"/"server belum dimigrasi" (lihat §11 & S14m).
+- **Kamera berhenti bersih.** Penolakan server/geofence menghapus pratinjau
+  (`#wajah-mandiri-wrap`); mengubah mapel atau mengetik captcha mereset verifikasi wajah
+  (`resetVerifikasiWajahMandiri`) supaya hasil scan lama tidak terbawa ke absensi captcha.
+
 
 ---
 

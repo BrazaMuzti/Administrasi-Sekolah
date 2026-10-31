@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SIAKAD / SISIP — SKEMA DATABASE LENGKAP (VERSI SEKARANG)
--- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-10-31 (84 berkas)
+-- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-10-31 (85 berkas)
 --
 -- CARA PAKAI (project Supabase BARU):
 --   1) Buka Supabase Dashboard → SQL Editor → New query
@@ -26,7 +26,7 @@
 --     (periksa tanpa menulis: npm run check:sql)
 -- ============================================================================
 -- ============================================================
--- [1/84] upgrade_20260903.sql
+-- [1/85] upgrade_20260903.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE SKEMA SIAKAD — 2026-09-03
@@ -89,7 +89,7 @@ create policy "master_data_hapus_authenticated" on master_data
   for delete to authenticated using (true);
 
 -- ============================================================
--- [2/84] fix_20260903_kredensial.sql
+-- [2/85] fix_20260903_kredensial.sql
 -- ============================================================
 -- ============================================================
 -- FIX KREDENSIAL MURID — 2026-09-03 (v2)
@@ -341,7 +341,7 @@ grant execute on function set_password_murid(text, text) to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [3/84] fix_master_data_insert.sql
+-- [3/85] fix_master_data_insert.sql
 -- ============================================================
 -- ============================================================
 -- FIX INSERT master_data (400 Bad Request) — 2026-09-03
@@ -428,7 +428,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [4/84] upgrade_20260904_akun.sql
+-- [4/85] upgrade_20260904_akun.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE AKUN (GURU & MURID) — 2026-09-04
@@ -678,7 +678,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [5/84] upgrade_20260904_master_data_tambahan.sql
+-- [5/85] upgrade_20260904_master_data_tambahan.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE MASTER_DATA — 2026-09-04
@@ -722,7 +722,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [6/84] upgrade_20260904_absensi.sql
+-- [6/85] upgrade_20260904_absensi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI — 2026-09-04
@@ -791,7 +791,7 @@ grant select, update on akun to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [7/84] upgrade_20260904_absensi_d.sql
+-- [7/85] upgrade_20260904_absensi_d.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI: STATUS D (DISPEN) — 2026-09-04
@@ -809,7 +809,7 @@ alter table absensi
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [8/84] upgrade_20260904_jurnal.sql
+-- [8/85] upgrade_20260904_jurnal.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JURNAL HARIAN GURU — 2026-09-04
@@ -864,7 +864,7 @@ grant select, insert, update, delete on jurnal_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [9/84] upgrade_20260904_nilai.sql
+-- [9/85] upgrade_20260904_nilai.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE INPUT NILAI — 2026-09-04
@@ -948,7 +948,7 @@ grant select, insert, update, delete on nilai_konfigurasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [10/84] upgrade_20260904_ekskul.sql
+-- [10/85] upgrade_20260904_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — 2026-09-04
@@ -1061,7 +1061,7 @@ grant select, insert, delete on dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [11/84] upgrade_20260905_ekskul_pengurus.sql
+-- [11/85] upgrade_20260905_ekskul_pengurus.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER (LANJUTAN) — 2026-09-05
@@ -1120,7 +1120,7 @@ grant update (ekstrakurikuler) on akun to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [12/84] upgrade_20260906_sikap_teman.sql
+-- [12/85] upgrade_20260906_sikap_teman.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE SIKAP — TEMAN SEJAWAT & JURNAL PENILAIAN SIKAP — 2026-09-06
@@ -1394,7 +1394,7 @@ grant execute on function simpan_penilaian_teman(text, text, jsonb) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [13/84] upgrade_20260906_ekskul_surat.sql
+-- [13/85] upgrade_20260906_ekskul_surat.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — SURAT DISPENSASI & SUB-EKSKUL — 2026-09-06
@@ -1532,7 +1532,7 @@ grant select, insert, update, delete on preset_dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [14/84] upgrade_20260906_ekskul_surat_v2.sql
+-- [14/85] upgrade_20260906_ekskul_surat_v2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — SURAT DISPENSASI v2 — 2026-09-06
@@ -1593,7 +1593,7 @@ drop table if exists anggota_sub_ekskul;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [15/84] upgrade_20260908_kalender.sql
+-- [15/85] upgrade_20260908_kalender.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KALENDER PENDIDIKAN — 2026-09-08
@@ -1643,7 +1643,7 @@ create policy "kalender_hapus_auth" on kalender_pendidikan
   for delete to authenticated using (true);
 
 -- ============================================================
--- [16/84] upgrade_20260909_administrasi_guru.sql
+-- [16/85] upgrade_20260909_administrasi_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ADMINISTRASI GURU LAINNYA — 2026-09-09
@@ -1855,7 +1855,7 @@ grant select, insert, update, delete on dokumen_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [17/84] upgrade_20260910_penugasan_guru.sql
+-- [17/85] upgrade_20260910_penugasan_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENUGASAN GURU PER TAHUN PELAJARAN — 2026-09-10
@@ -1886,7 +1886,7 @@ comment on column akun.penugasan is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [18/84] upgrade_20260911_riwayat_siswa.sql
+-- [18/85] upgrade_20260911_riwayat_siswa.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RIWAYAT KELAS & STATUS SISWA PER TAHUN PELAJARAN — 2026-09-11
@@ -1922,7 +1922,7 @@ comment on column akun.riwayat_kelas is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [19/84] upgrade_20260912_nisn_sync.sql
+-- [19/85] upgrade_20260912_nisn_sync.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SINKRONISASI NISN + PERBAIKAN FORM AKUN MURID — 2026-09-12
@@ -2054,7 +2054,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [20/84] upgrade_20260913_jabatan_ekskul.sql
+-- [20/85] upgrade_20260913_jabatan_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JABATAN EKSTRAKURIKULER — 2026-09-13
@@ -2184,7 +2184,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [21/84] upgrade_20260914_akses_murid.sql
+-- [21/85] upgrade_20260914_akses_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE AKSES MURID — 2026-09-14
@@ -2310,7 +2310,7 @@ grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [22/84] upgrade_20260914_absensi_delete.sql
+-- [22/85] upgrade_20260914_absensi_delete.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI (DELETE) — 2026-09-14
@@ -2333,7 +2333,7 @@ create policy "absensi_hapus_semua" on absensi
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [23/84] upgrade_20260915_proses_kenaikan_rpc.sql
+-- [23/85] upgrade_20260915_proses_kenaikan_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE PROSES KENAIKAN KELAS (ADMIN-ONLY) — 2026-09-15
@@ -2393,7 +2393,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [24/84] upgrade_20260916_fase1.sql
+-- [24/85] upgrade_20260916_fase1.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 1 MODUL ADMINISTRASI SEKOLAH — 2026-09-16
@@ -2471,7 +2471,7 @@ grant select, insert, update, delete on jadwal_ujian, pengumuman, rapor_catatan,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [25/84] upgrade_20260917_fase2.sql
+-- [25/85] upgrade_20260917_fase2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 2 MODUL ADMINISTRASI SEKOLAH — 2026-09-17
@@ -2576,7 +2576,7 @@ grant select, insert, update, delete on poin_kategori, poin_siswa, spp_tagihan, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [26/84] upgrade_20260918_fase3.sql
+-- [26/85] upgrade_20260918_fase3.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 3 MODUL ADMINISTRASI SEKOLAH — 2026-09-18
@@ -2675,7 +2675,7 @@ grant select, insert, update, delete on perpus_buku, perpus_pinjam, inv_barang, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [27/84] upgrade_20260919_fase4.sql
+-- [27/85] upgrade_20260919_fase4.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 4 MODUL ADMINISTRASI SEKOLAH — 2026-09-19
@@ -2725,7 +2725,7 @@ grant select, insert, update, delete on ppdb_calon to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [28/84] upgrade_20260920_murid_rpc.sql
+-- [28/85] upgrade_20260920_murid_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE PERBAIKAN AKSES MURID (ANON) — 2026-09-20
@@ -2840,7 +2840,7 @@ grant execute on function catatan_wali_murid(text, text, text) to anon, authenti
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [29/84] upgrade_20260921_rls_policies.sql
+-- [29/85] upgrade_20260921_rls_policies.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE RLS POLICIES TABEL FASE 1-4 — 2026-09-21
@@ -2907,7 +2907,7 @@ grant select, insert, update, delete on
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [30/84] upgrade_20260922_nilai_murid_rpc.sql
+-- [30/85] upgrade_20260922_nilai_murid_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE RPC RAPOR MURID — 2026-09-22
@@ -2955,7 +2955,7 @@ grant execute on function ambil_rapor_nilai_murid(text, text, text) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [31/84] upgrade_20260926_ekskul_akses_guru.sql
+-- [31/85] upgrade_20260926_ekskul_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES EKSTRAKURIKULER PENGURUS MURID + JABATAN EKSKUL MAP — 2026-09-26
@@ -3068,7 +3068,7 @@ grant execute on function cek_login_murid(text, text) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [32/84] upgrade_20260927_sub_ekskul_anggota.sql
+-- [32/85] upgrade_20260927_sub_ekskul_anggota.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SUB-EKSTRAKURIKULER KOLOM ANGGOTA (PERBAIKAN SIMPAN) — 2026-09-27
@@ -3164,7 +3164,7 @@ alter table agenda_ekskul alter column tanggal drop not null;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [33/84] upgrade_20260928_rpc_akun_murid.sql
+-- [33/85] upgrade_20260928_rpc_akun_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RPC AKUN MURID (PERBAIKAN SIMPAN PROFIL MURID) — 2026-09-28
@@ -3306,7 +3306,7 @@ grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [34/84] upgrade_20260929_jadwal_pelajaran.sql
+-- [34/85] upgrade_20260929_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: TABEL JADWAL PELAJARAN (PERBAIKAN SIMPAN JADWAL) — 2026-09-29
@@ -3385,7 +3385,7 @@ grant select on jadwal_pelajaran to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [35/84] upgrade_20260920_fix_kolom_jadwal_pelajaran.sql
+-- [35/85] upgrade_20260920_fix_kolom_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PERBAIKAN NAMA KOLOM TABEL jadwal_pelajaran — 2026-09-20
@@ -3444,7 +3444,7 @@ alter table jadwal_pelajaran
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [36/84] upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql
+-- [36/85] upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: LEPAS NOT NULL KOLOM LEGACY TABEL jadwal_pelajaran — 2026-09-20
@@ -3498,7 +3498,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [37/84] upgrade_20260930_pengurus_tambah_anggota.sql
+-- [37/85] upgrade_20260930_pengurus_tambah_anggota.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENGURUS EKSKUL DAFTARKAN ANGGOTA BARU — 2026-09-30
@@ -3594,7 +3594,7 @@ grant execute on function daftar_anggota_ekskul_baru(text, text, jsonb) to anon,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [38/84] upgrade_20260930b_fix_akun_grant_anon.sql
+-- [38/85] upgrade_20260930b_fix_akun_grant_anon.sql
 -- ============================================================
 -- ============================================================
 -- FIX: GRANT TABEL AKUN UNTUK ANON (PENGURUS EKSKUL MURID) — 2026-09-30 (b)
@@ -3632,7 +3632,7 @@ grant update (jabatan_ekskul_map) on akun to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [39/84] upgrade_20261001_kas_ekstrakurikuler.sql
+-- [39/85] upgrade_20261001_kas_ekstrakurikuler.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-01: KAS EKSTRAKURIKULER (Kas Umum + Kas Anggota)
@@ -3861,7 +3861,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [40/84] upgrade_20261002_kas_masterdata_v2.sql
+-- [40/85] upgrade_20261002_kas_masterdata_v2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-02: KAS EKSTRAKURIKULER v2 + MASTER DATA DRIVE LINKS
@@ -3979,7 +3979,7 @@ grant select, insert, update, delete on notifikasi to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [41/84] upgrade_20261003_kas_anggota_rentang.sql
+-- [41/85] upgrade_20261003_kas_anggota_rentang.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-03: KAS ANGGOTA - FILTER RENTANG TANGGAL
@@ -4041,7 +4041,7 @@ grant execute on function iuran_anggota_rentang(text, date, date) to anon, authe
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [42/84] upgrade_20261005_kas_anggota_cicil.sql
+-- [42/85] upgrade_20261005_kas_anggota_cicil.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-05: KAS ANGGOTA - STATUS "CICIL" + TANGGAL AKHIR BAYAR
@@ -4123,7 +4123,7 @@ grant execute on function iuran_anggota_rentang(text, date, date) to anon, authe
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [43/84] upgrade_20261006_import_murid_akses_guru.sql
+-- [43/85] upgrade_20261006_import_murid_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES IMPORT DATA MURID UNTUK GURU (WALI KELAS/PEMBINA) — 2026-10-06
@@ -4271,7 +4271,7 @@ grant execute on function import_akun_murid(jsonb, text) to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [44/84] upgrade_20261006b_add_anggota_akses_admin_pembina.sql
+-- [44/85] upgrade_20261006b_add_anggota_akses_admin_pembina.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES ADMIN & PEMBINA TAMBAH ANGGOTA EKSKUL — 2026-10-06 (b)
@@ -4416,7 +4416,7 @@ grant execute on function ubah_anggota_ekskul(text, text, text[], boolean) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [45/84] upgrade_20261006c_kunci_absen_ekskul_pengurus.sql
+-- [45/85] upgrade_20261006c_kunci_absen_ekskul_pengurus.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENGURUS EKSKUL GANTI KUNCI ABSEN (CAPTCHA) — 2026-10-06 (c)
@@ -4501,7 +4501,7 @@ grant execute on function ganti_kunci_absen_ekskul(text, text, text, text) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [46/84] upgrade_20261007_akun_hp_ortu.sql
+-- [46/85] upgrade_20261007_akun_hp_ortu.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: NO HP ORANG TUA (AKUN MURID) — 2026-10-07
@@ -4627,7 +4627,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [47/84] upgrade_20261007_jadwal_guru_custom.sql
+-- [47/85] upgrade_20261007_jadwal_guru_custom.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JADWAL PELAJARAN — GURU TANPA AKUN (CUSTOM) — 2026-10-07
@@ -4645,7 +4645,7 @@ alter table jadwal_pelajaran
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [48/84] upgrade_20261007_kalender_tipe_custom.sql
+-- [48/85] upgrade_20261007_kalender_tipe_custom.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KALENDER PENDIDIKAN — NAMA KATEGORI CUSTOM — 2026-10-07
@@ -4662,7 +4662,7 @@ alter table kalender_pendidikan
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [49/84] upgrade_20261008_ekskul_menu_lengkap.sql
+-- [49/85] upgrade_20261008_ekskul_menu_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-08: MENU EKSTRAKURIKULER LENGKAP
@@ -4949,7 +4949,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [50/84] upgrade_20261010_jadwal_piket_ekskul.sql
+-- [50/85] upgrade_20261010_jadwal_piket_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-10: JADWAL PIKET EKSTRAKURIKULER
@@ -5007,7 +5007,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [51/84] upgrade_20261011_akun_murid_foto_medsos.sql
+-- [51/85] upgrade_20261011_akun_murid_foto_medsos.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: FOTO MURID (GOOGLE DRIVE), MEDIA SOSIAL & ALAMAT MAPS — 2026-10-11
@@ -5246,7 +5246,7 @@ grant execute on function simpan_foto_murid(text, text, text, text) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [52/84] upgrade_20261013_akun_murid_keterangan_maps.sql
+-- [52/85] upgrade_20261013_akun_murid_keterangan_maps.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: DATA AKUN MURID — NO HP ORTU & KETERANGAN + PRATINJAU GOOGLE MAPS — 2026-10-13
@@ -5325,7 +5325,7 @@ grant execute on function ubah_profil_murid(text, jsonb) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [53/84] upgrade_20261014_wajah.sql
+-- [53/85] upgrade_20261014_wajah.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENDAFTARAN WAJAH (FACE RECOGNITION) — 2026-10-14
@@ -5438,7 +5438,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text) to a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [54/84] upgrade_20261014b_fix_nilai_grant.sql
+-- [54/85] upgrade_20261014b_fix_nilai_grant.sql
 -- ============================================================
 -- ============================================================
 -- FIX: GRANT PRIVILEGE TABEL MODUL NILAI (42501 — MENU INPUT NILAI) — 2026-10-14 (b)
@@ -5481,7 +5481,7 @@ grant select, insert, update, delete on jurnal_sikap to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [55/84] upgrade_20261014c_absen_mandiri_rpc.sql
+-- [55/85] upgrade_20261014c_absen_mandiri_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RPC ABSEN MANDIRI (PERBAIKAN TIDAK TERSIMPAN) — 2026-10-14
@@ -5678,7 +5678,7 @@ grant execute on function absen_mandiri(text, text, text, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [56/84] upgrade_20261014d_absen_mandiri_integrasi.sql
+-- [56/85] upgrade_20261014d_absen_mandiri_integrasi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ABSEN MANDIRI v2 — INTEGRASI KE REKAP GURU
@@ -5953,7 +5953,7 @@ notify pgrst, 'reload schema';
 --    order by tanggal desc, nis;
 
 -- ============================================================
--- [57/84] upgrade_20261014e_wajah_multi.sql
+-- [57/85] upgrade_20261014e_wajah_multi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: WAJAH MULTI-SAMPEL (AKURASI FACE SCAN) — 2026-10-14e
@@ -6132,7 +6132,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [58/84] upgrade_20261015_edit_murid_akses_guru_wali.sql
+-- [58/85] upgrade_20261015_edit_murid_akses_guru_wali.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: IZINKAN GURU (WALI/PEMBINA) EDIT AKUN MURID — 2026-12-10
@@ -6358,7 +6358,7 @@ grant execute on function akun_guru_ampu_murid(text, text) to anon, authenticate
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [59/84] upgrade_20261016_wajah_akses_guru.sql
+-- [59/85] upgrade_20261016_wajah_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: IZINKAN GURU (WALI KELAS/PEMBINA) SIMPAN WAJAH MURID — 2026-12-11
@@ -6553,7 +6553,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [60/84] upgrade_20261017_ubah_profil_guru.sql
+-- [60/85] upgrade_20261017_ubah_profil_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: EDIT PROFIL GURU MANDIRI (Daftar Guru / Data Akun Guru) — 2026-10-17
@@ -6611,7 +6611,7 @@ grant execute on function ubah_profil_guru(text, jsonb) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [61/84] upgrade_20261018_fix_nilai_grant_lengkap.sql
+-- [61/85] upgrade_20261018_fix_nilai_grant_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- FIX LENGKAP: GRANT PRIVILEGE TABEL MODUL NILAI
@@ -6661,7 +6661,7 @@ grant select, insert, update, delete on jurnal_sikap to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [62/84] upgrade_kartu_id_card.sql
+-- [62/85] upgrade_kartu_id_card.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE KARTU ID (KARTU PELAJAR) — konfigurasi baris identitas
@@ -6686,7 +6686,7 @@ alter table master_data
   add column if not exists "Konten Belakang" text;
 
 -- ============================================================
--- [63/84] upgrade_20261018b_jurusan_lengkap.sql
+-- [63/85] upgrade_20261018b_jurusan_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- upgrade_20261018b_jurusan_lengkap.sql
@@ -6712,7 +6712,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [64/84] upgrade_20261018c_nip_kepala_sekolah.sql
+-- [64/85] upgrade_20261018c_nip_kepala_sekolah.sql
 -- ============================================================
 -- ============================================================
 -- upgrade_20261018c_nip_kepala_sekolah.sql
@@ -6733,7 +6733,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [65/84] fix_20261019_ubah_anggota_ekskul_updated_at.sql
+-- [65/85] fix_20261019_ubah_anggota_ekskul_updated_at.sql
 -- ============================================================
 -- ============================================================
 -- FIX 2026-10-19: ubah_anggota_ekskul — kolom akun.updated_at TIDAK ADA
@@ -6861,7 +6861,7 @@ grant execute on function ubah_anggota_ekskul(text, text, text[], boolean) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [66/84] upgrade_20261020_ekskul_riwayat_ta.sql
+-- [66/85] upgrade_20261020_ekskul_riwayat_ta.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RIWAYAT KEANGGOTAAN EKSTRAKURIKULER PER TAHUN PELAJARAN — 2026-10-20
@@ -7099,7 +7099,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [67/84] upgrade_20261020b_piket_tabel_multi.sql
+-- [67/85] upgrade_20261020b_piket_tabel_multi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-20(b): PIKET TABEL MULTI + MATRIK CEKLIS v2
@@ -7171,7 +7171,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [68/84] upgrade_20261021_ekskul_riwayat_semester.sql
+-- [68/85] upgrade_20261021_ekskul_riwayat_semester.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: DIMENSI SEMESTER PADA KEANGGOTAAN EKSTRAKURIKULER — 2026-10-21
@@ -7395,7 +7395,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [69/84] upgrade_20261022_edupresensi.sql
+-- [69/85] upgrade_20261022_edupresensi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: EDUPRESENSI → GEOFENCE GPS ABSEN MANDIRI — 2026-10-22
@@ -7459,7 +7459,7 @@ grant select, insert, update, delete on absensi to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [70/84] upgrade_20261023_absen_mandiri_metode.sql
+-- [70/85] upgrade_20261023_absen_mandiri_metode.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ABSEN MANDIRI — DUA METODE: KODE CAPTCHA / FACE SCAN NIS
@@ -7735,7 +7735,7 @@ notify pgrst, 'reload schema';
 --                       select absen_mandiri('NIS','Naam','Kelas','TA','Oktober','Mapel','','lat,lng',false,null,'Mapel');
 
 -- ============================================================
--- [71/84] upgrade_20261023_wajah_motor_mediapipe.sql
+-- [71/85] upgrade_20261023_wajah_motor_mediapipe.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: WAJAH DIM 128/512 (RPC simpan_wajah_murid) — 2026-10-23
@@ -7938,7 +7938,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [72/84] upgrade_20261024_absensi_gps.sql
+-- [72/85] upgrade_20261024_absensi_gps.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KOLOM GPS PADA TABEL ABSENSI
@@ -7987,7 +7987,7 @@ notify pgrst, 'reload schema';
 --    order by tanggal desc limit 20;
 
 -- ============================================================
--- [73/84] upgrade_20261025_absensi_gps_setting.sql
+-- [73/85] upgrade_20261025_absensi_gps_setting.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SETTING LOKASI GPS PER MAPEL / EKSKUL (HADIR TATAP MUKA)
@@ -8060,7 +8060,7 @@ notify pgrst, 'reload schema';
 --     from absensi_gps_setting order by kategori, nama;
 
 -- ============================================================
--- [74/84] fix_20261026_nilai_grant_authenticated.sql
+-- [74/85] fix_20261026_nilai_grant_authenticated.sql
 -- ============================================================
 -- ============================================================
 -- FIX: PULIHKAN GRANT TABEL MODUL NILAI UNTUK `authenticated` — 2026-10-26
@@ -8105,7 +8105,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [75/84] fix_20261026b_nilai_trigger_update.sql
+-- [75/85] fix_20261026b_nilai_trigger_update.sql
 -- ============================================================
 -- ============================================================
 -- FIX 2026-10-26b: UPDATE PADA TABEL `nilai` DITELAN DATABASE
@@ -8340,7 +8340,7 @@ select urutan, pemeriksaan, hasil from _laporan_fix_nilai order by urutan;
 
 
 -- ============================================================
--- [76/84] fix_20261026c_nilai_riwayat_trigger.sql
+-- [76/85] fix_20261026c_nilai_riwayat_trigger.sql
 -- ============================================================
 -- =====================================================================
 -- fix_20261026c_nilai_riwayat_trigger.sql
@@ -8442,7 +8442,7 @@ notify pgrst, 'reload schema';
 select urutan, pemeriksaan, hasil from _laporan_fix_riwayat order by urutan;
 
 -- ============================================================
--- [77/84] upgrade_20261027_role_hybrid_opsiC.sql
+-- [77/85] upgrade_20261027_role_hybrid_opsiC.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ROLE HYBRID "OPSI C" + PERAN TAMBAHAN — 2026-10-27
@@ -8699,7 +8699,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [78/84] upgrade_20261028a_sesi_lokal_murid.sql
+-- [78/85] upgrade_20261028a_sesi_lokal_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028a: SESI LOKAL MURID (TOKEN DARI SERVER) — 2026-10-28
@@ -9096,7 +9096,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [79/84] upgrade_20261028b_rpc_akun.sql
+-- [79/85] upgrade_20261028b_rpc_akun.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028b: RPC TABEL `akun` (FASE B1 — RLS `akun` MASIH OFF)
@@ -9981,7 +9981,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [80/84] upgrade_20261028b2_token_rpc_murid.sql
+-- [80/85] upgrade_20261028b2_token_rpc_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028b2: TOKEN SESI UNTUK RPC MURID YANG MENULIS `akun` — 2026-10-28
@@ -10680,7 +10680,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [81/84] upgrade_20261028c_rls_akun_ketat.sql
+-- [81/85] upgrade_20261028c_rls_akun_ketat.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028c: RLS KETAT PADA `public.akun` — 2026-10-28
@@ -10792,7 +10792,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [82/84] fix_20261028d_sesi_wajib.sql
+-- [82/85] fix_20261028d_sesi_wajib.sql
 -- ============================================================
 -- ============================================================
 -- FIX 20261028d: SESI MURID WAJIB (matikan fallback klaim NIS) — 2026-10-28
@@ -10882,7 +10882,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [83/84] fix_20261029_murid_kanal_absen.sql
+-- [83/85] fix_20261029_murid_kanal_absen.sql
 -- ============================================================
 -- ============================================================
 -- FIX 20261029: KANAL ABSEN UNTUK MURID (menu "Absen Mandiri") — 2026-10-29
@@ -11002,7 +11002,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [84/84] upgrade_20261031_akses_admin_akun_murid.sql
+-- [84/85] upgrade_20261031_akses_admin_akun_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261031: AKSES ADMIN — "Registrasi Wajah Masal" & "Simpan Data" (Akun Murid) — 2026-10-31
@@ -11350,6 +11350,135 @@ begin
     raise warning 'PERINGATAN: % baris admin/guru belum tertaut user_id (%s). Login sekali di aplikasi (RPC taut_user_id_sesi) atau jalankan: select nis_nip, tipe, user_id, email from akun where tipe = ''admin'';', v_sisa, v_daftar;
   else
     raise notice 'INFO: semua baris admin/guru sudah tertaut user_id.';
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+-- ============================================================
+-- [85/85] fix_20261031b_peta_wajah_murid.sql
+-- ============================================================
+-- ============================================================
+-- FIX 20261031b: PETA WAJAH UNTUK MURID BER-JWT — 2026-10-31
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG
+--   Absen Mandiri (metode 2) memanggil `akunPetaWajah({ nisList: [nis] })`
+--   → RPC `ambil_peta_wajah` (upgrade_20261028b) untuk membaca descriptor
+--   milik murid itu sendiri. Fungsi tersebut memakai:
+--       v_staf = fn_is_admin() or fn_is_guru()
+--       v_boleh = fn_akses_murid_list(p_token, p_nis_list, p_klaim_nis)
+--   Sejak fix_20261028d, `fn_akses_murid` HANYA menerima token `sesi_lokal`.
+--   Murid yang login lewat Supabase Auth (JWT, `fn_role() = 'murid'`) tidak
+--   punya token itu → `v_boleh` kosong → RPC membalas `[]` → panel Absen
+--   Mandiri menampilkan "Wajah belum terdaftar/aktif" padahal descriptor ADA.
+--   (RPC saudaranya `ambil_sesi_absen_murid` sudah punya jalur JWT yang sama;
+--   `ambil_peta_wajah` tertinggal.)
+--
+-- ISI
+--   1. `ambil_peta_wajah` dibuat ulang dengan 2 jalur identitas murid:
+--        a) JWT Auth ber-peran 'murid' → `fn_nis()` (NIS pemilik sesi);
+--        b) token `sesi_lokal`            → `fn_akses_murid(p_token, …)`.
+--   2. RUANG LINGKUP DIPERSEMPIT: murid hanya boleh menerima baris NIS-nya
+--      sendiri, dan `p_nis_list` kosong TIDAK lagi berarti "semua murid".
+--      Versi lama mengembalikan SEMUA descriptor sekolah saat `p_nis_list`
+--      kosong (descriptor wajah = data biometrik → tidak boleh bocor).
+--      Pemindaian massal (kelas) tetap penuh karena selalu dari sesi STAF.
+--   3. Staf (`fn_is_admin()` / `fn_is_guru()`) TIDAK berubah perilakunya.
+--
+-- CARA KERJA / ROLLBACK
+--   Rollback = jalankan ulang blok "2d. Peta descriptor wajah" pada
+--   `upgrade_20261028b_rpc_akun.sql`. Tidak ada perubahan tabel/kolom.
+--   Idempotent — aman dijalankan berulang.
+-- ============================================================
+
+create or replace function ambil_peta_wajah(
+  p_nis_list  text[] default '{}',
+  p_aktif_saja boolean default false,
+  p_token     text default '',
+  p_klaim_nis text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_staf      boolean := (fn_is_admin() or fn_is_guru());
+  v_nis_jwt   text;
+  v_nis_token text;
+  v_boleh     text[];
+  v_rows      jsonb;
+begin
+  if v_staf then
+    v_boleh := array(select a.nis_nip from akun a where a.tipe = 'murid');
+  else
+    -- (a) JWT Supabase Auth ber-peran murid. `coalesce` melindungi bila kelak
+    --     fn_role()/fn_nis() mengembalikan NULL.
+    v_nis_jwt := case
+      when coalesce(fn_role(), '') = 'murid' then nullif(trim(coalesce(fn_nis(), '')), '')
+      else null
+    end;
+    -- (b) Sesi lokal (murid password lokal). Sejak fix_20261028d token WAJIB.
+    v_nis_token := fn_akses_murid(p_token, p_klaim_nis);
+
+    -- Hanya NIS milik pemanggil — BUKAN semua NIS yang diminta.
+    v_boleh := array_remove(array[v_nis_jwt, v_nis_token], null);
+
+    -- Bila pemanggil menyebut NIS tertentu, persempit ke irisan keduanya.
+    if p_nis_list is not null and array_length(p_nis_list, 1) is not null then
+      v_boleh := array(
+        select unnest(v_boleh)
+        intersect
+        select unnest(p_nis_list)
+      );
+    end if;
+
+    -- Tanpa bukti identitas → jangan kembalikan apa pun (termasuk saat
+    -- p_nis_list kosong; dulu kondisi ini membocorkan SELURUH peta wajah).
+    if v_boleh is null or array_length(v_boleh, 1) is null then
+      return '[]'::jsonb;
+    end if;
+  end if;
+
+  select coalesce(jsonb_agg(fn_akun_json(a.id, 'peta_wajah') order by a.nis_nip), '[]'::jsonb)
+    into v_rows
+    from akun a
+   where a.tipe = 'murid'
+     and a.wajah_descriptor is not null
+     and (not p_aktif_saja or a.wajah_status = 'aktif')
+     and (v_staf or a.nis_nip = any(v_boleh));
+
+  return v_rows;
+end $$;
+
+-- Grant tetap sama dengan versi sebelumnya (dipanggil dari sesi anon/authenticated;
+-- gerbang identitas ada DI DALAM fungsi, bukan lewat grant).
+grant execute on function ambil_peta_wajah(text[], boolean, text, text) to anon, authenticated;
+
+-- ========== VERIFIKASI & RELOAD CACHE SKEMA POSTGREST ==========
+do $$
+declare
+  v_ada boolean;
+begin
+  select exists (
+    select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname = 'ambil_peta_wajah'
+       and pg_get_function_identity_arguments(p.oid) = 'text[], boolean, text, text'
+  ) into v_ada;
+
+  if not v_ada then
+    raise exception 'GAGAL: fungsi ambil_peta_wajah(text[], boolean, text, text) tidak ditemukan setelah CREATE OR REPLACE.';
+  end if;
+
+  -- Bukti cepat: pemanggil tanpa JWT & tanpa token tidak boleh menerima baris.
+  if ambil_peta_wajah('{}'::text[], true, '', '') <> '[]'::jsonb then
+    raise warning 'PERINGATAN: ambil_peta_wajah mengembalikan baris untuk pemanggil tanpa identitas. Periksa blok di atas.';
+  else
+    raise notice 'INFO: ambil_peta_wajah menolak pemanggil tanpa identitas (aman).';
   end if;
 end $$;
 

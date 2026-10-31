@@ -8,8 +8,14 @@
  *      kalibrasi per perangkat `localStorage.sbg_wajah_ambang` (0.3–0.85) dan perilaku
  *      saat localStorage diblokir / nilainya rusak.
  *   3. Deteksi vektor berdimensi motor lain (dasar pesan "mesin pengenalan lain").
+ *   4. Akurasi Absen Mandiri (`{ mandiri: true }`): fusi 3 frame
+ *      (`rataRataDescriptor`), statistik kualitas citra (`statistikKualitasCitra` /
+ *      `kualitasCitraCukup`), gerbang pose (`deteksiPoseDepan`), ambang 1:1
+ *      (`ambangMandiri`), pemilihan mesin dari dimensi descriptor, dan pemeriksaan
+ *      struktural agar jalur fusi/pose/`motorPaksa` benar-benar terpasang di loop.
  *
- * Jalankan: `npm run test:face` (atau `node scripts/uji-face.mjs`).
+ * Jalankan: `npm run test:face` (atau `node scripts/uji-face.mjs`; di sandbox
+ * tanpa Node: `deno run -A scripts/uji-face.mjs`).
  * Tidak menyentuh jaringan & tidak mengubah berkas apa pun.
  */
 import { readFileSync } from 'node:fs';
@@ -96,6 +102,8 @@ const kodeAmbang = [
   potong(/const JARAK_KENAL_MP = [\d.]+;/, 'JARAK_KENAL_MP'),
   potong(/function motorWajah\(\) \{[\s\S]*?\n  \}/, 'motorWajah'),
   potong(/function dimWajahMotor\(\) \{[\s\S]*?\n  \}/, 'dimWajahMotor'),
+  potong(/let motorPaksa = null;/, 'motorPaksa'),
+  potong(/function motorAktif\(\) \{[\s\S]*?\n  \}/, 'motorAktif'),
   potong(/function ambangCocok\(\) \{[\s\S]*?\n  \}/, 'ambangCocok'),
   'let mpDimensiWajah = 0;'
 ].join('\n');
@@ -160,5 +168,140 @@ cek('null → 0', dimVektor(null) === 0);
 cek('array kosong → 0', dimVektor([]) === 0);
 
 // ---------------------------------------------------------------------------
+// 4. Akurasi Absen Mandiri: fusi multi-frame, kualitas citra, gerbang pose,
+//    ambang 1:1, dan mesin otomatis sesuai dimensi data.
+// ---------------------------------------------------------------------------
+const kodeAkurasi = [
+  potong(/const JARAK_COCOK = [\d.]+;/, 'JARAK_COCOK (akurasi)'),
+  potong(/const DIM_WAJAH_LEGACY = [\d.]+;/, 'DIM_WAJAH_LEGACY (akurasi)'),
+  potong(/const DIM_WAJAH_MEDIAPIPE = [\d.]+;/, 'DIM_WAJAH_MEDIAPIPE (akurasi)'),
+  potong(/const JARAK_COCOK_MP = [\d.]+;/, 'JARAK_COCOK_MP (akurasi)'),
+  potong(/function motorWajah\(\) \{[\s\S]*?\n  \}/, 'motorWajah (akurasi)'),
+  potong(/let motorPaksa = null;/, 'motorPaksa'),
+  potong(/function motorAktif\(\) \{[\s\S]*?\n  \}/, 'motorAktif'),
+  'let mpDimensiWajah = 0;',
+  potong(/function dimWajahMotor\(\) \{[\s\S]*?\n  \}/, 'dimWajahMotor (akurasi)'),
+  potong(/function ambangCocok\(\) \{[\s\S]*?\n  \}/, 'ambangCocok (akurasi)'),
+  potong(/function ambangMandiri\(\) \{[\s\S]*?\n  \}/, 'ambangMandiri'),
+  potong(/const FUSI_JUMLAH = \d+;/, 'FUSI_JUMLAH'),
+  potong(/const FUSI_LAYAK_MIN = \d+;/, 'FUSI_LAYAK_MIN'),
+  potong(/const KETAJAMAN_MIN = \d+;/, 'KETAJAMAN_MIN'),
+  potong(/const CAHAYA_MIN = \d+;/, 'CAHAYA_MIN'),
+  potong(/const CAHAYA_MAKS = \d+;/, 'CAHAYA_MAKS'),
+  potong(/const YAW_MAKS = [\d.]+;/, 'YAW_MAKS'),
+  potong(/function dimensiVektorDescriptor\(d\) \{[\s\S]*?\n  \}/, 'dimensiVektorDescriptor'),
+  potong(/function rataRataDescriptor\(daftar, dim\) \{[\s\S]*?\n  \}/, 'rataRataDescriptor'),
+  potong(/function statistikKualitasCitra\(data, w, h\) \{[\s\S]*?\n  \}/, 'statistikKualitasCitra'),
+  potong(/function kualitasCitraCukup\(stat\) \{[\s\S]*?\n  \}/, 'kualitasCitraCukup'),
+  potong(/function deteksiPoseDepan\(positions, box, frameW, frameH\) \{[\s\S]*?\n  \}/, 'deteksiPoseDepan')
+].join('\n');
+
+const akurasi = new Function(
+  'localStorage',
+  kodeAkurasi + '\nreturn { motorAktif, ambangCocok, ambangMandiri, dimensiVektorDescriptor,'
+  + ' rataRataDescriptor, statistikKualitasCitra, kualitasCitraCukup, deteksiPoseDepan,'
+  + ' FUSI_JUMLAH, FUSI_LAYAK_MIN, KETAJAMAN_MIN, CAHAYA_MIN, CAHAYA_MAKS, YAW_MAKS };'
+)(localStoragePalsu);
+
+// --- 4a. Fusi descriptor ---
+const fusi = akurasi.rataRataDescriptor([[1, 2], [3, 4]], 2);
+cek('fusi 2 vektor = rata-rata per-elemen', fusi.length === 2 && dekat(fusi[0], 2) && dekat(fusi[1], 3), fusi);
+cek('fusi mengabaikan vektor dimensi salah', akurasi.rataRataDescriptor([[1, 2], [1, 2, 3]], 2).length === 2);
+cek('fusi null bila tidak ada vektor sah', akurasi.rataRataDescriptor([[1]], 2) === null);
+cek('fusi daftar kosong → null', akurasi.rataRataDescriptor([], 2) === null);
+cek('fusi bukan array → null', akurasi.rataRataDescriptor(null, 2) === null);
+
+const v512 = new Array(512).fill(0); v512[0] = 3; v512[1] = 4; // L2 = 5
+const fusi512 = akurasi.rataRataDescriptor([v512, v512, v512], 512);
+cek('fusi 512 dinormalisasi L2 (3,4 → 0.6,0.8)',
+  Math.abs(fusi512[0] - 0.6) < 1e-6 && Math.abs(fusi512[1] - 0.8) < 1e-6,
+  fusi512.slice(0, 2).join(','));
+cek('FUSI_JUMLAH = 3 frame & konsensus minimal 2', akurasi.FUSI_JUMLAH === 3 && akurasi.FUSI_LAYAK_MIN === 2);
+
+// --- 4b. Statistik kualitas citra (RGBA) ---
+function rgba(w, h, isi) {
+  const d = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = isi(x, y);
+      const i = (y * w + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
+    }
+  }
+  return d;
+}
+const rata = akurasi.statistikKualitasCitra(rgba(16, 16, () => 128), 16, 16);
+cek('citra rata: cahaya = 128', dekat(rata.cahaya, 128), rata.cahaya);
+cek('citra rata: ketajaman = 0 (blur)', dekat(rata.ketajaman, 0), rata.ketajaman);
+cek('citra rata ditolak gerbang kualitas', akurasi.kualitasCitraCukup(rata) === false);
+
+const tajam = akurasi.statistikKualitasCitra(rgba(16, 16, (x, y) => ((x + y) % 2 ? 235 : 20)), 16, 16);
+cek('citra bergaris: ketajaman tinggi', tajam.ketajaman > akurasi.KETAJAMAN_MIN, tajam.ketajaman);
+cek('citra bergaris diterima gerbang', akurasi.kualitasCitraCukup(tajam) === true);
+
+const gelap = akurasi.statistikKualitasCitra(rgba(16, 16, (x, y) => ((x + y) % 2 ? 20 : 0)), 16, 16);
+cek('citra gelap ditolak (cahaya < min)', akurasi.kualitasCitraCukup(gelap) === false, gelap.cahaya);
+const silau = akurasi.statistikKualitasCitra(rgba(16, 16, (x, y) => ((x + y) % 2 ? 255 : 240)), 16, 16);
+cek('citra silau ditolak (cahaya > maks)', akurasi.kualitasCitraCukup(silau) === false, silau.cahaya);
+cek('statistik data pendek ditolak', akurasi.statistikKualitasCitra(new Uint8Array(10), 16, 16) === null);
+cek('statistik null aman', akurasi.statistikKualitasCitra(null, 16, 16) === null);
+
+// --- 4c. Gerbang pose (yaw + ukuran + tepi) ---
+function landmark478(noseX, opt) {
+  const o = opt || {};
+  const p = Array.from({ length: 478 }, () => ({ x: 0, y: 0 }));
+  p[33] = { x: 200, y: 100 };  // sudut mata kiri
+  p[263] = { x: 400, y: 100 }; // sudut mata kanan (span 200)
+  p[1] = { x: noseX, y: 160 }; // ujung hidung
+  p[36] = { x: 200, y: 100 }; p[45] = { x: 400, y: 100 }; p[30] = { x: noseX, y: 160 };
+  if (o.sempit) { p[33].x = 300; p[263].x = 300; }
+  return p;
+}
+const boxWajah = { x: 150, y: 60, width: 300, height: 240 };
+const depan = akurasi.deteksiPoseDepan(landmark478(300), boxWajah, 640, 480);
+cek('pose frontal diterima', depan && depan.depan === true, depan && depan.yaw);
+cek('pose yaw 0,4 masih diterima (≤ YAW_MAKS)', akurasi.deteksiPoseDepan(landmark478(340), boxWajah, 640, 480).depan === true);
+const menoleh = akurasi.deteksiPoseDepan(landmark478(380), boxWajah, 640, 480);
+cek('pose menoleh ditolak (yaw > YAW_MAKS)', menoleh.depan === false && menoleh.yaw > akurasi.YAW_MAKS, menoleh.yaw);
+cek('wajah kecil ditolak', akurasi.deteksiPoseDepan(landmark478(300), { x: 150, y: 60, width: 100, height: 80 }, 640, 480).depan === false);
+cek('wajah terpotong tepi ditolak', akurasi.deteksiPoseDepan(landmark478(300), { x: 0, y: 0, width: 300, height: 240 }, 640, 480).terpotong === true);
+cek('landmark kurang dari 68 → null', akurasi.deteksiPoseDepan([{ x: 0, y: 0 }], boxWajah, 640, 480) === null);
+cek('span mata nol → null', akurasi.deteksiPoseDepan(landmark478(300, { sempit: true }), boxWajah, 640, 480) === null);
+cek('pose tetap memakai 68 titik face-api',
+  akurasi.deteksiPoseDepan(landmark478(300).slice(0, 68), boxWajah, 640, 480).depan === true);
+
+// --- 4d. Ambang 1:1 (lebih ketat dari ambang kelas) ---
+simpan.clear();
+cek('ambang mandiri face-api 0.50 → 0.47', dekat(akurasi.ambangMandiri(), 0.47), akurasi.ambangMandiri());
+simpan.set('sbg_wajah_motor', 'mediapipe');
+cek('ambang mandiri mediapipe 0.80 → 0.77', dekat(akurasi.ambangMandiri(), 0.77), akurasi.ambangMandiri());
+simpan.set('sbg_wajah_ambang', '0.85');
+cek('kalibrasi 0.85 → mandiri 0.82', dekat(akurasi.ambangMandiri(), 0.82), akurasi.ambangMandiri());
+simpan.set('sbg_wajah_ambang', '0.30');
+cek('kalibrasi minimum 0.30 tetap 0.30 (tidak negatif)', dekat(akurasi.ambangMandiri(), 0.30), akurasi.ambangMandiri());
+simpan.clear();
+
+// --- 4e. Mesin otomatis sesuai dimensi descriptor ---
+cek('dimensi flat 128 → 128', akurasi.dimensiVektorDescriptor(new Array(128).fill(0)) === 128);
+cek('dimensi multi-sampel 512 → 512', akurasi.dimensiVektorDescriptor([new Array(512).fill(0), new Array(512).fill(0)]) === 512);
+cek('dimensi string/JSON → 0', akurasi.dimensiVektorDescriptor('{"0":1}') === 0);
+cek('dimensi null → 0', akurasi.dimensiVektorDescriptor(null) === 0);
+cek('motor efektif = setelan perangkat tanpa paksaan', akurasi.motorAktif() === 'faceapi');
+
+// --- 4f. Pemeriksaan struktural: jalur mandiri benar-benar terpasang ---
+cek('loop pindai mandiri mengaktifkan gerbang+fusi', /await loopDeteksiPindai\(\{[\s\S]{0,600}?mandiri: true/.test(SUMBER));
+cek('gerbang pose dipakai saat o.mandiri', /if \(o\.mandiri\) \{[\s\S]{0,500}?deteksiPoseDepan\(/.test(SUMBER));
+cek('gerbang kualitas dipakai saat o.mandiri', /if \(o\.mandiri\) \{[\s\S]{0,900}?kualitasCitraCukup\(stat\)/.test(SUMBER));
+cek('fusi descriptor dipakai saat o.mandiri', /if \(o\.mandiri\) \{[\s\S]{0,300}?bufferFusi\.push/.test(SUMBER));
+cek('ambang loop mandiri = ambangMandiri()', /const cocokDi = o\.mandiri \? ambangMandiri\(\) : ambangCocok\(\);/.test(SUMBER));
+cek('matcher mandiri memakai ambang 1:1', /buatMatcherDariPeta\(\{ \[nisS\]: \{ descriptor: daftarSampel \} \}, ambangMandiri\(\)\)/.test(SUMBER));
+cek('mesin dipaksa otomatis sesuai dimensi data', /motorPaksa = \(dimV === DIM_WAJAH_MEDIAPIPE\) \? 'mediapipe' : 'faceapi';/.test(SUMBER));
+cek('mesin dipulihkan di finally', /finally \{[\s\S]{0,200}?motorPaksa = null;/.test(SUMBER));
+cek('pesan "mesin pengenalan lain" Absen Mandiri diganti diagnosis',
+  !/terdaftar dengan <b>mesin pengenalan lain<\/b> \(\$\{dimV\}/.test(SUMBER));
+
+// ---------------------------------------------------------------------------
 console.log(lulus + ' lulus, ' + gagal + ' gagal.');
 if (gagal) process.exitCode = 1;
+
+

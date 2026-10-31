@@ -534,14 +534,33 @@ async function akunSatu(opsi = {}) {
   return null;
 }
 
-/** Peta descriptor wajah murid (kolom wajah_descriptor/wajah_status). */
+/** Peta descriptor wajah murid (kolom wajah_descriptor/wajah_status).
+ *  Kembalian = ARRAY baris (`.length`/`.map` aman), DITAMBAH properti diagnosis
+ *  `.sebab` ('ok' | 'kosong' | 'sesi' | 'rpc-tidak-ada' | 'gagal') + `.pesan`,
+ *  supaya pemanggil bisa membedakan "belum terdaftar" dari "RPC/server belum
+ *  diperbarui" atau "sesi login kedaluwarsa" tanpa menebak. Properti ditempel
+ *  pada array agar build lama yang memakai array biasa tetap kompatibel. */
 async function akunPetaWajah(opsi = {}) {
   const { data, error } = await supaRpc('ambil_peta_wajah', Object.assign({
     p_nis_list: Array.isArray(opsi.nisList) ? opsi.nisList : [],
     p_aktif_saja: !!opsi.aktifSaja
   }, sesiRpc()));
-  if (error) { console.warn('akunPetaWajah:', error.message); return []; }
-  return Array.isArray(data) ? data : [];
+  const hasil = (!error && Array.isArray(data)) ? data : [];
+  hasil.pesan = error ? String((error && error.message) || error) : '';
+  if (error) {
+    console.warn('akunPetaWajah:', hasil.pesan);
+    hasil.sebab = /PGRST202|PGRST404|Could not find the function/i.test(hasil.pesan)
+      ? 'rpc-tidak-ada' : 'gagal';
+    return hasil;
+  }
+  if (hasil.length > 0) { hasil.sebab = 'ok'; return hasil; }
+  // Kosong: bedakan "murid belum mendaftarkan wajah" dari "identitas sesi tidak
+  // sah" (token gaya lama `lokal-…` / kosong tidak dikenali `fn_akses_murid`).
+  const sesi = (typeof getCurrentUser === 'function' ? getCurrentUser() : null) || {};
+  const tok = String((typeof getToken === 'function' ? getToken() : '') || '');
+  const tokenBasi = !tok || tok.indexOf('lokal-') === 0;
+  hasil.sebab = (String(sesi.role || '') === 'murid' && tokenBasi) ? 'sesi' : 'kosong';
+  return hasil;
 }
 
 /** Cari akun dari NIS/NIP atau email: { id, tipe, nis_nip, user_id, email, … }. */

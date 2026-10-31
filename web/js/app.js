@@ -1435,6 +1435,25 @@ function berhentiPindaiWajahMandiri() {
   return aktif;
 }
 
+/** Hapus pratinjau kamera Absen Mandiri (dipakai saat verifikasi wajah ditolak
+ *  server/geofence) supaya tidak ada frame kamera "beku" yang tertinggal di form. */
+function bersihkanPreviewWajahMandiri() {
+  const wrap = document.getElementById('wajah-mandiri-wrap');
+  if (wrap) { wrap.classList.add('hidden'); wrap.innerHTML = ''; }
+}
+
+/** Reset hasil verifikasi wajah (metode 2). Dipanggil saat murid beralih ke metode
+ *  captcha / mengganti mapel: `wajahMandiriCocok` dari scan lama tidak boleh ikut
+ *  terkirim pada absensi metode 1 (dan kamera yang masih hidup harus dihentikan). */
+function resetVerifikasiWajahMandiri() {
+  wajahMandiriCocok = false;
+  berhentiPindaiWajahMandiri();
+  const st = document.getElementById('wajah-mandiri-status');
+  if (st) { st.innerHTML = ''; st.className = 'text-[10px] text-slate-500 flex-1'; }
+  const btn = document.getElementById('btn-pindai-wajah-mandiri');
+  if (btn) btn.innerHTML = '<i class="fa-solid fa-face-smile mr-1"></i> Pindai Wajah Saya';
+}
+
 /** Ganti metode absen mandiri murid via selector Metode 1/Metode 2.
  *  - 'captcha': blok kode captcha + tombol "Saya Hadir Hari Ini" aktif.
  *  - 'wajah'  : blok face scan (Pindai Wajah Saya) aktif — captcha tidak perlu.
@@ -1543,7 +1562,12 @@ async function jalankanAbsenMandiri(o) {
   const captcha = String(((o && typeof o.captcha === 'string') ? o.captcha : ((document.getElementById('murid-captcha') || {}).value || ''))).trim();
   const gpsLokasi = (o && o.gps) || '';
   const sumber = (o && o.sumber) || 'manual';
-  const wajahCocokMandiri = (o && o.wajahCocok) || wajahMandiriCocok;
+  // Verifikasi wajah hanya relevan untuk metode 2. Pada metode 1 (captcha) nilai
+  // scan lama TIDAK boleh terkirim — dulu hasil scan bisa "menempel" ke absensi
+  // captcha berikutnya (status wajah_cocok palsu di server).
+  const wajahCocokMandiri = (sumber === 'wajah')
+    ? ((o && o.wajahCocok === true) || wajahMandiriCocok)
+    : false;
   if(!captcha) {
     if (sumber === 'wajah') {
       // Metode 2: captcha kosong → wajah HARUS sudah cocok (kalau tidak, tidak hadir).
@@ -1567,6 +1591,7 @@ async function jalankanAbsenMandiri(o) {
     if (sumber === 'wajah') {
       const stW = document.getElementById('wajah-mandiri-status');
       if (stW) stW.innerHTML = '<span class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark mr-1"></i>' + escapeHtml(pesanLoc) + '</span>';
+      bersihkanPreviewWajahMandiri();
       return { status: 'error', message: pesanLoc };
     }
     Swal.fire({ icon: 'error', title: 'Lokasi Diblokir', text: pesanLoc, background: '#1e293b', color: '#fff' });
@@ -1601,6 +1626,8 @@ async function jalankanAbsenMandiri(o) {
     } else if (sumber === 'wajah') {
       const stW = document.getElementById('wajah-mandiri-status');
       if (stW) stW.innerHTML = '<span class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark mr-1"></i>' + escapeHtml(res.message || 'Absen ditolak.') + '</span>';
+      // Frame kamera tidak boleh tertinggal setelah penolakan (status terkunci).
+      bersihkanPreviewWajahMandiri();
       return res;
     } else Swal.fire({ icon: 'error', title: 'Ditolak', text: res.message || 'Absen ditolak.', background: '#1e293b', color: '#fff' });
     return res;
@@ -2228,7 +2255,7 @@ async function renderAbsenMandiriMurid(container) {
         ${catatanJamHTML}
         <div>
           <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Mapel / Ekstrakurikuler <span class="text-red-400">*</span></label>
-          <select id="murid-mapel" onchange="berhentiPindaiWajahMandiri()" class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+          <select id="murid-mapel" onchange="resetVerifikasiWajahMandiri()" class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
             ${opsiAktif.length === 0 ? `<option value="">${escapeHtml(placeholderOpsi)}</option>` : opsiAktif.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
           </select>
         </div>
@@ -2249,7 +2276,7 @@ async function renderAbsenMandiriMurid(container) {
           <div>
             <label class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Kode Captcha dari Guru <span class="text-red-400">*</span></label>
             <input type="text" id="murid-captcha" placeholder="Ketik kode dari guru pengampu" autocomplete="off"
-              onfocus="berhentiPindaiWajahMandiri()" oninput="if(this.value.trim()) berhentiPindaiWajahMandiri();"
+              onfocus="resetVerifikasiWajahMandiri()" oninput="resetVerifikasiWajahMandiri()"
               class="w-full mt-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white uppercase tracking-widest font-mono">
           </div>
           <button id="btn-absen-mandiri" onclick="submitAbsenMandiri()" ${opsiAktif.length === 0 ? 'disabled' : ''}
@@ -2282,6 +2309,11 @@ async function renderAbsenMandiriMurid(container) {
       ${sesiHTML}
       ${formHTML}
     </div>`;
+
+  // Terapkan metode aktif (default 'captcha'). Dulu blok metode hanya diatur saat
+  // tombol diklik → setelah render ulang (refresh/daftar sesi berubah) blok yang
+  // tampil bisa tidak sesuai `metodaAbsenMandiri` dan tombol face scan tak tampil.
+  gantiMetodaAbsen(metodaAbsenMandiri);
 }
 
 /** Helper: "Senin, 07.00-07.40" → "07.00-07.40". */

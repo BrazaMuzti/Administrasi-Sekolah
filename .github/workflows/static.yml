@@ -40,9 +40,9 @@ jobs:
       - name: Build Tailwind CSS
         run: npm ci && npm run build:css
       # Penjaga konsistensi repo (murni Node, cepat, tanpa kredensial):
-      #  - check:sql      → supabase/sql/gabungan.sql wajib sinkron dg 84 migrasi
+      #  - check:sql      → supabase/sql/gabungan.sql wajib sinkron dg 85 migrasi
       #  - test:rpc-args  → argumen RPC di web/js wajib cocok dg signature SQL (cegah PGRST202)
-      #  - test:face      → geometri overlay landmark + ambang cocok face.js (README §7b)
+      #  - test:face      → geometri overlay landmark, ambang, akurasi Absen Mandiri (README §7b/§7c)
       - name: Validasi repo (gabungan.sql + argumen RPC + face.js)
         run: |
           npm run check:sql
