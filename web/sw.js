@@ -11,7 +11,7 @@
  * (beda origin) dilewatkan langsung ke jaringan (data selalu real-time).
  * ========================================================================== */
 
-const VERSION = 'v9'; // ← WAJIB dinaikkan setiap index.html berubah (lihat PRECACHE)
+const VERSION = 'v10'; // ← WAJIB dinaikkan setiap index.html berubah (lihat PRECACHE)
 const STATIC_CACHE = `sisip-static-${VERSION}`;
 const RUNTIME_CACHE = `sisip-runtime-${VERSION}`;
 
@@ -33,11 +33,14 @@ const PRECACHE = [
   'css/style.css?v=20261031d',
   'js/utils.js?v=20261031d',
   'js/app.js?v=20261031d',
-  'js/face.js?v=20261031d',
+  'js/face.js?v=20261102a',
   'js/install.js?v=20261031d',
   'vendor/face-api.min.js?v=20261014a',
   'vendor/mediapipe/vision_bundle.js?v=20261020c',
   'vendor/onnx/ort.min.js?v=20261020c',
+  // Model deteksi YuNet motor 'onnx' (±0,23 MB — kecil, aman di-precache; lihat
+  // CACHE_MODEL_KECIL agar tidak tertelan SKIP_PREFIX models/).
+  'models/face_detection_yunet_2023mar.onnx',
   'assets/logo.svg',
   'assets/icon-192.png',
   'assets/icon-512.png',
@@ -48,6 +51,14 @@ const PRECACHE = [
 
 /* Folder yang TIDAK di-cache (model wajah besar) — ambil dari jaringan saja. */
 const SKIP_PREFIX = [abs('models/')];
+
+/* PENGECUALIAN: model KECIL yang boleh di-cache (diperiksa SEBELUM SKIP_PREFIX).
+ * Motor 'onnx' memakai detektor YuNet ±0,23 MB agar pindai wajah tetap cepat
+ * (dan tetap bekerja offline) — berbeda dengan model besar di folder yang sama
+ * (face_recognition 6,4 MB, mobilefacenet 4,8 MB) yang sengaja selalu dari jaringan. */
+const CACHE_MODEL_KECIL = [abs('models/face_detection_yunet_2023mar.onnx')];
+const bolehDiCache = (href) =>
+  CACHE_MODEL_KECIL.some((p) => href.startsWith(p)) || !SKIP_PREFIX.some((p) => href.startsWith(p));
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -83,7 +94,7 @@ self.addEventListener('fetch', (event) => {
 
   // Beda origin (Supabase, Font Awesome, jsdelivr, unpkg) → lewat ke jaringan.
   if (url.origin !== self.location.origin) return;
-  if (SKIP_PREFIX.some((p) => url.href.startsWith(p))) return;
+  if (!bolehDiCache(url.href)) return;
 
   // ── Navigasi (buka/ganti halaman) → network-first, fallback cache → offline.
   if (req.mode === 'navigate') {

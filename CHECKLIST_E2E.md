@@ -204,6 +204,30 @@ Prasyarat: migrasi `upgrade_20261023_wajah_motor_mediapipe.sql` sudah dijalankan
 - [ ] **iOS Safari / perangkat tanpa WASM-SIMD** (bila ada di sekolah): `vision_wasm_nosimd_internal.*` tidak tersedia → pesan galat MediaPipe yang jelas di modal (tidak menggantung/modal diam); fallback: `sbg_wajah_motor='faceapi'` atau vendor-kan pasangan `_nosimd` (README §7a).
 - [ ] **Ambang**: dua selfie murid yang sama (cahaya berbeda) → cocok; murid bercermin matahari/masker → "tidak dikenal" (tidak ada kehadiran palsu). Bila ragu, sesuaikan `JARAK_COCOK_MP`/`JARAK_KENAL_MP` di `face.js` (wilayah 0a).
 
+### S14h2 — Motor wajah `onnx` (YuNet + align 5 titik) — build `20261102a`
+Prasyarat: `web/models/face_detection_yunet_2023mar.onnx` (0,23 MB) + `web/models/mobilefacenet.onnx`
+tersedia; service worker `v10` aktif (SW baru juga mem-precache model YuNet). **Tidak ada**
+migrasi SQL yang diperlukan.
+- [ ] **Aktivasi**: konsol `localStorage.setItem('sbg_wajah_motor','onnx')` → hard refresh →
+  tab Network menampilkan `face_detection_yunet_2023mar.onnx`, `mobilefacenet.onnx`,
+  `ort-wasm-simd-threaded.{mjs,wasm}` (200); konsol **tanpa** galat
+  `OrtRun … invalid dimensions … Expected: 640` (galat itu = tensor input tidak 640×640).
+- [ ] **Registrasi ulang**: modal wajah satu murid → **Simpan Data Wajah** (mode `ganti`) →
+  di SQL `wajah_descriptor` berisi array **512** angka; RPC menerima tanpa galat.
+- [ ] **Overlay**: saat kamera menyala, kotak deteksi + **rangka 5 titik** (mata–hidung–mulut)
+  menempel tepat di wajah pada zoom 1×/2× dan setelah ganti kamera depan/belakang.
+- [ ] **Face Scan kelas (wajah kecil/berdesakan)**: uji dari baris belakang kelas → minimal satu
+  siswa jauh terdeteksi; bandingkan dengan motor `faceapi` pada frame yang sama bila perlu.
+- [ ] **Absen Mandiri**: wajah sendiri → hadir tercatat tanpa captcha; **menoleh/menunduk**
+  ditolak dengan pesan "Hadapkan wajah LURUS…" (gerbang pose 5 titik bekerja).
+- [ ] **Ambigu ditolak**: dua murid yang wajahnya sangat mirip → dilaporkan "tidak dikenal"
+  (gerbang margin top-2), bukan menebak salah satu.
+- [ ] **Perbaikan crop mediapipe (`drawImage`)**: dengan motor `mediapipe`, daftarkan ulang satu
+  murid → verifikasi wajah sendiri **cocok** (sebelum perbaikan, deskriptor dihitung dari citra
+  kosong sehingga hasilnya acak). Ulangi di motor `onnx` untuk memastikan keduanya sehat.
+- [ ] **Kembali ke baku**: `localStorage.setItem('sbg_wajah_motor','faceapi')` → refresh → motor
+  face-api normal; data 128 lama tetap cocok (S14 tetap hijau).
+
 ### S14i — Jadwal Piket v3: kartu per hari + popup pemilih + filter (Req B)
 Prasyarat: migrasi `upgrade_20261020b_piket_tabel_multi.sql` sudah dijalankan di SQL Editor.
 - [ ] Login **admin/guru pembina** → Ekstrakurikuler → Jurnal & Program Kerja → **Jadwal Piket** → tombol **Buka Jadwal** (tirai kunci) → tampil **kartu per hari** mulai dari HARI INI (badge "Hari ini"/"Berikutnya"), bukan lagi tabel matrik.

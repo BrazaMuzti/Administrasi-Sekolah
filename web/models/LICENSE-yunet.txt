@@ -1,0 +1,21 @@
+face_detection_yunet_2023mar.onnx — YuNet (face detection, 5-titik) untuk SISIP
+=============================================================================
+Asal   : https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+Berkas : face_detection_yunet_2023mar.onnx (232.589 byte)
+SHA256 : 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+Ukuran : 0,23 MB — cukup kecil untuk di-precache service worker (lihat web/sw.js
+         CACHE_MODEL_KECIL), berbeda dengan model besar di folder ini.
+Wajib  : input tensor bernama "input" berbentuk [1, 3, 640, 640] (dimensi TETAP),
+         nilai float32 0..255 urutan kanal BGR (setara `cv::dnn::blobFromImage`
+         tanpa swapRB). Keluaran 12 tensor: cls_{8,16,32}, obj_{8,16,32},
+         bbox_{8,16,32}, kps_{8,16,32}; rumus dekode mengikuti
+         `modules/objdetect/src/face_detect.cpp` (lihat web/js/face.js bagian 4c).
+Dipakai oleh: motor wajah 'onnx' di web/js/face.js (YuNet + MobileFaceNet).
+
+Lisensi (MIT) — proyek opencv_zoo menyatakan seluruh berkas di direktori
+`models/face_detection_yunet/` berlisensi MIT:
+  https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE
+
+Model asli: https://github.com/ShiqiYu/libfacedetection.train
+Sitasi    : Wu, W., Peng, H., Yu, S. "YuNet: A Tiny Millisecond-level Face Detector",
+            Machine Intelligence Research 20(5), 656–665 (2023).

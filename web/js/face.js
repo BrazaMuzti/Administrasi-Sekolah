@@ -1,10 +1,13 @@
 /* =====================================================================
- * face.js — Pengenalan Wajah SISIP (DUA MOTOR)
+ * face.js — Pengenalan Wajah SISIP (TIGA MOTOR)
  * ---------------------------------------------------------------------
  * Motor wajah dipilih per-browser (localStorage `sbg_wajah_motor`):
  *   'faceapi'   → vladmandic/face-api (TFJS, descriptor 128) — BAKU.
  *   'mediapipe' → MediaPipe Face Landmarker (wasm lokal) + MobileFaceNet
  *                 via ONNX Runtime Web (descriptor 512, models/mobilefacenet.onnx).
+ *   'onnx'      → YuNet ONNX (deteksi + 5 titik, models/face_detection_yunet_2023mar.onnx)
+ *                 + MobileFaceNet yang SAMA, crop 112×112 DISEJAJARKAN (align 5 titik
+ *                 ala ArcFace) → descriptor 512; pencocokan KOSINUS + margin top-2.
  * Semua motor menyediakan antarmuka yang identik: satu objek `FaceWajah`
  * (pindai, registrasi, status) — pilihan mesin tetap di dalam berkas ini.
  * Library & model dimuat dari folder lokal (vendor/ + models/),
@@ -55,7 +58,7 @@
   const SKOR_MIN_PINDAI = 0.45;
 
   // ------------------------------------------------------------------
-  // 0a. MOTOR WAJAH: DUA ENGINE (face-api baku ATAU MediaPipe + MobileFaceNet)
+  // 0a. MOTOR WAJAH: TIGA ENGINE (face-api baku, MediaPipe, YuNet+MobileFaceNet)
   // ------------------------------------------------------------------
   // Motor dihilihan per-browser via localStorage `sbg_wajah_motor`:
   //   'faceapi'   (BAKU) → vladmandic/face-api + TFJS (models/ face-api) —
@@ -64,9 +67,14 @@
   //                 vendor/mediapipe/) + MobileFaceNet via ONNX Runtime Web
   //                 (descriptor 512, vendor/onnx/ + models/mobilefacenet.onnx).
   //                 SEMUA diproses lokal — gambar tidak dikirim (privasi).
-  //                 Feature space MobileFaceNet != facenet → data wajah LAMA
-  //                 (128) tetap disimpan maar TIDAK cocok: murid perlu
-  //                 didaftaran ULANG (mode ganti) na pemilihan motor.
+  //   'onnx'      → YuNet (deteksi + 5 titik, models/face_detection_yunet_2023mar.onnx)
+  //                 + MobileFaceNet yang SAMA dengan mediapipe, TETAPI crop
+  //                 112×112 di-align dari 5 titik (mata–hidung–mulut) seperti
+  //                 ArcFace → vektor 512 yang lebih stabil terhadap rotasi/geser
+  //                 wajah; pencocokan KOSINUS + margin top-2 (bukan L2 mentah).
+  //                 Ruang vektor onnx ≠ ruang vektor mediapipe (kebijakan crop
+  //                 berbeda) meski keduanya 512-angka → data 512 yang lama harus
+  //                 DIDAftar ULANG bila mesin berganti di antara keduanya.
   // Test koneksi: supabase Dashboard → SQL Editor — jalankan migrasi
   // upgrade_20261023_wajah_motor_mediapipe.sql (RPC menerima 128/512).
   const DIM_WAJAH_LEGACY = 128;     // vektor face-api (schema RPC asal)
@@ -74,9 +82,43 @@
   const JARAK_COCOK_MP = 0.80;      // ambang "Hadir" motor mediapipe (jarak L2, deskriptor dinormalisasi)
   const JARAK_KENAL_MP = 0.95;      // ambang matcher motor mediapipe (di luar ini = tak dikenal)
 
+  // --- Motor ONNX (YuNet + MobileFaceNet) -----------------------------------
+  // Deteksi YuNet 2023mar jauh lebih kuat dari TinyFaceDetector pada wajah kecil
+  // berdesakan (baris belakang kelas) DAN memberi 5 titik kunci mata–hidung–mulut
+  // yang dipakai untuk MENYEJAJARKAN (align) crop 112×112 sebelum MobileFaceNet.
+  // Tanpa align, crop hasil kotak deteksi saja membuat vektor menyimpang
+  // (geometri roll/geser tidak terkoreksi) → jarak ke data registrasi membengkak.
+  // Ambang di bawah memakai KEMIRIPAN KOSINUS (jarak = 1 − cosine) karena vektor
+  // MobileFaceNet sudah L2-normal dan model dilatih dengan loss kosinus.
+  const JARAK_COCOK_ONNX = 0.55;    // 1 − 0,45 → ambang "Hadir" motor onnx
+  const JARAK_KENAL_ONNX = 0.70;    // 1 − 0,30 → di luar ini "tak dikenal"
+  const MARGIN_TOP2 = 0.06;         // selisih kemiripan label terbaik vs kedua → di bawah ini ambigu (ditolak)
+  // Geometri model. Ukuran input YuNet 2023mar adalah 640×640 (TETAP — dijadikan
+  // rencana verifikasi langsung dengan onnxruntime-web: dimensi tensor "input"
+  // 1×3×640×640; memberi ukuran lain dibalas OrtRun ERROR_CODE 2).
+  const YUNET_UKURAN = 640;
+  const YUNET_AMBANG_SKOR = 0.60;   // ambang skor YuNet (√(cls·obj)) utk kandidat wajah
+  const YUNET_NMS_IOU = 0.35;       // ambang IoU pada NMS wajah
+  // Skala frame terhadap kanvas 640×640. Dua langkah: (1) penuh, (2) separuh.
+  // Langkah (2) memulihkan wajah SANGAT dekat (selfie memenuhi frame) yang
+  // melewati rentang latih YuNet (±10–300 px pd ruang input) → tanpa langkah ini
+  // wajah close-up bisa tak terdeteksi.
+  const YUNET_SKALA_KANDIDAT = [1, 0.5];
+  // Template 5 titik ArcFace/insightface pada kanvas 112×112 (x = kolom citra,
+  // y = baris). Urutan: mata sisi KIRI citra, mata sisi KANAN citra, ujung hidung,
+  // sudut mulut KIRI citra, sudut mulut KANAN citra. Pemetaan dari keluaran YuNet
+  // dilakukan dengan MENGURUTKAN titik mata/mulut menurut x, sehingga tidak
+  // bergantung pada konvensi "kiri/kanan penulis model".
+  const TEMPLATE_112 = [
+    [38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+    [41.5493, 92.3655], [70.7299, 92.2041]
+  ];
+
   function motorWajah() {
     try {
-      return localStorage.getItem('sbg_wajah_motor') === 'mediapipe' ? 'mediapipe' : 'faceapi';
+      const m = localStorage.getItem('sbg_wajah_motor');
+      if (m === 'onnx') return 'onnx';
+      return m === 'mediapipe' ? 'mediapipe' : 'faceapi';
     } catch (e) { return 'faceapi'; }
   }
 
@@ -88,7 +130,7 @@
   // mengembalikan `motorPaksa = null`.
   let motorPaksa = null;
   function motorAktif() {
-    if (motorPaksa === 'faceapi' || motorPaksa === 'mediapipe') return motorPaksa;
+    if (motorPaksa === 'faceapi' || motorPaksa === 'mediapipe' || motorPaksa === 'onnx') return motorPaksa;
     return motorWajah();
   }
 
@@ -100,9 +142,25 @@
   let mpModelsPromise = null;       // promise muat landmarker
   let mpOrtPromise = null;          // promise muat ONNX session
 
+  // State muat motor onnx (YuNet + MobileFaceNet). Sesi embedder MobileFaceNet
+  // SENGAJA DIBAGI dengan motor mediapipe (mpOrtSession): model & dimensi sama.
+  let yuSession = null;             // ort.InferenceSession (YuNet) — deteksi + 5 titik
+  let yuModelsSiap = false;
+  let yuPromise = null;
+  let yuNamaMasuk = 'input';        // nama tensor input YuNet (dibaca dari model)
+
   function dimWajahMotor() {
-    if (motorAktif() === 'mediapipe') return mpDimensiWajah || DIM_WAJAH_MEDIAPIPE;
+    if (motorAktif() === 'mediapipe' || motorAktif() === 'onnx') return mpDimensiWajah || DIM_WAJAH_MEDIAPIPE;
     return DIM_WAJAH_LEGACY;
+  }
+
+  /** Nama ringkas sebuah mesin untuk pesan UI (mis. peringatan "mesin pengenalan
+   *  lain" di Face Scan kelas). Dipusatkan agar teks tidak lagi menebak mesin
+   *  lawan lewat satu ternary biner saat mesinnya ada tiga. */
+  function namaMesinWajah(m) {
+    if (m === 'onnx') return 'onnx 512-angka (YuNet)';
+    if (m === 'mediapipe') return 'mediapipe 512-angka';
+    return 'face-api 128-angka';
   }
 
   let modelsLoaded = false;
@@ -163,6 +221,12 @@
   // ------------------------------------------------------------------
   /** Pastikan library motor wajah sudah tersedia (throw bila belum dimuat). */
   function wajahApiAda() {
+    if (motorAktif() === 'onnx') {
+      if (typeof window.ort === 'undefined') {
+        throw new Error('Library pengenalan wajah (ONNX Runtime Web) belum dimuat. Periksa file vendor/onnx/ort.min.js.');
+      }
+      return window.ort;
+    }
     if (motorAktif() === 'mediapipe') {
       if (typeof window.vision === 'undefined' || typeof window.ort === 'undefined') {
         throw new Error('Library pengenalan wajah (MediaPipe vision_bundle.js / ONNX Runtime Web) belum dimuat. Periksa file vendor/mediapipe/ + vendor/onnx/.');
@@ -195,6 +259,7 @@
   }
 
   async function pastikanModels() {
+    if (motorAktif() === 'onnx') return pastikanModelsOnnx();
     if (motorAktif() === 'mediapipe') return pastikanModelsMediapipe();
     if (modelsFaceApiSiap) return true;
     wajahApiAda();
@@ -232,6 +297,7 @@
    * Tidak mengubah modelsLoaded (jalur lengkap tetap dimuat saat absensi).
    */
   function pastikanModelsRingan() {
+    if (motorAktif() === 'onnx') return pastikanModelsOnnx();
     if (motorAktif() === 'mediapipe') return pastikanModelsMediapipe();
     if (modelsFaceApiSiap) return Promise.resolve(true); // sudah lengkap → tak perlu apa-apa
     wajahApiAda();
@@ -251,6 +317,7 @@
 
   /** Pastikan net descriptor (FaceRecognitionNet ATAU MobileFaceNet-ONNX) sudah dimuat. */
   async function pastikanNetRecok() {
+    if (motorAktif() === 'onnx') { await pastikanOrtEmbedder(); return; }
     if (motorAktif() === 'mediapipe') { await pastikanOrtEmbedder(); return; }
     const fa = wajahApiAda();
     if (fa.nets.faceRecognitionNet.isLoaded) return;
@@ -349,6 +416,58 @@
       mpOrtPromise = null;
       throw new Error('Gagal memuat model descriptor wajah (ONNX): ' + ((e && e.message) || e));
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 2c. MOTOR ONNX — PEMUATAN MODEL (YuNet + MobileFaceNet)
+  // ------------------------------------------------------------------
+  const YUNET_FILE = 'face_detection_yunet_2023mar.onnx';
+
+  /** Muat model DETEKSI YuNet (ONNX Runtime Web, wasm lokal). Idempoten. */
+  async function pastikanModelsYuNet() {
+    if (yuModelsSiap && yuSession) return true;
+    wajahApiAda();
+    if (yuPromise) return yuPromise;
+    const dirOrt = MODELS_DIR.replace(/models\/?$/, '') + 'vendor/onnx/';
+    const jalanModel = MODELS_DIR + YUNET_FILE;
+    yuPromise = (async () => {
+      const resp = await fetch(jalanModel, { mode: 'cors' });
+      if (!resp.ok) {
+        throw new Error('Model deteksi wajah (YuNet) tidak dapat diunduh (HTTP ' + resp.status + '). Periksa file models/' + YUNET_FILE + '.');
+      }
+      const bytes = await resp.arrayBuffer();
+      // wasmPaths: pasangan ort-wasm-simd-threaded.{mjs,wasm} yang ringan (bukan jsep 28 MB) —
+      // sama dengan jalur embedder agar hanya SATU berkas wasm diunduh & di-cache.
+      yuSession = await window.ort.InferenceSession.create(bytes, {
+        executionProviders: ['WebAssembly'],
+        numThreads: 1,
+        wasmPaths: {
+          mjs: dirOrt + 'ort-wasm-simd-threaded.mjs',
+          wasm: dirOrt + 'ort-wasm-simd-threaded.wasm'
+        }
+      });
+      const masuk = yuSession.inputNames;
+      yuNamaMasuk = (masuk && masuk.length) ? masuk[0] : 'input';
+      yuModelsSiap = true;
+      modelsLoaded = true; // penanda umum utk UI progres
+    })();
+    try {
+      await yuPromise;
+    } catch (e) {
+      yuPromise = null;
+      throw new Error('Gagal memuat model deteksi wajah (YuNet): ' + ((e && e.message) || e));
+    }
+    return true;
+  }
+
+  /** Pastikan SEMUA model motor onnx siap: detektor YuNet + embedder MobileFaceNet. */
+  async function pastikanModelsOnnx() {
+    await pastikanModelsYuNet();
+    try { await pastikanOrtEmbedder(); } catch (e) {
+      // Deskriptor wajib: tanpa embedder tidak ada yang bisa dicocokkan.
+      throw new Error('Gagal memuat model descriptor wajah (ONNX): ' + ((e && e.message) || e));
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------
@@ -500,6 +619,13 @@
   // 4. Deteksi + descriptor (sumber: Image / video / canvas)
   // ------------------------------------------------------------------
   async function deteksiSatuWajah(el, opts) {
+    if (motorAktif() === 'onnx') {
+      // Motor onnx: ukuran input YuNet TETAP 640×640 dan ambang skornya sendiri
+      // (YUNET_AMBANG_SKOR) → opsi gaya face-api (inputSize/scoreThreshold) diabaikan
+      // dengan sengaja; descriptor selalu dihitung (kontrak pemanggil lama).
+      await pastikanModelsOnnx();
+      return await detektiWajahYuNet(el, { descriptor: true });
+    }
     if (motorAktif() === 'mediapipe') {
       await pastikanModelsMediapipe();
       return await detektiWajahMediapipe(el, { descriptor: true });
@@ -627,21 +753,38 @@
       && stat.cahaya <= CAHAYA_MAKS;
   }
 
-  /** Pose depan? Perkiraan yaw dari asimetri hidung terhadap sudut mata
-   *  (68 titik: 36/45 + 30; 478 titik MediaPipe: 33/263 + 1). Juga menolak wajah
-   *  terlalu kecil di frame (< 22% tinggi frame) atau terpotong tepi frame.
-   *  `null` bila landmark kurang (frame dilewati, bukan dinyatakan cocok). */
+  /** Pose depan? Perkiraan yaw dari asimetri hidung terhadap sudut mata.
+   *  Mendukung TIGA bentuk landmark:
+   *    68 titik face-api (36/45 + 30), 478 titik MediaPipe (33/263 + 1), dan
+   *    5 titik YuNet (mata 0/1 + hidung 2) — sumbu-yaw dari dua mata ke hidung.
+   *  Juga menolak wajah terlalu kecil di frame (< 22% tinggi frame) atau terpotong
+   *  tepi frame. `null` bila landmark kurang (frame dilewati, bukan dinyatakan cocok). */
   function deteksiPoseDepan(positions, box, frameW, frameH) {
-    if (!Array.isArray(positions) || positions.length < 68) return null;
+    if (!Array.isArray(positions)) return null;
     const n = positions.length;
-    const kiri = (n >= 478) ? positions[33] : positions[36];
-    const kanan = (n >= 478) ? positions[263] : positions[45];
-    const hidung = (n >= 478) ? positions[1] : positions[30];
-    if (!kiri || !kanan || !hidung) return null;
-    const span = Math.abs(kanan.x - kiri.x);
-    if (!(span > 1e-6)) return null;
-    const tengah = (kiri.x + kanan.x) / 2;
-    const yaw = Math.abs(2 * (hidung.x - tengah) / span);
+    let span, tengah, hidungX;
+    if (n === 5) {
+      // YuNet: 0/1 = mata, 2 = ujung hidung. Urutkan mata menurut x supaya tidak
+      // bergantung konvensi kiri/kanan penulis model.
+      const a = positions[0], b = positions[1], hd = positions[2];
+      if (!a || !b || !hd) return null;
+      const ki = (a.x <= b.x) ? a : b, ka = (a.x <= b.x) ? b : a;
+      span = Math.abs(ka.x - ki.x);
+      if (!(span > 1e-6)) return null;
+      tengah = (ki.x + ka.x) / 2;
+      hidungX = hd.x;
+    } else {
+      if (n < 68) return null;
+      const kiri = (n >= 478) ? positions[33] : positions[36];
+      const kanan = (n >= 478) ? positions[263] : positions[45];
+      const hidung = (n >= 478) ? positions[1] : positions[30];
+      if (!kiri || !kanan || !hidung) return null;
+      span = Math.abs(kanan.x - kiri.x);
+      if (!(span > 1e-6)) return null;
+      tengah = (kiri.x + kanan.x) / 2;
+      hidungX = hidung.x;
+    }
+    const yaw = Math.abs(2 * (hidungX - tengah) / span);
     let besar = true, terpotong = false;
     if (box && frameW && frameH) {
       besar = (box.height / frameH) >= 0.22;
@@ -688,7 +831,9 @@
     let v = NaN;
     try { v = parseFloat(localStorage.getItem('sbg_wajah_ambang')); } catch (e) { /* baku */ }
     if (isFinite(v) && v >= 0.3 && v <= 0.85) return v;
-    return (motorAktif() === 'mediapipe') ? JARAK_COCOK_MP : JARAK_COCOK;
+    const m = motorAktif();
+    if (m === 'onnx') return JARAK_COCOK_ONNX;
+    return (m === 'mediapipe') ? JARAK_COCOK_MP : JARAK_COCOK;
   }
 
   /** Ambang verifikasi 1:1 (Absen Mandiri) — sedikit lebih ketat daripada ambang
@@ -708,6 +853,7 @@
    *  Motor mediapipe → versi eigen (buatMatcherMediapipe) met dim 512; face-api
    *  → FaceMatcher (128). Ambang JARAK_KENAL / JARAK_KENAL_MP per motor. */
   function buatMatcherDariPeta(peta, ambangMatcher) {
+    if (motorAktif() === 'onnx') return buatMatcherKosinus(peta);
     if (motorAktif() === 'mediapipe') return buatMatcherMediapipe(peta);
     const fa = window.faceapi;
     const labeled = [];
@@ -760,6 +906,74 @@
           return { label: 'unknown', distance: best ? best.distance : JARAK_KENAL_MP };
         }
         return { label: best.label, distance: best.distance, match: true };
+      }
+    };
+  }
+
+  /** Kemiripan kosinus dua vektor (dinormalkan L2 di dalam → aman untuk vektor
+   *  mentah dari DB). `0` bila panjang beda / salah satu vektor nol. Murni. */
+  function kemiripanKosinus(a, b) {
+    if (!a || !b || a.length !== b.length) return 0;
+    const n = a.length;
+    if (!n) return 0;
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < n; i++) {
+      const x = a[i], y = b[i];
+      dot += x * y; na += x * x; nb += y * y;
+    }
+    if (!(na > 1e-12) || !(nb > 1e-12)) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  }
+
+  /** Matcher motor onnx: KEMIRIPAN KOSINUS + MARGIN top-2.
+   *  - Skor sebuah LABEL = kemiripan maksimum atas SELURUH sampel label itu
+   *    (min-jarak antar-sampel, sama semangat dengan matcher lain).
+   *  - `distance` yang dikembalikan = 1 − kemiripan, sehingga pemanggil lama
+   *    (`best.distance <= ambangCocok()`) tetap bekerja; ambangCocok() motor onnx
+   *    sudah dikonversi ke skala ini (JARAK_COCOK_ONNX).
+   *  - MARGIN top-2: bila label peringkat-1 dan peringkat-2 nyaris sama mirip
+   *    (selisih < `marginMin`) hasilnya 'unknown' — menolak menebak di antara dua
+   *    murid yang vektornya berdekatan (sumber utama salah absen).
+   *  - Kemiripan di bawah `ambangKenal` juga 'unknown' (di luar ini tak dikenal).
+   *  Murni (tanpa DOM) → bisa diuji. */
+  function buatMatcherKosinus(peta, ambangKenal, marginMin) {
+    const dim = dimWajahMotor();
+    const batasKenal = (typeof ambangKenal === 'number' && isFinite(ambangKenal)) ? ambangKenal : JARAK_KENAL_ONNX;
+    const batasMargin = (typeof marginMin === 'number' && isFinite(marginMin)) ? marginMin : MARGIN_TOP2;
+    const daftar = [];
+    Object.keys(peta || {}).forEach(nis => {
+      const list = normalisasiDescriptorWajah(peta[nis] && peta[nis].descriptor, dim);
+      if (list && list.length) {
+        daftar.push({
+          label: String(nis),
+          samples: list.map(v => (v instanceof Float32Array) ? v : new Float32Array(v))
+        });
+      }
+    });
+    if (!daftar.length) return null;
+    return {
+      kosinus: true, // penanda untuk uji/inspeksi
+      findBestMatch(desc) {
+        const d0 = (desc instanceof Float32Array) ? desc : new Float32Array(desc);
+        let top1 = null, top2 = null;
+        for (let i = 0; i < daftar.length; i++) {
+          const smp = daftar[i].samples;
+          let simLabel = 0;
+          for (let j = 0; j < smp.length; j++) {
+            const s = kemiripanKosinus(d0, smp[j]);
+            if (s > simLabel) simLabel = s;
+          }
+          const entri = { label: daftar[i].label, sim: simLabel };
+          if (!top1 || simLabel > top1.sim) { top2 = top1; top1 = entri; }
+          else if (!top2 || simLabel > top2.sim) { top2 = entri; }
+        }
+        const sim = top1 ? top1.sim : 0;
+        const margin = top2 ? (sim - top2.sim) : sim;
+        const jarak = 1 - sim;
+        if (!top1 || jarak > batasKenal || (top2 && margin < batasMargin)) {
+          return { label: 'unknown', distance: jarak, similarity: sim, margin };
+        }
+        return { label: top1.label, distance: jarak, similarity: sim, margin, match: true };
       }
     };
   }
@@ -835,7 +1049,11 @@
     const cv = mpCanvasKe || (mpCanvasKe = document.createElement('canvas'));
     cv.width = 112; cv.height = 112;
     const ctx = cv.getContext('2d');
-    ctx.drawImage(el, 0, 0, 112, 112, b.x, b.y, cw, ch);
+    // Bentuk 9-argumen drawImage = (sumber, sx, sy, sw, sh, dx, dy, dw, dh).
+    // POTONGAN SUMBER (kotak wajah) → TUJUAN penuh 112×112. (Versi lama menukar
+    // argumen: membaca 112×112 pojok-kiri frame lalu menggambarnya di LUAR kanvas
+    // → descriptor dihitung dari citra kosong.)
+    ctx.drawImage(el, b.x, b.y, cw, ch, 0, 0, 112, 112);
     const px = ctx.getImageData(0, 0, 112, 112).data; // RGBA
     return await mpEmbedPixels(px);
   }
@@ -884,7 +1102,8 @@
       const ctx = cv.getContext('2d');
       const cw = Math.max(8, Math.min(box.width, w - box.x));
       const ch = Math.max(8, Math.min(box.height, h - box.y));
-      ctx.drawImage(el, 0, 0, S, S, box.x, box.y, cw, ch);
+      // (sumber, sx, sy, sw, sh, dx, dy, dw, dh) — potongan kotak wajah → penuh 128×128.
+      ctx.drawImage(el, box.x, box.y, cw, ch, 0, 0, S, S);
       return ctx.getImageData(0, 0, S, S);
     } catch (e) {
       console.warn('mpSnapshotFace:', e);
@@ -903,13 +1122,268 @@
       const cv = document.createElement('canvas');
       cv.width = 112; cv.height = 112;
       const ctx = cv.getContext('2d');
-      ctx.drawImage(tmp, 0, 0, 112, 112, 0, 0, snap.width, snap.height);
+      ctx.drawImage(tmp, 0, 0, tmp.width, tmp.height, 0, 0, 112, 112);
       const px = ctx.getImageData(0, 0, 112, 112).data;
       return await mpEmbedPixels(px);
     } catch (e) {
       console.warn('descriptorDariImageDataKe:', e);
       return null;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 4c. DETEKSI + DESCRIPTOR — MOTOR ONNX (YuNet + MobileFaceNet + align 5 titik)
+  // ------------------------------------------------------------------
+  // Kontrak hasil SAMA dengan motor lain supaya seluruh kode overlay/gerbang/
+  // matcher di atas bekerja tanpa perubahan:
+  //   { detection: { box: {x,y,width,height} /* pixel frame */, score },
+  //     landmarks: { positions: [{x,y}×5] }, descriptor|null, _frame }
+  // Keluaran YuNet = 12 tensor (cls/obj/bbox/kps × stride 8/16/32). Rumus dekode
+  // diambil PERSIS dari OpenCV `modules/objdetect/src/face_detect.cpp`:
+  //   skor = √(clamp(cls,0,1) · clamp(obj,0,1))
+  //   cx = (kolom + bbox[0])·stride ; cy = (baris + bbox[1])·stride
+  //   w  = e^(bbox[2])·stride       ; h  = e^(bbox[3])·stride
+  //   titik k = ((kps[2k] + kolom)·stride, (kps[2k+1] + baris)·stride)
+  // Input model: [1,3,640,640] float32 NCHW **BGR 0..255** (blobFromImage tanpa
+  // swapRB) dan WAJIB 640×640 (dimensi tetap — sudah diverifikasi dengan
+  // onnxruntime-web; ukuran lain dibalas OrtRun ERROR_CODE 2).
+  let yuKanvasInput = null; // kanvas 640×640 (masukan model)
+  let yuKanvasAlin = null;  // kanvas 112×112 (crop align descriptor)
+
+  /** IoU dua kotak {x,y,width,height}. Murni. */
+  function iouKotak(a, b) {
+    if (!a || !b) return 0;
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.width, b.x + b.width);
+    const y2 = Math.min(a.y + a.height, b.y + b.height);
+    const w = x2 - x1, h = y2 - y1;
+    if (!(w > 0) || !(h > 0)) return 0;
+    const inter = w * h;
+    const union = a.width * a.height + b.width * b.height - inter;
+    return union > 0 ? inter / union : 0;
+  }
+
+  /** NMS greedy (skor menurun). Kandidat {detection:{box,score}, kps}. Murni. */
+  function nmsKandidat(kandidat, ambangIou) {
+    const daftar = Array.isArray(kandidat) ? kandidat.slice() : [];
+    const ambang = (typeof ambangIou === 'number') ? ambangIou : YUNET_NMS_IOU;
+    daftar.sort((a, b) => b.detection.score - a.detection.score);
+    const simpan = [];
+    for (let i = 0; i < daftar.length; i++) {
+      let buang = false;
+      for (let j = 0; j < simpan.length; j++) {
+        if (iouKotak(daftar[i].detection.box, simpan[j].detection.box) > ambang) { buang = true; break; }
+      }
+      if (!buang) simpan.push(daftar[i]);
+    }
+    return simpan;
+  }
+
+  /** Dekode 12 tensor keluaran YuNet → daftar kandidat pada ruang INPUT
+   *  (inputW×inputH, mis. 640×640). `keluaran` = objek nama→tensor ONNX (punya
+   *  `.data`). Murni (tanpa DOM) → bisa diuji dengan tensor palsu. */
+  function bacaKeluaranYuNet(keluaran, inputW, inputH, ambangSkor, strides) {
+    const hasil = [];
+    if (!keluaran || !inputW || !inputH) return hasil;
+    const st = (Array.isArray(strides) && strides.length) ? strides : [8, 16, 32];
+    const ambang = (typeof ambangSkor === 'number') ? ambangSkor : YUNET_AMBANG_SKOR;
+    const data = (nama) => {
+      const t = keluaran[nama];
+      if (!t) return null;
+      return (t.data !== undefined) ? t.data : t;
+    };
+    for (let s = 0; s < st.length; s++) {
+      const stride = st[s];
+      const kolom = Math.floor(inputW / stride);
+      const baris = Math.floor(inputH / stride);
+      const cls = data('cls_' + stride), obj = data('obj_' + stride);
+      const bbox = data('bbox_' + stride), kps = data('kps_' + stride);
+      if (!cls || !obj || !bbox || !kps) continue;
+      for (let r = 0; r < baris; r++) {
+        for (let c = 0; c < kolom; c++) {
+          const idx = r * kolom + c;
+          let cs = cls[idx], os = obj[idx];
+          if (!isFinite(cs) || !isFinite(os)) continue;
+          cs = Math.min(1, Math.max(0, cs));
+          os = Math.min(1, Math.max(0, os));
+          const skor = Math.sqrt(cs * os);
+          if (!(skor >= ambang)) continue;
+          const bx = idx * 4, kp = idx * 10;
+          const cx = (c + bbox[bx]) * stride;
+          const cy = (r + bbox[bx + 1]) * stride;
+          const w = Math.exp(bbox[bx + 2]) * stride;
+          const h = Math.exp(bbox[bx + 3]) * stride;
+          const titik = new Array(5);
+          for (let k = 0; k < 5; k++) {
+            titik[k] = {
+              x: (kps[kp + 2 * k] + c) * stride,
+              y: (kps[kp + 2 * k + 1] + r) * stride
+            };
+          }
+          hasil.push({
+            detection: { box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h }, score: skor },
+            kps: titik
+          });
+        }
+      }
+    }
+    return hasil;
+  }
+
+  /** Urutkan dua titik menurut x (kiri→kanan citra). Murni. */
+  function urutkanXDua(a, b) {
+    if (!a || !b) return [a, b];
+    return (a.x <= b.x) ? [a, b] : [b, a];
+  }
+
+  /** Matriks affine 2×3 yang memetakan 3 titik asal → 3 titik tujuan, dalam
+   *  URUTAN PARAMETER CANVAS { a,b,c,d,e,f } dengan X = a·x + c·y + e dan
+   *  Y = b·x + d·y + f (ctx.setTransform(a,b,c,d,e,f)). `null` bila titik asal
+   *  segaris (determinan ≈ 0). Murni → bisa diuji. */
+  function matriksAffine3(asal, tujuan) {
+    if (!Array.isArray(asal) || !Array.isArray(tujuan) || asal.length < 3 || tujuan.length < 3) return null;
+    const p0 = asal[0], p1 = asal[1], p2 = asal[2];
+    const q0 = tujuan[0], q1 = tujuan[1], q2 = tujuan[2];
+    const A1 = p0.x - p2.x, B1 = p0.y - p2.y;
+    const A2 = p1.x - p2.x, B2 = p1.y - p2.y;
+    const det = A1 * B2 - A2 * B1;
+    if (!isFinite(det) || Math.abs(det) < 1e-9) return null;
+    const Cx1 = q0.x - q2.x, Cx2 = q1.x - q2.x;
+    const Cy1 = q0.y - q2.y, Cy2 = q1.y - q2.y;
+    const a = (Cx1 * B2 - Cx2 * B1) / det;
+    const c = (A1 * Cx2 - A2 * Cx1) / det;
+    const b = (Cy1 * B2 - Cy2 * B1) / det;
+    const d = (A1 * Cy2 - A2 * Cy1) / det;
+    const e = q2.x - a * p2.x - c * p2.y;
+    const f = q2.y - b * p2.x - d * p2.y;
+    return { a, b, c, d, e, f };
+  }
+
+  /** Matriks affine 5 titik YuNet (pixel citra sumber) → template 112×112.
+   *  Memakai 3 pasangan: mata kiri-citra, mata kanan-citra, titik-tengah mulut
+   *  (paling tahan terhadap noise landmark; sama semangat dengan alignDlib face-api).
+   *  `null` bila titik tidak lengkap / degenerat. Murni → bisa diuji. */
+  function matriksAlin112(kps) {
+    if (!Array.isArray(kps) || kps.length < 5) return null;
+    for (let i = 0; i < 5; i++) {
+      const p = kps[i];
+      if (!p || !isFinite(p.x) || !isFinite(p.y)) return null;
+    }
+    const mata = urutkanXDua(kps[0], kps[1]);
+    const mulut = urutkanXDua(kps[3], kps[4]);
+    const asal = [
+      mata[0], mata[1],
+      { x: (mulut[0].x + mulut[1].x) / 2, y: (mulut[0].y + mulut[1].y) / 2 }
+    ];
+    const tujuan = [
+      { x: TEMPLATE_112[0][0], y: TEMPLATE_112[0][1] },
+      { x: TEMPLATE_112[1][0], y: TEMPLATE_112[1][1] },
+      { x: (TEMPLATE_112[3][0] + TEMPLATE_112[4][0]) / 2, y: (TEMPLATE_112[3][1] + TEMPLATE_112[4][1]) / 2 }
+    ];
+    return matriksAffine3(asal, tujuan);
+  }
+
+  /** Descriptor motor onnx: crop wajah yang SUDAH disejajarkan (align 5 titik)
+   *  → 112×112 → MobileFaceNet → vektor L2-normal (512). */
+  async function deskriptorDariYuNet(el, positions, w, h) {
+    await pastikanOrtEmbedder();
+    const srcW = w || el.videoWidth || el.naturalWidth || el.width || 0;
+    const srcH = h || el.videoHeight || el.naturalHeight || el.height || 0;
+    if (!srcW || !srcH) throw new Error('Frame wajah belum siap — coba lagi.');
+    const m = matriksAlin112(positions);
+    if (!m) return null;
+    const cv = yuKanvasAlin || (yuKanvasAlin = document.createElement('canvas'));
+    cv.width = 112; cv.height = 112;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 112, 112); // piksel di luar lipatan transform = hitam (bukan transparan)
+    ctx.imageSmoothingEnabled = true;
+    try { ctx.imageSmoothingQuality = 'high'; } catch (e) { /* opsional */ }
+    // Transform affine memetakan ruang pixel citra sumber → kanvas 112×112.
+    ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+    ctx.drawImage(el, 0, 0);
+    const px = ctx.getImageData(0, 0, 112, 112).data; // RGBA
+    return await mpEmbedPixels(px);
+  }
+
+  /** Deteksi wajah (motor onnx / YuNet) — hasil compat dengan motor lain, atau
+   *  `null` bila tak ada wajah / frame belum siap. */
+  async function detektiWajahYuNet(el, opts) {
+    const o = opts || {};
+    await pastikanModelsYuNet();
+    const w = el.videoWidth || el.naturalWidth || el.width || 0;
+    const h = el.videoHeight || el.naturalHeight || el.height || 0;
+    if (!w || !h) return null;
+    const S = YUNET_UKURAN;
+    const N = S * S;
+    const cv = yuKanvasInput || (yuKanvasInput = document.createElement('canvas'));
+    if (cv.width !== S) cv.width = S;
+    if (cv.height !== S) cv.height = S;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    const skalaKandidat = (Array.isArray(o.skalaKandidat) && o.skalaKandidat.length) ? o.skalaKandidat : YUNET_SKALA_KANDIDAT;
+    const ambang = (typeof o.ambangSkor === 'number') ? o.ambangSkor : YUNET_AMBANG_SKOR;
+    let terbaik = null, skalaTerbaik = 1, dwTerbaik = 0, dhTerbaik = 0;
+    for (let i = 0; i < skalaKandidat.length; i++) {
+      const k = skalaKandidat[i];
+      // Skala frame terhadap kanvas 640×640 — TIDAK memperbesar (skala ≤ 1) supaya
+      // tidak membuang detail/CPU; sisa kanvas dibiarkan hitam (pad kanan-bawah,
+      // sama seperti copyMakeBorder OpenCV).
+      const skala = Math.min(1, (S * k) / Math.max(w, h));
+      if (!(skala > 0)) continue;
+      const dw = Math.max(32, Math.min(S, Math.round(w * skala)));
+      const dh = Math.max(32, Math.min(S, Math.round(h * skala)));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, S, S);
+      ctx.imageSmoothingEnabled = true;
+      try { ctx.imageSmoothingQuality = 'high'; } catch (e) { /* opsional */ }
+      ctx.drawImage(el, 0, 0, w, h, 0, 0, dw, dh);
+      const px = ctx.getImageData(0, 0, S, S).data; // RGBA
+      // RGBA kanvas → tensor NCHW BGR nilai 0..255 (kanal 0 = B).
+      const inp = new Float32Array(3 * N);
+      for (let p = 0, q = 0; p < N; p++, q += 4) {
+        inp[p] = px[q + 2];         // B
+        inp[N + p] = px[q + 1];     // G
+        inp[2 * N + p] = px[q];     // R
+      }
+      let out = null;
+      try {
+        out = await yuSession.run({ [yuNamaMasuk]: new window.ort.Tensor('float32', inp, [1, 3, S, S]) });
+      } catch (e) {
+        console.warn('YuNet run (skala ' + k + '):', e);
+        continue;
+      }
+      const kandidat = nmsKandidat(bacaKeluaranYuNet(out, S, S, ambang), YUNET_NMS_IOU);
+      if (!kandidat.length) continue;
+      terbaik = kandidat[0];
+      skalaTerbaik = skala;
+      dwTerbaik = dw; dhTerbaik = dh;
+      break; // skala terbesar yang menemukan wajah dipakai
+    }
+    if (!terbaik) return null;
+    // Koordinat dikembalikan ke ruang frame: pembagi memakai ukuran gambar yang
+    // BENAR-BENAR digambar (dw/dh, hasil pembulatan) → presisi ≤ 0,5 px.
+    const kx = dwTerbaik ? (w / dwTerbaik) : (1 / skalaTerbaik);
+    const ky = dhTerbaik ? (h / dhTerbaik) : (1 / skalaTerbaik);
+    const b = terbaik.detection.box;
+    const box = {
+      x: Math.max(0, b.x * kx),
+      y: Math.max(0, b.y * ky),
+      width: Math.min(w, b.width * kx),
+      height: Math.min(h, b.height * ky)
+    };
+    const positions = terbaik.kps.map(p => ({ x: p.x * kx, y: p.y * ky }));
+    let descriptor = null;
+    if (o.descriptor) descriptor = await deskriptorDariYuNet(el, positions, w, h);
+    return {
+      detection: { box, score: terbaik.detection.score },
+      landmarks: { positions },
+      descriptor,
+      _frame: { w, h, at: Date.now() }
+    };
   }
 
   // ------------------------------------------------------------------
@@ -1597,7 +2071,20 @@
     }
     // Garis kontur: hanya utk 68 titik (indeks dlib baku). Mediapipe 478 titik tidak punya
     // kontur sederhana → cukup mesh titik (tetap terlihat seperti "scan").
-    if (positions.length === 68) {
+    // 5 titik (motor onnx / YuNet) → rangka mata–hidung–mulut supaya admin melihat
+    // bahwa wajah benar-benar terbaca oleh detektor baru.
+    if (positions.length === 5) {
+      ctx.strokeStyle = 'rgba(34,211,238,0.75)';
+      ctx.lineWidth = 1.2;
+      [[0, 2], [1, 2], [2, 3], [2, 4], [3, 4]].forEach((pasangan) => {
+        const i = pasangan[0], j = pasangan[1];
+        if (!positions[i] || !positions[j]) return;
+        ctx.beginPath();
+        ctx.moveTo(X(positions[i]), Y(positions[i]));
+        ctx.lineTo(X(positions[j]), Y(positions[j]));
+        ctx.stroke();
+      });
+    } else if (positions.length === 68) {
       ctx.strokeStyle = 'rgba(34,211,238,0.55)';
       ctx.lineWidth = 1;
       KONTUR_68.forEach(([awal, akhir, tutup]) => {
@@ -1627,11 +2114,15 @@
    * tanpa overlay ini modal registrasi tidak pernah menampilkan indikator visual.
    */
   async function loopDeteksiKameraLive(videoEl, setHasil, overlayEl) {
-    const fa = window.faceapi;
-    if (!fa || !videoEl) return;
+    const motorLoop = motorWajah();
+    const fa = (motorLoop === 'faceapi') ? window.faceapi : null;
+    if ((motorLoop === 'faceapi' && !fa) || !videoEl) return;
     const token = ++deteksiLoopToken;
     hasilDeteksiLive = null;
-    const opts = new fa.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.2 });
+    // opts hanya dipakai jalur face-api (TinyFaceDetectorOptions).
+    const opts = (motorLoop === 'faceapi')
+      ? new fa.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.2 })
+      : null;
     let terakhir = 0;
     let pernahTerdeteksi = false;
     let gagalStreak = 0;          // frame gagal beruntun — di luarnya pesan error muncul
@@ -1661,9 +2152,12 @@
         // bagian terberat); cukup deteksi + landmarks → indikator hijau 1–3 dtk.
         // Motor mediapipe: Face Landmarker juga ringan (wasm lokal, tanpa ONNX);
         // snapshot crop wajah disimpan untuk descriptor DETERMINISTIS saat klik.
-        const d = (motorWajah() === 'mediapipe')
-          ? await detektiWajahMediapipe(videoEl, {})
-          : await fa.detectSingleFace(videoEl, opts).withFaceLandmarks(true);
+        // Motor onnx: YuNet (wasm) → 5 titik tersimpan di landmarks.positions;
+        // descriptor dihitung saat klik dari TITIK yang sama (bukan crop snapshot).
+        let d;
+        if (motorLoop === 'onnx') d = await detektiWajahYuNet(videoEl, {});
+        else if (motorLoop === 'mediapipe') d = await detektiWajahMediapipe(videoEl, {});
+        else d = await fa.detectSingleFace(videoEl, opts).withFaceLandmarks(true);
         if (token !== deteksiLoopToken) break;
         if (d) {
           gagalStreak = 0;
@@ -1865,6 +2359,22 @@
         return { descriptor: Array.from(d), skor: hasil.skor || (hasil.deteksi && hasil.deteksi.score) || 0.85 };
       } catch (e) {
         console.warn('descriptorDariHasilLive (mediapipe):', e);
+        return null;
+      }
+    }
+    if (motorAktif() === 'onnx') {
+      // Deskriptor dihitung dari 5 TITIK yang sama dengan deteksi (align → crop 112).
+      // Titik disimpan di landmarks.positions, jadi crop selalu konsisten dengan
+      // posisi wajah yang membuat kotak hijau terlihat di layar.
+      try {
+        const kps = hasil.landmarks && hasil.landmarks.positions;
+        if (!kps || kps.length < 5) return null;
+        const fr = hasil._frame || {};
+        const d = await deskriptorDariYuNet(videoEl, kps, fr.w, fr.h);
+        if (!d) return null;
+        return { descriptor: Array.from(d), skor: hasil.skor || (hasil.deteksi && hasil.deteksi.score) || 0.9 };
+      } catch (e) {
+        console.warn('descriptorDariHasilLive (onnx):', e);
         return null;
       }
     }
@@ -2759,7 +3269,7 @@
         // Tanpa pesan ini, guru hanya melihat "belum terdaftar" padahal penyebabnya motor.
         const adaData = Object.keys(peta || {}).length > 0 || hasilData.bedaMotor > 0;
         wrap.innerHTML = adaData
-          ? `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Data wajah kelas ini terdaftar dengan <b>mesin pengenalan lain</b> (${motorWajah() === 'mediapipe' ? 'face-api 128-angka' : 'mediapipe 512-angka'}), sedangkan mesin aktif sekarang <b>${motorWajah()}</b> — vektor beda mesin tidak bisa dicocokkan.<br><span class="text-amber-100/70">Samakan mesin di perangkat ini (<code>localStorage.setItem('sbg_wajah_motor', …)</code> lalu muat ulang halaman) ATAU daftarkan ulang wajah siswa memakai mesin yang aktif.</span></div>`
+          ? `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Data wajah kelas ini terdaftar dengan <b>mesin pengenalan lain</b> (128-angka face-api, 512-angka mediapipe, atau 512-angka onnx/YuNet), sedangkan mesin aktif sekarang <b>${namaMesinWajah(motorWajah())}</b> — vektor beda mesin tidak bisa dicocokkan.<br><span class="text-amber-100/70">Samakan mesin di perangkat ini (<code>localStorage.setItem('sbg_wajah_motor', …)</code> lalu muat ulang halaman) ATAU daftarkan ulang wajah siswa memakai mesin yang aktif.</span></div>`
           : `<div class="rounded border border-amber-500/50 bg-amber-900/30 text-amber-200 text-xs p-3 mb-3 text-center"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Belum ada siswa di kelas ini yang terdaftar wajah.<br><span class="text-amber-100/70">Daftarkan lewat tombol <b>Registrasi</b> pada baris murid di menu <b>Data Akun Murid</b>.</span></div>`;
         return;
       }
@@ -2818,9 +3328,9 @@
     // deteksiSatuWajah inputSize 320). Dengan 224, kotak wajah & landmark kurang presisi
     // sehingga crop deskriptor bergeser dan jarak Euclidean ke data registrasi membengkak
     // (wajah benar dinyatakan "tidak dikenal"). 400 ms antar-frame tetap membatasi beban.
-    const opts = (motorAktif() === 'mediapipe')
-      ? null
-      : new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.2 });
+    const opts = (motorAktif() === 'faceapi')
+      ? new window.faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.2 })
+      : null;
     const cooldown = o.cooldown || {};        // nis → timestamp cocok terakhir
     const targheCocok = (typeof o.targhe === 'number')
       ? o.targhe
@@ -2886,11 +3396,14 @@
         // useDlibAlignment (lihat alignDlib di vendor/face-api.min.js) → hasil vektornya
         // setara; berbagi satu helper mencegah dua jalur menyimpang bila padding crop
         // atau durasi frame berubah di kemudian hari.
-        deteksi = (motorAktif() === 'mediapipe')
-          ? await detektiWajahMediapipe(video, { descriptor: true })
-          : await window.faceapi.detectSingleFace(video, opts).withFaceLandmarks(true);
+        const mesinLoop = motorAktif();
+        deteksi = (mesinLoop === 'onnx')
+          ? await detektiWajahYuNet(video, { descriptor: true })
+          : (mesinLoop === 'mediapipe')
+            ? await detektiWajahMediapipe(video, { descriptor: true })
+            : await window.faceapi.detectSingleFace(video, opts).withFaceLandmarks(true);
         if (deteksi) {
-          if (motorAktif() === 'mediapipe') {
+          if (mesinLoop === 'mediapipe' || mesinLoop === 'onnx') {
             descriptor = deteksi.descriptor ? Array.from(deteksi.descriptor) : null;
           } else {
             const h = await descriptorDariHasilLive(video, {
@@ -3109,9 +3622,15 @@
       // lain selalu ditolak ("mesin pengenalan lain"). Sekarang mesin untuk SATU
       // pemindaian ini disesuaikan otomatis dengan dimensi data, dan setelan
       // perangkat tidak diubah (dipulihkan di finally).
+      // 512-angka dipakai DUA mesin (mediapipe & onnx) dengan ruang vektor yang
+      // BERBEDA (crop mediapipe = kotak deteksi; crop onnx = align 5 titik lebih
+      // rapi). Bila data berdimensi 512, pakai onnx HANYA bila itu setelan
+      // perangkat; selain itu tetap mediapipe (perilaku lama dipertahankan).
       if (dimV && dimV !== dimWajahMotor()
           && (dimV === DIM_WAJAH_LEGACY || dimV === DIM_WAJAH_MEDIAPIPE)) {
-        motorPaksa = (dimV === DIM_WAJAH_MEDIAPIPE) ? 'mediapipe' : 'faceapi';
+        motorPaksa = (dimV === DIM_WAJAH_MEDIAPIPE)
+          ? (motorWajah() === 'onnx' ? 'onnx' : 'mediapipe')
+          : 'faceapi';
       }
 
       // Model dimulai SEGERA setelah mesin ditentukan — kamera depan dinyalakan
@@ -3280,7 +3799,10 @@
       // Cek flag mesin yang BENAR: model face-api bisa sudah termuat sementara model
       // mediapipe (hasil penyesuaian otomatis) masih diunduh.
       let progresModel = null;
-      if (!(motorAktif() === 'mediapipe' ? mpModelsSiap : modelsFaceApiSiap)) {
+      const mesinSiap = motorAktif() === 'onnx'
+        ? yuModelsSiap
+        : (motorAktif() === 'mediapipe' ? mpModelsSiap : modelsFaceApiSiap);
+      if (!mesinSiap) {
         const t0 = Date.now();
         progresModel = setInterval(() => {
           setStatus('<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Menyiapkan model wajah… (' + Math.round((Date.now() - t0) / 1000) + ' dtk).');
@@ -3417,7 +3939,9 @@
   (function preWarmModelSaatIdle() {
     const mulai = () => {
       try {
-        if (motorWajah() === 'mediapipe') {
+        if (motorWajah() === 'onnx') {
+          pastikanModelsOnnx().catch(() => {});
+        } else if (motorWajah() === 'mediapipe') {
           pastikanModelsMediapipe().then(() => { try { pastikanOrtEmbedder().catch(() => {}); } catch (e2) { /* on-demand */ } }).catch(() => {});
         } else {
           pastikanModels().catch(() => {});

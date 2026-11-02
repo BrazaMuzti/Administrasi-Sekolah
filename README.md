@@ -386,16 +386,53 @@ localStorage.setItem('sbg_wajah_motor', 'mediapipe'); // ATAU 'faceapi' (baku)
 | Motor                                      | Deteksi + landmark              | Deskriptor           | Ruang fitur  |
 | -------------------------------------------| ------------------------------- | ---------------------| ------------ |
 | `faceapi` (BAKU, bawaan)                   | face-api / TFJS (lokal)         | FaceRecognitionNet    | 128          |
-| `mediapipe` (baru)                         | MediaPipe Face Landmarker (wasm)| MobileFaceNet (ONNX)  | 512          |
+| `mediapipe`                                | MediaPipe Face Landmarker (wasm)| MobileFaceNet (ONNX)  | 512          |
+| `onnx` (baru, `20261102a`)                 | YuNet ONNX 2023mar + 5 titik    | MobileFaceNet — crop 112×112 **di-align 5 titik** | 512 |
+
+- **Motor `onnx` (YuNet)**: detektor jauh lebih kuat daripada `TinyFaceDetector` pada
+  **wajah kecil berdesakan** (baris belakang kelas) dan menyediakan **5 titik kunci**
+  (mata, hidung, sudut mulut) yang dipakai menyejajarkan crop 112×112 ala ArcFace
+  sebelum MobileFaceNet. Pencocokan memakai **kemiripan kosinus** dengan gerbang
+  **margin top-2** (menolak menebak bila dua murid nyaris sama mirip).
+  Model: `web/models/face_detection_yunet_2023mar.onnx` (0,23 MB, MIT) — input
+  **tetap 640×640**, di-precache service worker; embedder memakai
+  `mobilefacenet.onnx` yang sama dengan motor `mediapipe`.
+  Ambang: `JARAK_COCOK_ONNX=0.55` (kemiripan 45%), `JARAK_KENAL_ONNX=0.70`
+  (kemiripan 30%), `MARGIN_TOP2=0.06`.
 
 - **Cara ganti**: di konsol browser perangkat sekolah jalankan `localStorage.setItem('sbg_wajah_motor','mediapipe')` → muat ulang halaman. Kembali: nilai `'faceapi'` atau `localStorage.removeItem('sbg_wajah_motor')`.
 - **Berkas lokal** (tanpa CDN, offline setelah cache pertama):
   - `web/vendor/mediapipe/vision_bundle.js` + `wasm/vision_wasm_internal.{js,wasm}` (MediaPipe Tasks Vision)
   - `web/vendor/onnx/ort.min.js` + `ort-wasm-simd-threaded.{mjs,wasm}` (ONNX Runtime Web)
   - `web/models/face_landmarker.task` (MediaPipe) dan `web/models/mobilefacenet.onnx` (MobileFaceNet, **512-d**)
-- **Penting — registrasi ulang**: 128-d (face-api) dan 512-d (MobileFaceNet) berada di **ruang fitur berbeda**. Setelah berganti mesin, murid harus didaftarkan ulang (modal wajah → "Simpan Data Wajah" mode `ganti`; pipeline multi-pose dan batas 6 sampel tetap sama). Baris lama 128 tetap tersimpan di DB dan berfungsi bila motor kembali ke `faceapi`. Face Scan/Absen Mandiri kini mendeteksi kondisi ini dan menampilkan pesan "mesin pengenalan lain" (bukan "belum terdaftar") — lihat §7b.
+  - `web/models/face_detection_yunet_2023mar.onnx` (YuNet, detektor motor `onnx` — MIT,
+    lihat `web/models/LICENSE-yunet.txt`)
+- **Penting — registrasi ulang**: 128-d (face-api) vs 512-d (MobileFaceNet) berada di
+  **ruang fitur berbeda**, dan `mediapipe` vs `onnx` juga **berbeda kebijakan crop**
+  (kotak deteksi vs align 5 titik) walaupun sama-sama 512 angka. Setelah berganti mesin,
+  murid harus didaftarkan ulang (modal wajah → "Simpan Data Wajah" mode `ganti`; pipeline
+  multi-pose dan batas 6 sampel tetap sama). Baris lama tetap tersimpan di DB dan
+  berfungsi bila motor dikembalikan. Face Scan/Absen Mandiri mendeteksi kondisi ini dan
+  menampilkan pesan "mesin pengenalan lain" (bukan "belum terdaftar") — lihat §7b.
+  ⚠ Karena `mediapipe` dan `onnx` sama-sama 512 angka, DB **tidak** dapat membedakan
+  keduanya dari dimensi saja: setelah pindah antar keduanya, daftarkan ulang (atau
+  samakan motor di semua perangkat) — kolom penanda mesin per baris direncanakan di
+  tahap berikutnya.
 - **Syarat deploy**: jalankan sekali `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` di Supabase SQL Editor (tanpa migrasi data; RPC menerima 128 & 512). Lihat juga `CHECKLIST_E2E.md` → **S14h**.
 - **Kualitas (validasi offline model ini)**: wajah sama cos≈0.85 (d≈0.54), antar-orang cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; pemisahannya lebar, tetapi E2E di perangkat sekolah terlemah tetap wajib (ukur latensi pemindaian pertama).
+- **Perbaikan bug crop `mediapipe` (build `20261102a`)** — dampak besar: jalur deskriptor
+  mediapipe dulu memanggil `drawImage` dengan argumen sumber/tujuan **tertukar**
+  (`(el, 0, 0, 112, 112, b.x, b.y, cw, ch)`), sehingga yang dibaca adalah potongan
+  112×112 di **pojok kiri-atas frame** lalu digambar di **luar** kanvas ⇒ descriptor
+  dihitung dari citra (hampir) kosong. Sekarang potongan kotak wajah dipetakan ke kanvas
+  112×112 penuh (`(el, b.x, b.y, cw, ch, 0, 0, 112, 112)`), demikian pula snapshot 128×128
+  pada loop registrasi. **Data 512-angka hasil registrasi sebelum perbaikan ini tidak
+  sahih → daftarkan ulang.** Uji regresi menahan perbaikan ini (`npm run test:face` §6i).
+- **Mencoba motor `onnx`**: `localStorage.setItem('sbg_wajah_motor','onnx')` → muat ulang
+  halaman → modal wajah murid → **Simpan Data Wajah** (mode `ganti`, ulangi untuk beberapa
+  murid) → uji Face Scan kelas & Absen Mandiri, ukur latensi pindai pertama di perangkat
+  terlemah. Bawa nilai "jarak/kemiripan" yang tampil ke masthead untuk penyetelan
+  (`localStorage.sbg_wajah_ambang`).
 
 ### 7b. Akurasi pemindaian absen (Face Scan kelas)
 

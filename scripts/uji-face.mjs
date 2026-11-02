@@ -20,6 +20,13 @@
  *      NotReadable/Overconstrained/TypeError) + pemeriksaan struktural bahwa
  *      registrasi, Absen Mandiri, dan Face Scan kelas memakai lapisan ini, serta
  *      fallback selfie & pemilih kamera benar-benar terpasang.
+ *   6. Motor `onnx` (YuNet + align 5 titik + matcher kosinus): dekode 12 tensor
+ *      keluaran YuNet (skor √(cls·obj), cx=(kolom+dx)·stride, w=e^dw·stride, 5
+ *      titik), IoU/NMS, matriks affine 3 titik, mapping 5 titik → template 112×112
+ *      (round-trip + tidak bergantung urutan mata/mulut), kemiripan kosinus, matcher
+ *      `buatMatcherKosinus` (margin top-2), ambang/dimensi mesin onnx, gerbang pose
+ *      dari 5 titik, pemeriksaan struktural jalur onnx, dan penahan bug crop
+ *      `drawImage` (argumen sumber/tujuan pernah tertukar → descriptor kosong).
  *
  * Jalankan: `npm run test:face` (atau `node scripts/uji-face.mjs`; di sandbox
  * tanpa Node: `deno run -A scripts/uji-face.mjs`).
@@ -107,6 +114,7 @@ const kodeAmbang = [
   potong(/const DIM_WAJAH_MEDIAPIPE = [\d.]+;/, 'DIM_WAJAH_MEDIAPIPE'),
   potong(/const JARAK_COCOK_MP = [\d.]+;/, 'JARAK_COCOK_MP'),
   potong(/const JARAK_KENAL_MP = [\d.]+;/, 'JARAK_KENAL_MP'),
+  potong(/const JARAK_COCOK_ONNX = [\d.]+;/, 'JARAK_COCOK_ONNX'),
   potong(/function motorWajah\(\) \{[\s\S]*?\n  \}/, 'motorWajah'),
   potong(/function dimWajahMotor\(\) \{[\s\S]*?\n  \}/, 'dimWajahMotor'),
   potong(/let motorPaksa = null;/, 'motorPaksa'),
@@ -183,6 +191,7 @@ const kodeAkurasi = [
   potong(/const DIM_WAJAH_LEGACY = [\d.]+;/, 'DIM_WAJAH_LEGACY (akurasi)'),
   potong(/const DIM_WAJAH_MEDIAPIPE = [\d.]+;/, 'DIM_WAJAH_MEDIAPIPE (akurasi)'),
   potong(/const JARAK_COCOK_MP = [\d.]+;/, 'JARAK_COCOK_MP (akurasi)'),
+  potong(/const JARAK_COCOK_ONNX = [\d.]+;/, 'JARAK_COCOK_ONNX (akurasi)'),
   potong(/function motorWajah\(\) \{[\s\S]*?\n  \}/, 'motorWajah (akurasi)'),
   potong(/let motorPaksa = null;/, 'motorPaksa'),
   potong(/function motorAktif\(\) \{[\s\S]*?\n  \}/, 'motorAktif'),
@@ -302,7 +311,8 @@ cek('gerbang kualitas dipakai saat o.mandiri', /if \(o\.mandiri\) \{[\s\S]{0,900
 cek('fusi descriptor dipakai saat o.mandiri', /if \(o\.mandiri\) \{[\s\S]{0,300}?bufferFusi\.push/.test(SUMBER));
 cek('ambang loop mandiri = ambangMandiri()', /const cocokDi = o\.mandiri \? ambangMandiri\(\) : ambangCocok\(\);/.test(SUMBER));
 cek('matcher mandiri memakai ambang 1:1', /buatMatcherDariPeta\(\{ \[nisS\]: \{ descriptor: daftarSampel \} \}, ambangMandiri\(\)\)/.test(SUMBER));
-cek('mesin dipaksa otomatis sesuai dimensi data', /motorPaksa = \(dimV === DIM_WAJAH_MEDIAPIPE\) \? 'mediapipe' : 'faceapi';/.test(SUMBER));
+cek('mesin dipaksa otomatis sesuai dimensi data',
+  /motorPaksa = \(dimV === DIM_WAJAH_MEDIAPIPE\)[\s\S]{0,90}?\? \(motorWajah\(\) === 'onnx' \? 'onnx' : 'mediapipe'\)[\s\S]{0,40}?: 'faceapi';/.test(SUMBER));
 cek('mesin dipulihkan di finally', /finally \{[\s\S]{0,200}?motorPaksa = null;/.test(SUMBER));
 cek('pesan "mesin pengenalan lain" Absen Mandiri diganti diagnosis',
   !/terdaftar dengan <b>mesin pengenalan lain<\/b> \(\$\{dimV\}/.test(SUMBER));
@@ -418,6 +428,224 @@ cek('daftar kamera disegarkan saat perangkat berubah (devicechange)',
   /addEventListener\('devicechange'/.test(SUMBER));
 cek('API publik kamera diekspor (dipakai pemindai QR di app.js)',
   /daftarKamera,\s*\n\s*kameraTerakhirTersimpan,/.test(SUMBER));
+
+// ---------------------------------------------------------------------------
+// 6. Motor onnx: dekode YuNet, align 5 titik, matcher kosinus
+// ---------------------------------------------------------------------------
+const kodeOnnx = [
+  potong(/const JARAK_COCOK_ONNX = [\d.]+;/, 'JARAK_COCOK_ONNX (onnx)'),
+  potong(/const JARAK_KENAL_ONNX = [\d.]+;/, 'JARAK_KENAL_ONNX'),
+  potong(/const MARGIN_TOP2 = [\d.]+;/, 'MARGIN_TOP2'),
+  potong(/const YUNET_UKURAN = \d+;/, 'YUNET_UKURAN'),
+  potong(/const YUNET_AMBANG_SKOR = [\d.]+;/, 'YUNET_AMBANG_SKOR'),
+  potong(/const YUNET_NMS_IOU = [\d.]+;/, 'YUNET_NMS_IOU'),
+  potong(/const TEMPLATE_112 = \[[\s\S]*?\n  \];/, 'TEMPLATE_112'),
+  potong(/const DIM_WAJAH_LEGACY = [\d.]+;/, 'DIM_WAJAH_LEGACY (onnx)'),
+  potong(/const DIM_WAJAH_MEDIAPIPE = [\d.]+;/, 'DIM_WAJAH_MEDIAPIPE (onnx)'),
+  potong(/function iouKotak\(a, b\) \{[\s\S]*?\n  \}/, 'iouKotak'),
+  potong(/function nmsKandidat\(kandidat, ambangIou\) \{[\s\S]*?\n  \}/, 'nmsKandidat'),
+  potong(/function bacaKeluaranYuNet\([\s\S]*?\n  \}/, 'bacaKeluaranYuNet'),
+  potong(/function urutkanXDua\(a, b\) \{[\s\S]*?\n  \}/, 'urutkanXDua'),
+  potong(/function matriksAffine3\(asal, tujuan\) \{[\s\S]*?\n  \}/, 'matriksAffine3'),
+  potong(/function matriksAlin112\(kps\) \{[\s\S]*?\n  \}/, 'matriksAlin112'),
+  potong(/function kemiripanKosinus\(a, b\) \{[\s\S]*?\n  \}/, 'kemiripanKosinus'),
+  potong(/function normalisasiDescriptorWajah\(d, dim\) \{[\s\S]*?\n  \}/, 'normalisasiDescriptorWajah (onnx)'),
+  potong(/let motorPaksa = null;/, 'motorPaksa (onnx)'),
+  potong(/function motorWajah\(\) \{[\s\S]*?\n  \}/, 'motorWajah (onnx)'),
+  potong(/function motorAktif\(\) \{[\s\S]*?\n  \}/, 'motorAktif (onnx)'),
+  potong(/function dimWajahMotor\(\) \{[\s\S]*?\n  \}/, 'dimWajahMotor (onnx)'),
+  potong(/function ambangCocok\(\) \{[\s\S]*?\n  \}/, 'ambangCocok (onnx)'),
+  potong(/function buatMatcherKosinus\([\s\S]*?\n  \}/, 'buatMatcherKosinus'),
+  'const JARAK_COCOK = 0.5;',
+  'const JARAK_COCOK_MP = 0.8;',
+  'let mpDimensiWajah = 0;'
+].join('\n');
+
+const onnx = new Function(
+  'localStorage',
+  kodeOnnx + '\nreturn { bacaKeluaranYuNet, nmsKandidat, iouKotak, matriksAffine3, matriksAlin112,'
+  + ' kemiripanKosinus, buatMatcherKosinus, motorWajah, dimWajahMotor, ambangCocok,'
+  + ' JARAK_COCOK_ONNX, JARAK_KENAL_ONNX, MARGIN_TOP2, YUNET_UKURAN, YUNET_AMBANG_SKOR, TEMPLATE_112 };'
+)(localStoragePalsu);
+
+const dekat6 = (a, b) => Math.abs(a - b) < 1e-6;
+const fxAf = (m, p) => m.a * p.x + m.c * p.y + m.e;
+const fyAf = (m, p) => m.b * p.x + m.d * p.y + m.f;
+const vEkor = (i, n) => { const a = new Float32Array(n || 8); a[i] = 1; return a; };
+
+// --- 6a. Dekode keluaran YuNet (rumus SAMA dengan OpenCV FaceDetectorYN) ---
+function tensorYu(idx, opt) {
+  const o = opt || {};
+  const n = 16; // grid 4×4 untuk input 32×32 stride 8
+  const cls = new Float32Array(n), obj = new Float32Array(n);
+  const bbox = new Float32Array(n * 4), kps = new Float32Array(n * 10);
+  cls[idx] = (o.cls === undefined) ? 0.81 : o.cls;
+  obj[idx] = (o.obj === undefined) ? 1 : o.obj;
+  bbox[idx * 4 + 0] = o.dx === undefined ? 0 : o.dx;
+  bbox[idx * 4 + 1] = o.dy === undefined ? 0 : o.dy;
+  bbox[idx * 4 + 2] = o.dw === undefined ? 0 : o.dw;
+  bbox[idx * 4 + 3] = o.dh === undefined ? 0 : o.dh;
+  for (let k = 0; k < 5; k++) {
+    kps[idx * 10 + 2 * k] = o.kx === undefined ? 0 : o.kx;
+    kps[idx * 10 + 2 * k + 1] = o.ky === undefined ? 0 : o.ky;
+  }
+  return { cls_8: { data: cls }, obj_8: { data: obj }, bbox_8: { data: bbox }, kps_8: { data: kps } };
+}
+
+const kel = onnx.bacaKeluaranYuNet(tensorYu(5, { kx: 0.5 }), 32, 32, 0.6, [8]);
+cek('YuNet: satu kandidat di grid 4×4', kel.length === 1, kel.length);
+cek('YuNet: skor = √(cls·obj) = 0,9', kel[0] && dekat6(kel[0].detection.score, 0.9), kel[0] && kel[0].detection.score);
+cek('YuNet: kotak (r=1,c=1) → x=y=4, 8×8', !!kel[0]
+  && dekat6(kel[0].detection.box.x, 4) && dekat6(kel[0].detection.box.y, 4)
+  && dekat6(kel[0].detection.box.width, 8) && dekat6(kel[0].detection.box.height, 8),
+  kel[0] && JSON.stringify(kel[0].detection.box));
+cek('YuNet: 5 titik memakai kolom+offset (kx 0,5 → x=12, y=8)',
+  !!kel[0] && dekat6(kel[0].kps[0].x, 12) && dekat6(kel[0].kps[0].y, 8),
+  kel[0] && JSON.stringify(kel[0].kps[0]));
+cek('YuNet: kotak memakai e^(dw)·stride (dw=ln 2 → 16 px)',
+  dekat6(onnx.bacaKeluaranYuNet(tensorYu(5, { dw: Math.log(2) }), 32, 32, 0.6, [8])[0].detection.box.width, 16));
+cek('YuNet: ambang memfilter kandidat lemah',
+  onnx.bacaKeluaranYuNet(tensorYu(5, { cls: 0.25 }), 32, 32, 0.6, [8]).length === 0);
+cek('YuNet: skor di-clamp (cls 2 → 1)',
+  dekat6(onnx.bacaKeluaranYuNet(tensorYu(5, { cls: 2 }), 32, 32, 0.6, [8])[0].detection.score, 1));
+cek('YuNet: keluaran kosong aman', onnx.bacaKeluaranYuNet(null, 32, 32).length === 0);
+
+// --- 6b. IoU + NMS ---
+cek('iou kotak identik = 1', dekat6(onnx.iouKotak({ x: 0, y: 0, width: 2, height: 2 }, { x: 0, y: 0, width: 2, height: 2 }), 1));
+cek('iou kotak terpisah = 0', onnx.iouKotak({ x: 0, y: 0, width: 2, height: 2 }, { x: 5, y: 5, width: 2, height: 2 }) === 0);
+cek('iou bertumpuk separuh = 1/7',
+  dekat6(onnx.iouKotak({ x: 0, y: 0, width: 2, height: 2 }, { x: 1, y: 1, width: 2, height: 2 }), 1 / 7));
+const nmsUji = onnx.nmsKandidat([
+  { detection: { box: { x: 0, y: 0, width: 10, height: 10 }, score: 0.8 }, kps: [] },
+  { detection: { box: { x: 1, y: 1, width: 10, height: 10 }, score: 0.9 }, kps: [] },
+  { detection: { box: { x: 50, y: 50, width: 10, height: 10 }, score: 0.7 }, kps: [] }
+], 0.35);
+cek('NMS membuang duplikat, menyimpan yang berjauhan', nmsUji.length === 2, nmsUji.length);
+cek('NMS mempertahankan skor tertinggi lebih dulu', nmsUji[0].detection.score === 0.9);
+
+// --- 6c. Matriks affine 3 titik ---
+const aff = onnx.matriksAffine3(
+  [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }],
+  [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 3 }]
+);
+cek('affine: skala x = 2', !!aff && dekat6(aff.a, 2));
+cek('affine: skala y = 3', !!aff && dekat6(aff.d, 3));
+cek('affine: tanpa rotasi/geser', !!aff && dekat6(aff.b, 0) && dekat6(aff.c, 0) && dekat6(aff.e, 0) && dekat6(aff.f, 0));
+cek('affine: titik (1,1) → (2,3)', !!aff && dekat6(fxAf(aff, { x: 1, y: 1 }), 2) && dekat6(fyAf(aff, { x: 1, y: 1 }), 3));
+cek('affine: titik segaris → null',
+  onnx.matriksAffine3([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }], [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }]) === null);
+cek('affine: titik kurang → null',
+  onnx.matriksAffine3([{ x: 0, y: 0 }], [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }]) === null);
+
+// --- 6d. Align 5 titik → template 112×112 ---
+const tpl = onnx.TEMPLATE_112;
+const kpsSumber = tpl.map((p) => ({ x: p[0] * 2 + 100, y: p[1] * 2 + 50 }));
+const mAlin = onnx.matriksAlin112(kpsSumber);
+let galatAlin = 0;
+for (let i = 0; i < 5; i++) {
+  galatAlin = Math.max(galatAlin, Math.abs(fxAf(mAlin, kpsSumber[i]) - tpl[i][0]), Math.abs(fyAf(mAlin, kpsSumber[i]) - tpl[i][1]));
+}
+cek('align: 5 titik sumber → template 112 tepat (round-trip)', !!mAlin && galatAlin < 1e-6, galatAlin);
+const mTukar = onnx.matriksAlin112([kpsSumber[1], kpsSumber[0], kpsSumber[2], kpsSumber[4], kpsSumber[3]]);
+cek('align: urutan mata/mulut tidak berpengaruh',
+  !!mTukar && dekat6(mTukar.a, mAlin.a) && dekat6(mTukar.e, mAlin.e) && dekat6(mTukar.f, mAlin.f));
+cek('align: mata berimpit (span 0) → null',
+  onnx.matriksAlin112([{ x: 10, y: 10 }, { x: 10, y: 10 }, { x: 12, y: 14 }, { x: 8, y: 20 }, { x: 16, y: 20 }]) === null);
+cek('align: hanya 4 titik → null', onnx.matriksAlin112(tpl.map((p) => ({ x: p[0], y: p[1] })).slice(0, 4)) === null);
+
+// --- 6e. Kemiripan kosinus ---
+cek('kosinus vektor sama = 1', dekat6(onnx.kemiripanKosinus(vEkor(0), vEkor(0)), 1));
+cek('kosinus vektor tegak lurus = 0', dekat6(onnx.kemiripanKosinus(vEkor(0), vEkor(1)), 0));
+const vNeg = vEkor(0); vNeg[0] = -1;
+cek('kosinus vektor berlawanan = −1', dekat6(onnx.kemiripanKosinus(vEkor(0), vNeg), -1));
+const vBesar = vEkor(0); vBesar[0] = 2;
+cek('kosinus tak bergantung skala (2×) = 1', dekat6(onnx.kemiripanKosinus(vEkor(0), vBesar), 1));
+cek('kosinus panjang beda = 0', onnx.kemiripanKosinus(new Float32Array(4), new Float32Array(8)) === 0);
+cek('kosinus vektor nol = 0', onnx.kemiripanKosinus(new Float32Array(8), new Float32Array(8)) === 0);
+
+// --- 6f. Matcher kosinus + margin top-2 ---
+// Mesin diset ke onnx dulu: dimensi efektif 512 (sama dengan data MobileFaceNet).
+simpan.clear();
+simpan.set('sbg_wajah_motor', 'onnx');
+const petaUji = {
+  '101': { descriptor: [Array.from(vEkor(0, 512))] },
+  '102': { descriptor: [Array.from(vEkor(1, 512))] }
+};
+const matKos = onnx.buatMatcherKosinus(petaUji);
+cek('matcher kosinus dibuat (penanda kosinus)', !!matKos && matKos.kosinus === true);
+const b1 = matKos.findBestMatch(vEkor(0, 512));
+cek('cocok kosinus: label benar', b1.label === '101', b1.label);
+cek('cocok kosinus: kemiripan 1 → jarak 0', dekat6(b1.distance, 0) && dekat6(b1.similarity, 1));
+cek('cocok kosinus: margin besar (tidak ambigu)', b1.margin > onnx.MARGIN_TOP2, b1.margin);
+const vAmbigu = new Float32Array(512); vAmbigu[0] = 1; vAmbigu[1] = 1;
+const b2 = matKos.findBestMatch(vAmbigu);
+cek('ambigu (dua murid sama-sama mirip) → unknown', b2.label === 'unknown', b2.label + ' m=' + b2.margin);
+cek('ambigu: margin di bawah ambang', b2.margin < onnx.MARGIN_TOP2, b2.margin);
+const b3 = matKos.findBestMatch(vEkor(7, 512));
+cek('kemiripan 0 → unknown', b3.label === 'unknown' && dekat6(b3.distance, 1));
+const m1 = onnx.buatMatcherKosinus({ '201': { descriptor: [Array.from(vEkor(0, 512))] } });
+const vLirih = new Float32Array(512); vLirih[0] = 0.5; vLirih[5] = 1; // cos ≈ 0,447
+const h1 = m1.findBestMatch(vLirih);
+cek('satu label: kemiripan 0,447 masih dikenal (≥ 0,30)', h1.label === '201', h1.similarity);
+cek('matcher kosinus tanpa data → null', onnx.buatMatcherKosinus({}) === null);
+cek('matcher kosinus mengabaikan vektor dimensi lain (128)',
+  onnx.buatMatcherKosinus({ '301': { descriptor: [Array.from(vEkor(0, 128))] } }) === null);
+
+// --- 6g. Konfigurasi mesin onnx (dimensi + ambang) ---
+simpan.clear();
+simpan.set('sbg_wajah_motor', 'onnx');
+cek('motorWajah onnx = onnx', onnx.motorWajah() === 'onnx');
+cek('dimWajahMotor onnx = 512', onnx.dimWajahMotor() === 512);
+cek('ambang "Hadir" onnx = JARAK_COCOK_ONNX', dekat6(onnx.ambangCocok(), onnx.JARAK_COCOK_ONNX), onnx.ambangCocok());
+cek('JARAK_COCOK_ONNX = 1 − 0,45 (kemiripan Hadir 45%)', dekat6(onnx.JARAK_COCOK_ONNX, 0.55), onnx.JARAK_COCOK_ONNX);
+cek('ambang kenal onnx lebih longgar dari ambang cocok', onnx.JARAK_KENAL_ONNX > onnx.JARAK_COCOK_ONNX);
+simpan.set('sbg_wajah_ambang', '0.60');
+cek('kalibrasi perangkat tetap berlaku di motor onnx', dekat6(onnx.ambangCocok(), 0.6), onnx.ambangCocok());
+simpan.clear();
+cek('input YuNet tetap 640×640 (model 2023mar)', onnx.YUNET_UKURAN === 640);
+
+// --- 6h. Gerbang pose dari 5 titik YuNet ---
+function titik5(noseX, opt) {
+  const o = opt || {};
+  return [
+    { x: o.kx1 === undefined ? 200 : o.kx1, y: 100 },
+    { x: o.kx2 === undefined ? 400 : o.kx2, y: 100 },
+    { x: noseX, y: 160 },
+    { x: 230, y: 210 }, { x: 370, y: 210 }
+  ];
+}
+const pose5 = akurasi.deteksiPoseDepan(titik5(300), boxWajah, 640, 480);
+cek('pose 5 titik: frontal diterima', !!pose5 && pose5.depan === true, pose5 && pose5.yaw);
+const pose5Noleh = akurasi.deteksiPoseDepan(titik5(380), boxWajah, 640, 480);
+cek('pose 5 titik: menoleh ditolak', pose5Noleh.depan === false && pose5Noleh.yaw > akurasi.YAW_MAKS, pose5Noleh.yaw);
+cek('pose 5 titik: mata berimpit → null',
+  akurasi.deteksiPoseDepan(titik5(300, { kx1: 300, kx2: 300 }), boxWajah, 640, 480) === null);
+cek('pose 5 titik: wajah kecil ditolak',
+  akurasi.deteksiPoseDepan(titik5(300), { x: 150, y: 60, width: 100, height: 80 }, 640, 480).depan === false);
+cek('pose 4 titik → null (landmark kurang)',
+  akurasi.deteksiPoseDepan(titik5(300).slice(0, 4), boxWajah, 640, 480) === null);
+
+// --- 6i. Pemeriksaan struktural jalur onnx + perbaikan bug crop ---
+cek('deteksiSatuWajah memakai jalur onnx', /motorAktif\(\) === 'onnx'[\s\S]{0,120}?pastikanModelsOnnx\(\)/.test(SUMBER));
+cek('loop pindai memakai detektiWajahYuNet', /deteksi = \(mesinLoop === 'onnx'\)[\s\S]{0,140}?detektiWajahYuNet/.test(SUMBER));
+cek('matcher onnx memakai kosinus+margin', /motorAktif\(\) === 'onnx'\) return buatMatcherKosinus\(peta\)/.test(SUMBER));
+cek('descriptor onnx memakai transform affine align', /ctx\.setTransform\(m\.a, m\.b, m\.c, m\.d, m\.e, m\.f\)/.test(SUMBER));
+cek('input YuNet dibangun sebagai BGR nilai 0..255',
+  /inp\[p\] = px\[q \+ 2\];[\s\S]{0,120}?inp\[N \+ p\] = px\[q \+ 1\];[\s\S]{0,80}?inp\[2 \* N \+ p\] = px\[q\];/.test(SUMBER));
+cek('model YuNet dimuat dari folder lokal models/', /face_detection_yunet_2023mar\.onnx/.test(SUMBER));
+cek('prewarm idle menyertakan motor onnx', /motorWajah\(\) === 'onnx'\) \{\s*\n\s*pastikanModelsOnnx\(\)/.test(SUMBER));
+cek('YuNet memakai 2 skala kandidat (selfie dekat)', /YUNET_SKALA_KANDIDAT = \[1, 0\.5\]/.test(SUMBER));
+cek('overlay menggambar rangka 5 titik', /positions\.length === 5\) \{[\s\S]{0,400}?ctx\.lineTo/.test(SUMBER));
+cek('loop ringan registrasi memakai YuNet',
+  /motorLoop === 'onnx'\) d = await detektiWajahYuNet\(videoEl, \{\}\)/.test(SUMBER));
+// Bug crop lama (argumen drawImage tertukar) — descriptor dihitung dari citra kosong.
+cek('crop mediapipe memakai urutan argumen drawImage yang benar',
+  /drawImage\(el, b\.x, b\.y, cw, ch, 0, 0, 112, 112\)/.test(SUMBER));
+cek('snapshot mediapipe juga diperbaiki', /drawImage\(el, box\.x, box\.y, cw, ch, 0, 0, S, S\)/.test(SUMBER));
+cek('tidak ada lagi crop pojok-kiri 112×112 / S×S',
+  !/drawImage\(el, 0, 0, 112, 112/.test(SUMBER) && !/drawImage\(el, 0, 0, S, S/.test(SUMBER));
+cek('skala snapshot → 112 memakai dimensi gambar sumber',
+  /drawImage\(tmp, 0, 0, tmp\.width, tmp\.height, 0, 0, 112, 112\)/.test(SUMBER));
 
 // ---------------------------------------------------------------------------
 console.log(lulus + ' lulus, ' + gagal + ' gagal.');
