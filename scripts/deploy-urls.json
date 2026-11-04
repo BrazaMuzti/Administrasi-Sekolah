@@ -6,11 +6,15 @@
     "akibatnya Absen Mandiri murid mati di satu host tetapi normal di host lain, pada aplikasi yang sama.",
     "Tambah host baru (mis. custom domain .my.id / domain sekolah) sebagai objek { nama, url }.",
     "URL wajib diakhiri '/' karena index.html dicari relatif terhadap folder itu.",
-    "Verifikasi cepat tanpa mengubah berkas: `node scripts/cek-deploy.mjs --tambah sekolah=https://sekolahku.my.id/`"
+    "Tandai `\"opsional\": true` untuk host UJI COBA PRIBADI (mis. mirror Vercel): host tetap",
+    "diperiksa dan dilaporkan, tetapi ditandai ℹ (bukan ❌) dan TIDAK menggagalkan",
+    "`npm run check:deploy` — jadi host pribadi yang sengaja tidak disinkronkan tidak memerahkan gate.",
+    "Verifikasi cepat tanpa mengubah berkas: `node scripts/cek-deploy.mjs --tambah sekolah=https://sekolahku.my.id/`",
+    "Menandai host opsional sekali jalan: `node scripts/cek-deploy.mjs --opsional vercel-mirror`"
   ],
   "_contoh_tambah_host": { "nama": "domain-sekolah", "url": "https://sekolahku.my.id/" },
   "hosts": [
     { "nama": "github-pages", "url": "https://brazamuzti.github.io/Administrasi-Sekolah/" },
-    { "nama": "vercel-mirror", "url": "https://smkn2banjar.vercel.app/" }
+    { "nama": "vercel-mirror", "url": "https://smkn2banjar.vercel.app/", "opsional": true }
   ]
 }

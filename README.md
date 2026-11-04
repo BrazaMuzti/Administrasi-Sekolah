@@ -672,6 +672,14 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    **berbeda** dari repo ini (dibuat lewat unggahan web), jadi `git push mirror main`
    ditolak *non-fast-forward*. Cara yang sudah teruji (2026-10-24):
 
+   > ⚠ **Status (4 Nov 2026): mirror Vercel = host UJI COBA PRIBADI — sementara
+   > TIDAK wajib disinkronkan setiap rilis.** Host itu sudah ditandai
+   > `"opsional": true` di `scripts/deploy-urls.json`, sehingga `npm run check:deploy`
+   > menampilkannya dengan tanda **ℹ (bukan ❌)** dan **tidak** menggagalkan gate;
+   > syarat "harus identik" di atas berlaku bila host itu dipakai murid sungguhan.
+   > Langkah di bawah tetap dipakai saat ingin menyinkronkannya kembali (atau saat
+   > menambah host baru yang wajib, mis. domain sekolah).
+
    ```bash
    git fetch https://github.com/BrazaMuzti/SMKN2Banjar.git main:refs/remotes/mirror/main
    git worktree add --detach /tmp/mirror-sync mirror/main

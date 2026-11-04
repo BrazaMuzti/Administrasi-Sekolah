@@ -27,13 +27,20 @@
 //      (`sebabSesiKosong`, `diLuarJam`) supaya sesi BUKA tidak lagi terkunci
 //      di luar jam pelajaran.
 //
+// HOST OPSIONAL (mis. mirror uji coba pribadi)
+//   Host di `deploy-urls.json` boleh ditandai `"opsional": true` (atau sekali jalan
+//   lewat `--opsional nama1,nama2`). Host opsional TETAP diperiksa & dilaporkan,
+//   tetapi ketertinggalannya ditampilkan sebagai ℹ (bukan ❌) dan TIDAK menggagalkan
+//   exit code — supaya host uji coba pribadi yang sengaja tidak disinkronkan tidak
+//   memerahkan gerbang rilis.
+//
 // Cara menjalankan:
 //   npm run check:deploy
 //   node scripts/cek-deploy.mjs [--host nama1,nama2] [--tambah nama=https://host/]
-//                               [--timeout 20000] [--json]
+//                               [--opsional nama1,nama2] [--timeout 20000] [--json]
 //
-// Keluaran: tabel per host + ringkasan. Ada satu saja ✖ → exit code 1
-//   (cocok dipakai di CI maupun sebagai gerbang sebelum rilis).
+// Keluaran: tabel per host + ringkasan. Ada satu saja ❌ pada host WAJIB → exit
+//   code 1 (cocok dipakai di CI maupun sebagai gerbang sebelum rilis).
 // ============================================================
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,6 +57,8 @@ const ambilOpsi = (nama, bawaan) => {
 };
 const TIMEOUT_MS = parseInt(ambilOpsi('--timeout', '20000'), 10) || 20000;
 const HANYA = ambilOpsi('--host', '').split(',').map((s) => s.trim()).filter(Boolean);
+/** Nama host yang sekali jalan dianggap opsional (mis. `--opsional vercel-mirror`). */
+const OPSIONAL = ambilOpsi('--opsional', '').split(',').map((s) => s.trim()).filter(Boolean);
 const KELUAR_JSON = process.argv.includes('--json');
 
 const baca = (jalur) => fs.readFileSync(jalur, 'utf8');
@@ -107,11 +116,14 @@ for (const pasangan of tambahan.split(';')) {
 if (HANYA.length) daftar = daftar.filter((h) => HANYA.includes(String(h.nama)));
 
 // Normalisasi: tanpa skema → https:// ; URL wajib diakhiri '/'.
+// `opsional` dibawa terus (dari json atau `--opsional`) → host uji coba pribadi
+// tetap dilaporkan tetapi tidak menggagalkan gate.
 daftar = daftar.map((h) => {
   let url = String(h.url).trim();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
   if (!url.endsWith('/')) url += '/';
-  return { nama: String(h.nama || url), url };
+  const nama = String(h.nama || url);
+  return { nama, url, opsional: h.opsional === true || OPSIONAL.includes(nama) };
 });
 
 if (!daftar.length) {
@@ -189,7 +201,7 @@ async function periksaHost(h) {
   }
 
   return {
-    nama: h.nama, url: h.url,
+    nama: h.nama, url: h.url, opsional: h.opsional === true,
     build: buildHost || '(tak ada)',
     installBuild: buildInstall || '(tak ada)',
     sw: swHost || '(tak ada)',
@@ -238,16 +250,26 @@ async function ambilBerkas(url, label) {
     const baris = await periksaHost(h);
     hasil.push(baris);
     if (!KELUAR_JSON) {
-      const tanda = baris.masalah.length === 0 ? '✅' : '❌';
+      // ✅ selaras · ❌ host WAJIB tertinggal · ℹ host opsional (uji coba) tertinggal
+      const tanda = baris.masalah.length === 0 ? '✅' : (baris.opsional ? 'ℹ' : '❌');
       console.log('  ' + tanda + ' ' + String(baris.nama).padEnd(17)
         + String(baris.build).padEnd(14) + String(baris.sw).padEnd(7)
-        + (baris.utilsOk ? 'ok    ' : 'beda  ') + (baris.appOk ? 'ok' : 'beda'));
+        + (baris.utilsOk ? 'ok    ' : 'beda  ') + (baris.appOk ? 'ok' : 'beda')
+        + (baris.opsional ? '  (opsional)' : ''));
     }
   }
 
-  const gagal = hasil.filter((b) => b.masalah.length);
+  const beda = hasil.filter((b) => b.masalah.length);
+  const gagal = beda.filter((b) => !b.opsional);          // hanya host WAJIB yang menggagalkan gate
+  const opsionalTertinggal = beda.filter((b) => b.opsional);
   for (const b of gagal) {
     console.log('\n❌ ' + b.nama + ' — ' + b.url);
+    console.log('   stempel: index.html=' + b.build + ' · install.js=' + b.installBuild
+      + ' · sw.js=' + b.sw + ' · js/app.js=' + b.hash);
+    for (const m of b.masalah) console.log('   • ' + m);
+  }
+  for (const b of opsionalTertinggal) {
+    console.log('\nℹ ' + b.nama + ' (opsional — uji coba pribadi, bukan kegagalan) — ' + b.url);
     console.log('   stempel: index.html=' + b.build + ' · install.js=' + b.installBuild
       + ' · sw.js=' + b.sw + ' · js/app.js=' + b.hash);
     for (const m of b.masalah) console.log('   • ' + m);
@@ -261,13 +283,19 @@ async function ambilBerkas(url, label) {
   }
 
   console.log('\n' + '='.repeat(60));
-  console.log('Host diperiksa: ' + hasil.length + ' | ✅ selaras: ' + (hasil.length - gagal.length)
-    + ' | ❌ drift/gagal: ' + gagal.length + ' | ⚠ repo lokal: ' + galatLokal.length);
+  console.log('Host diperiksa: ' + hasil.length + ' | ✅ selaras: ' + (hasil.length - beda.length)
+    + ' | ❌ wajib tertinggal: ' + gagal.length
+    + ' | ℹ opsional tertinggal: ' + opsionalTertinggal.length
+    + ' | ⚠ repo lokal: ' + galatLokal.length);
   if (gagal.length || galatLokal.length) {
-    console.log('❌ Ada host yang menyajikan build BERBEDA dari repo ini (atau repo belum konsisten).');
-    console.log('   Sinkronkan folder `web/` ke host yang tertinggal (README §7 — mirror Vercel),');
+    console.log('❌ Ada host WAJIB yang menyajikan build BERBEDA dari repo ini (atau repo belum konsisten).');
+    console.log('   Sinkronkan folder `web/` ke host yang tertinggal (README §7),');
     console.log('   lalu jalankan ulang: npm run check:deploy');
     process.exit(1);
   }
-  console.log('✅ Semua host menyajikan build yang SAMA dengan repo ini — Absen Mandiri murid konsisten.');
+  if (opsionalTertinggal.length) {
+    console.log('ℹ Host opsional (uji coba pribadi) tertinggal — diabaikan, tidak menggagalkan gate.');
+    console.log('   Bila nanti ingin disinkronkan: README §7 butir 7 (lewati saja host ini untuk sementara).');
+  }
+  console.log('✅ Semua host WAJIB menyajikan build yang SAMA dengan repo ini — Absen Mandiri murid konsisten.');
 })();
