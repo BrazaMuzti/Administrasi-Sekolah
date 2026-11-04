@@ -3889,6 +3889,132 @@ function tampilkanBannerScan(ikon, pesan, warna) {
   }, 1500);
 }
 
+/** ── PENANDAAN HADIR DARI SCAN (QR / Face Scan) — SATU sumber logika ─────────
+ *  Sebelumnya tiap jalur (QR modal, Face Scan modal, Face Scan nilai) menyalin
+ *  sendiri logika "cari radio H → centang → banner → TTS → gulir baris". Salinan
+ *  itu mencari radio dengan `querySelector('input[name="absen_<nis>"]')` PERSIS,
+ *  padahal `nis` datang dari sumber berbeda: label Face Scan = `akun.nis_nip`
+ *  (teks dari DB), nama radio = `absensi.NIS` (data absensi yang bisa berupa
+ *  angka/format lain). Begitu formatnya beda (mis. 1234 vs "1234", "0012" vs 12,
+ *  atau ada spasi), radio TIDAK ketemu → fungsi berhenti DIAM-DIAM: tidak ada H,
+ *  banner, TTS, maupun gulir — gejalanya "wajah cocok tapi tidak ditandai".
+ *  Helper di bawah: pencarian radio 3 strategi + normalisasi NIS, efek umpan
+ *  balik kehadiran dipusatkan, dan kegagalan baris TIDAK lagi tanpa jejak. */
+
+/** Normalisasi kunci NIS (buang karakter tak terlihat + spasi tepi). */
+function normKunciNis(v) {
+  return String(v == null ? '' : v).replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+}
+
+/** Dua NIS dianggap sama bila teksnya sama ATAU nilainya numerik sama —
+ *  menangkap "0012" vs 12 yang lazim terjadi antar sumber data (Sheets/DB). */
+function nisSama(a, b) {
+  const x = normKunciNis(a), y = normKunciNis(b);
+  if (x === y) return true;
+  if (!x || !y) return false;
+  const nx = Number(x), ny = Number(y);
+  return isFinite(nx) && isFinite(ny) && nx === ny;
+}
+
+/** Cari radio status "H" milik satu NIS pada modal absensi.
+ *  Strategi: (1) nama persis `absen_<nis>`; (2) baris `#row-murid-<nis>`;
+ *  (3) telusuri SEMUA radio H lalu bandingkan nama (teks/numerik).
+ *  @returns {HTMLElement|null} */
+function cariRadioAbsenH(nis) {
+  const nisS = normKunciNis(nis);
+  if (!nisS) return null;
+  try {
+    const aman = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(nisS) : nisS;
+    const r1 = document.querySelector(`input[name="absen_${aman}"][value="H"]`);
+    if (r1) return r1;
+  } catch (e) { /* selector tidak sah → lanjut strategi berikutnya */ }
+  try {
+    const baris = document.getElementById(`row-murid-${nisS}`);
+    const r2 = baris ? baris.querySelector('input[type="radio"][value="H"]') : null;
+    if (r2) return r2;
+  } catch (e) { /* lanjut */ }
+  const semua = document.querySelectorAll('input[type="radio"][value="H"]');
+  for (let i = 0; i < semua.length; i++) {
+    const nm = String(semua[i].name || '');
+    if (nm.indexOf('absen_') !== 0) continue;
+    if (nisSama(nm.slice(6), nisS)) return semua[i];
+  }
+  return null;
+}
+
+
+/** Sorot + gulir baris murid pada tabel modal absensi (umpan balik visual scan).
+ *  Debounce 1,2 dtk per NIS supaya animasi tidak bergetar ketika wajah yang sama
+ *  terbaca berulang tiap cooldown pemindai. */
+function sorotBarisMurid(nis) {
+  const nisS = normKunciNis(nis);
+  if (!nisS) return;
+  let r = document.getElementById(`row-murid-${nisS}`);
+  if (!r) {
+    const semua = document.querySelectorAll('[id^="row-murid-"]');
+    for (let i = 0; i < semua.length; i++) {
+      if (nisSama(semua[i].id.slice(10), nisS)) { r = semua[i]; break; }
+    }
+  }
+  if (!r) return;
+  const kini = Date.now();
+  sorotBarisMurid._jam = sorotBarisMurid._jam || {};
+  if (sorotBarisMurid._jam[nisS] && (kini - sorotBarisMurid._jam[nisS]) < 1200) return;
+  sorotBarisMurid._jam[nisS] = kini;
+  try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* opsional */ }
+  r.classList.remove('bg-green-900/50');
+  r.classList.add('animasi-scan-nama');
+  setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500);
+}
+
+/** Bacakan nama murid (TTS) — ucapan lama DIBATALKAN dulu supaya nama tidak
+ *  mengantre di belakang ucapan yang masih berjalan (dulu terasa "tidak terbaca").
+ *  @param awalan - teks pembuka; '' = cukup nama (dipakai Face Scan nilai). */
+function ucapkanNamaScan(nama, awalan) {
+  try {
+    if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance((awalan === undefined ? 'Hadir, ' : String(awalan)) + String(nama || 'Siswa'));
+    u.lang = 'id-ID'; u.rate = 1.4;
+    window.speechSynthesis.speak(u);
+  } catch (e) { /* TTS opsional — bukan kegagalan fatal */ }
+}
+
+/** Tandai HADIR (H) satu murid hasil scan QR/Face pada modal absensi.
+ *  Efek saat H BARU ditandai: radio H dicentang (+ dataset.on utk gaya tombol),
+ *  banner dalam modal, TTS nama, dan baris digulir + disorot.
+ *  @returns {boolean} true bila H BARU ditandai; false bila sudah H atau baris
+ *          absensi tidak ditemukan (pemanggil memakai ini utk hitungan/stop). */
+function tandaiHadirScan(nis, namaCadangan) {
+  const nisS = normKunciNis(nis);
+  const radioH = cariRadioAbsenH(nisS);
+  // Nama: `listMuridKelas` bisa berisi baris modal absensi (kunci `nis`/`nama`)
+  // ATAU baris mentah modul nilai (kunci `NIS`/`Nama Lengkap`) → dukung keduanya.
+  const baris = (listMuridKelas || []).find(m => m && (nisSama(m.nis, nisS) || nisSama(m.NIS, nisS))) || {};
+  const nama = baris.nama || baris["Nama Lengkap"] || namaCadangan || 'Siswa';
+  if (!radioH) {
+    console.warn('[scan-hadir] baris absensi tidak ditemukan untuk NIS:', nisS);
+    tampilkanBannerScan('fa-triangle-exclamation',
+      `Cocok (NIS ${nisS || '-'}) — baris absensi tidak ditemukan`, 'bg-amber-600/90 border-amber-400/60');
+    return false;
+  }
+  const sudah = radioH.checked;
+  console.debug('[scan-hadir]', { nis: nisS, nama: nama, sudah: sudah, ketemu: true });
+  if (!sudah) {
+    radioH.checked = true;
+    radioH.dataset.on = '1';
+    try { radioH.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) { /* opsional */ }
+    tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama);
+    ucapkanNamaScan(nama);
+    sorotBarisMurid(nisS);
+  } else {
+    // Sudah H (mis. dari Absen Mandiri / scan sebelumnya) → tetap sorot barisnya
+    // supaya operator tahu murid mana yang sedang dibaca kamera (tanpa TTS ulang).
+    sorotBarisMurid(nisS);
+  }
+  return !sudah;
+}
+
 /** Ikon GPS per murid (kolom absensi.gps, format "lat, lng").
  *  Koordinat valid → ikon hijau, klik membuka Google Maps; kosong/pesan gagal → ikon abu-abu tanpa tautan. */
 function ikonGpsAbsenHTML(gps) {
@@ -3965,17 +4091,20 @@ function showModalEditAbsen(tanggal) {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
       const btnToggle = document.getElementById('btn-toggle-kunci-panel');
       if(btnToggle) { btnToggle.addEventListener('click', () => { const panel = document.getElementById('panel-kunci-admin'); if(panel.classList.contains('hidden')) { panel.classList.remove('hidden'); btnToggle.classList.add('bg-blue-600', 'text-white'); btnToggle.classList.remove('bg-white/10', 'text-slate-300'); } else { panel.classList.add('hidden'); btnToggle.classList.add('bg-white/10', 'text-slate-300'); btnToggle.classList.remove('bg-blue-600', 'text-white'); } }); }
-      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200}, rememberLastUsedCamera: true, videoConstraints: qrConstraintKamera() }); html5QrcodeScanner.render((nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (radioH && !radioH.checked) { radioH.checked = true; radioH.dataset.on = '1'; const nama = listMuridKelas.find(m => m.nis == nis)?.nama || "Siswa"; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID';utt.rate = 1.4; window.speechSynthesis.speak(utt); const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } }, () => {}); });
+      document.getElementById('btn-qr-modal').addEventListener('click', () => { if (window.FaceWajah) window.FaceWajah.berhentiPindaiWajah(); const fwFace2 = document.getElementById('face-reader-wrap'); if (fwFace2) fwFace2.classList.add('hidden'); if (html5QrcodeScanner) { try { const prevClear = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear && prevClear.catch) prevClear.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } document.getElementById('qr-reader-in-modal').classList.remove('hidden'); html5QrcodeScanner = new Html5QrcodeScanner("qr-reader-in-modal", { fps: 10, qrbox: {width: 200, height: 200}, rememberLastUsedCamera: true, videoConstraints: qrConstraintKamera() }); html5QrcodeScanner.render((nis) => { tandaiHadirScan(nis); }, () => {}); });
       // Pemilih kamera QR (Depan / Belakang / semua kamera) — listener TERPISAH yang
       // dipasang setelah handler di atas supaya scanner selesai dibuat lebih dulu.
       // Mengganti kamera → scanner dibuat ulang dengan constraint kamera baru.
       const btnQrKamera = document.getElementById('btn-qr-modal');
       if (btnQrKamera) btnQrKamera.addEventListener('click', () => {
-        const onHadirQr = (nis) => { if (typeof tandaiHadirWajah === 'function') tandaiHadirWajah(nis); };
+        const onHadirQr = (nis) => tandaiHadirScan(nis);
         qrPasangPilihKamera(document.getElementById('qr-kamera-bar-modal'), document.getElementById('qr-kamera-modal'),
           () => mulaiQrAbsenKelas(onHadirQr));
       });
-      const tandaiHadirWajah = (nis) => { const radioH = document.querySelector(`input[name="absen_${nis}"][value="H"]`); if (!radioH) return false; const sudah = radioH.checked; if (!sudah) { radioH.checked = true; radioH.dataset.on = '1'; const nama = (listMuridKelas.find(m => m.nis == nis) || {}).nama || 'Siswa'; tampilkanBannerScan('fa-circle-check', 'Hadir — ' + nama); try { const utt = new SpeechSynthesisUtterance(`Hadir, ${nama}`); utt.lang = 'id-ID'; utt.rate = 1.4; window.speechSynthesis.speak(utt); } catch (e) {} const r = document.getElementById(`row-murid-${nis}`); if (r) { try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} r.classList.remove('bg-green-900/50'); r.classList.add('animasi-scan-nama'); setTimeout(() => r.classList.remove('animasi-scan-nama'), 1500); } } return !sudah; };
+      // Penandaan H + banner + TTS + gulir baris dipusatkan di tandaiHadirScan()
+      // (pencarian radio 3 strategi + normalisasi NIS — tahan beda format NIS
+      // antara label wajah `akun.nis_nip` dan nama radio `absen_<absensi.NIS>`).
+      const tandaiHadirWajah = (nis) => tandaiHadirScan(nis);
       document.getElementById('btn-face-modal').addEventListener('click', () => { if (html5QrcodeScanner) { try { const prevClear2 = html5QrcodeScanner.clear && html5QrcodeScanner.clear(); if (prevClear2 && prevClear2.catch) prevClear2.catch(() => {}); } catch (e) {} html5QrcodeScanner = null; } const fwQr = document.getElementById('qr-reader-in-modal'); if (fwQr) fwQr.classList.add('hidden'); const fwQrBar = document.getElementById('qr-kamera-bar-modal'); if (fwQrBar) fwQrBar.classList.add('hidden'); const fwFace = document.getElementById('face-reader-wrap'); if (!fwFace) return; fwFace.classList.remove('hidden'); if (window.FaceWajah) { window.FaceWajah.mulaiPindaiWajahAbsen(listMuridKelas, { wrap: fwFace, onMatch: tandaiHadirWajah }); } });
       // Pertemuan ke- otomatis: lanjut dari jurnal terakhir guru+kelas+mapel+tahun ini
       (async () => {
@@ -7554,7 +7683,10 @@ function openPenilaianMasal() {
           const sudah = chk.checked;
           if (!sudah) {
             chk.checked = true;
-            const namaM = listMuridKelas.find(m => String(m.NIS) === nisS)?.["Nama Lengkap"] || "Siswa";
+            // Nama: dukung baris mentah (NIS/Nama Lengkap) maupun baris modal absensi
+            // (nis/nama) + normalisasi format NIS (lihat nisSama).
+            const barisN = listMuridKelas.find(m => m && (nisSama(m.NIS, nisS) || nisSama(m.nis, nisS))) || {};
+            const namaM = barisN["Nama Lengkap"] || barisN.nama || "Siswa";
             tampilkanBannerScanNilai(namaM); // popup notifikasi nama siswa
             const lbl = popup.querySelector(`#lbl-masal-${nisS}`);
             if (lbl) {
@@ -7563,11 +7695,8 @@ function openPenilaianMasal() {
               setTimeout(() => lbl.classList.remove('bg-green-900/60'), 1500);
             }
             // TTS Cepat Bahasa Indonesia (nama siswa dibacakan) + auto-focus kolom.
-            try {
-              const utt = new SpeechSynthesisUtterance(namaM);
-              utt.lang = 'id-ID'; utt.rate = 1.4;
-              window.speechSynthesis.speak(utt);
-            } catch (e) { /* TTS opsional */ }
+            // Dipusatkan di ucapkanNamaScan() (cancel() dulu → tidak mengantre).
+            ucapkanNamaScan(namaM, '');
             const inp = popup.querySelector(`.input-masal-individu[data-nis="${nisS}"]`);
             if (inp) { inp.focus(); if (typeof inp.select === 'function') inp.select(); }
           }
@@ -10457,6 +10586,7 @@ async function renderManajemenMurid(container, paksa = false) {
                             <button onclick="cetakFotoSiswa()" class="h-8 bg-cyan-600 hover:bg-cyan-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Cetak lembar foto siswa (mengikuti filter tabel aktif)"><i class="fa-solid fa-camera-retro"></i> <span class="hidden sm:inline">Foto</span></button>
                             <button onclick="bukaPengaturanKartu()" class="h-8 bg-indigo-600 hover:bg-indigo-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Cetak kartu pelajar (ID Card) siswa — pengaturan sebelum cetak"><i class="fa-solid fa-id-card"></i> <span class="hidden sm:inline">Kartu</span></button>
                             ${aksesRegistrasiWajahMasal() ? `<button onclick="scanWajahMasal()" class="h-8 bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Registrasi wajah otomatis dari foto profil utk murid yang belum punya wajah (mengikuti filter aktif)"><i class="fa-solid fa-face-viewfinder"></i><i class="fa-solid fa-users text-[6px] -ml-1 -mb-2 text-white/90"></i> <span class="hidden sm:inline">Wajah Masal</span></button>` : ''}
+${aksesRegistrasiWajahMasal() ? `<button onclick="cekKualitasWajahMurid()" class="h-8 bg-teal-600 hover:bg-teal-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Cek Wajah — periksa kualitas data wajah murid pada filter aktif (validitas statis + probe foto profil, read-only)"><i class="fa-solid fa-magnifying-glass-chart"></i> <span class="hidden sm:inline">Cek Wajah</span></button>` : ''}
 ${bisaImportMuridAktif() ? `<button onclick="openUploadFotoMasal()" class="h-8 bg-cyan-700 hover:bg-cyan-600 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Unggah foto massal utk SEMUA murid (tanpa terkait filter aktif). Nama file: \"{NISN} {Nama siswa}.jpg\" (fallback NIS). Admin, wali kelas & pembina ekskul"><i class="fa-solid fa-upload"></i> <span class="hidden sm:inline">Upload Foto</span></button>` : ''}
                             <button onclick="openFormAkunMurid(true)" class="h-8 bg-blue-600 hover:bg-blue-700 text-white px-1.5 sm:px-3 rounded-lg text-[11px] font-bold transition shadow-md whitespace-nowrap" title="Tambah Murid"><i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Tambah</span></button>
                         </div>
@@ -12223,6 +12353,187 @@ async function scanWajahMasal() {
 
 
 
+
+/** Cek Wajah — verifikasi kualitas data wajah murid pada FILTER AKTIF (read-only).
+ *  Lapis: (1) statis (ada descriptor? dimensi cocok mesin aktif? status?),
+ *  (2) probe dari foto profil (1:1 min-distance — PERKIRAAN, lihat face.js),
+ *  (3) opsional Uji Kamera per murid dari laporan. TIDAK menyimpan apa pun.
+ *  Hak akses: `aksesRegistrasiWajahMasal()` (admin & guru wali kelas/pembina),
+ *  sama dengan Wajah Masal — hanya membaca, jadi aman untuk guru pengampu. */
+let cekWajahSedangProses = false;
+async function cekKualitasWajahMurid() {
+  // [HAK AKSES] Lapis kedua (pertahanan ekstra selain sembunyi tombol).
+  if (!aksesRegistrasiWajahMasal()) {
+    return showToast('error', 'Fitur Cek Wajah khusus admin, wali kelas, atau pembina ekskul.');
+  }
+  if (cekWajahSedangProses) return showToast('info', 'Cek Wajah sedang berjalan…');
+  const fw = window.FaceWajah;
+  if (!fw || typeof fw.verifikasiKualitasWajah !== 'function') {
+    return showToast('error', 'Modul wajah (face.js) belum dimuat — muat ulang halaman.');
+  }
+  let sumber;
+  try { sumber = await akunDaftarMurid('export'); }
+  catch (e) { console.warn('cekKualitasWajahMurid fetch:', e); sumber = cacheAkunMurid || []; }
+  let rows = muridTersaring(sumber);
+  // Filter "Status Wajah" diterapkan di renderTabelMuridTerfilter (bukan di
+  // muridTersaring) → samakan di sini supaya cakupan Cek Wajah = tabel terlihat.
+  const filtWajah = String(((document.getElementById('filter-status-wajah') || {}).value) || 'ALL').toLowerCase();
+  if (filtWajah !== 'all' && rows.length && typeof fw.ambilStatusWajah === 'function') {
+    try {
+      const petaW = await fw.ambilStatusWajah(rows.map(d => nisBarisMurid(d)));
+      rows = rows.filter(d => String(petaW[nisBarisMurid(d)] || 'belum') === filtWajah);
+    } catch (e) { console.warn('Cek Wajah filter status:', e); }
+  }
+  if (!rows.length) return showToast('info', 'Tidak ada murid pada filter tabel aktif.');
+  const daftar = rows.map(d => ({
+    nis: nisBarisMurid(d),
+    nama: String(d.nama_lengkap || d.Nama || nisBarisMurid(d)),
+    url_foto: String(d.url_foto || '')
+  })).filter(x => x.nis);
+  window.__cekWajahDaftar = daftar; // dipakai tombol "Uji Kamera" pada laporan
+
+  const { value } = await Swal.fire({
+    title: 'Cek Wajah (read-only)',
+    html: `<div class="text-left text-[12px] text-slate-300"><b>${daftar.length}</b> murid pada filter aktif akan diperiksa:` +
+      `<ul class="list-disc ml-5 mt-1 mb-1 text-[11px] text-slate-400"><li>Validitas data wajah (ada / dimensi / status)</li>` +
+      `<li>Probe dari foto profil (1:1 — perkiraan)</li></ul>` +
+      `<span class="text-[11px] text-amber-300"><i class="fa-solid fa-circle-info mr-1"></i>Tidak ada data yang diubah. Butuh koneksi (model wajah & foto).</span></div>`,
+    icon: 'question', showCancelButton: true, confirmButtonText: 'Mulai Cek', cancelButtonText: 'Batal',
+    background: '#1e293b', color: '#fff'
+  });
+  if (!value) return;
+
+  cekWajahSedangProses = true;
+  let berhenti = false;
+  // Modal progres DIBUKA tanpa await (pola sama dengan scanWajahMasal) — kita
+  // hanya memantau penutupannya untuk menghentikan loop.
+  const promProgres = Swal.fire({
+    title: 'Cek Wajah…',
+    html: `<div id="cek-wajah-progress" class="text-sm">0/${daftar.length} · menyiapkan…</div>`,
+    allowOutsideClick: false, showCancelButton: true, cancelButtonText: 'Batal',
+    didOpen: () => Swal.showLoading(), background: '#1e293b', color: '#fff'
+  });
+  promProgres.then(() => { berhenti = true; }).catch(() => { berhenti = true; });
+  let hasil = null;
+  try {
+    hasil = await fw.verifikasiKualitasWajah(daftar, {
+      denganFoto: true,
+      hentikan: () => berhenti,
+      onProgress: (i, total, nama) => {
+        const pb = document.getElementById('cek-wajah-progress');
+        if (pb) pb.innerHTML = `${Math.min(i + 1, total)}/${total} · <span class="text-slate-300">${escapeHtml(nama)}</span>`;
+      }
+    });
+  } catch (e) {
+    console.error('cekKualitasWajahMurid:', e);
+    Swal.close(); cekWajahSedangProses = false;
+    return showToast('error', 'Cek Wajah gagal: ' + ((e && e.message) ? e.message : e));
+  }
+  Swal.close();
+  cekWajahSedangProses = false;
+
+  // ---- Laporan hasil (ringkasan + rincian per murid + Export .txt) ----
+  const r = (hasil && hasil.ringkas) || {};
+  const GAYA_VERDICT = {
+    'ok': ['Cocok', 'text-emerald-300', 'fa-circle-check'],
+    'ragu': ['Ragu', 'text-amber-300', 'fa-circle-question'],
+    'tidak': ['Tidak cocok', 'text-red-300', 'fa-circle-xmark'],
+    'beda-mesin': ['Beda mesin', 'text-fuchsia-300', 'fa-microchip'],
+    'nonaktif': ['Nonaktif', 'text-amber-300', 'fa-circle-pause'],
+    'belum': ['Belum', 'text-slate-400', 'fa-user-plus'],
+    'tanpa-foto': ['Tanpa foto', 'text-sky-300', 'fa-image'],
+    'foto-gagal': ['Foto gagal', 'text-orange-300', 'fa-triangle-exclamation']
+  };
+  const barisLap = (hasil && hasil.baris) || [];
+  const ringkasTeks =
+    `Cocok: <b class="text-emerald-400">${r.ok || 0}</b> · Ragu: <b class="text-amber-400">${r.ragu || 0}</b> · Tidak cocok: <b class="text-red-400">${r.tidak || 0}</b> · ` +
+    `Beda mesin: <b class="text-fuchsia-400">${r.bedaMesin || 0}</b> · Nonaktif: <b class="text-amber-400">${r.nonaktif || 0}</b> · Belum: <b class="text-slate-400">${r.belum || 0}</b> · ` +
+    `Tanpa foto: <b class="text-sky-400">${r.tanpaFoto || 0}</b> · Foto gagal: <b class="text-orange-400">${r.fotoGagal || 0}</b>`;
+  const htmlLap = barisLap.map(b => {
+    const g = GAYA_VERDICT[b.verdict] || ['Tidak diketahui', 'text-slate-400', 'fa-circle-info'];
+    const info = (b.jarak != null ? `jarak ${Number(b.jarak).toFixed(2)} (~${b.mirip}% mirip) · ` : '') + (b.sampel ? `${b.sampel} sampel` : '');
+    return `<div class="text-[10px] leading-snug border-b border-white/5 py-1 flex items-start gap-1.5">` +
+      `<span class="${g[1]} shrink-0 mt-0.5"><i class="fa-solid ${g[2]}"></i></span>` +
+      `<span class="flex-1 min-w-0"><span class="text-slate-200 font-bold">${escapeHtml(b.nama)}</span> <span class="text-slate-500">(NIS ${escapeHtml(String(b.nis))})</span>` +
+      `<div class="${g[1]}">[${escapeHtml(g[0])}] ${escapeHtml(String(b.pesan || ''))}</div>` +
+      (info ? `<div class="text-slate-500">${escapeHtml(info)}</div>` : '') + `</span>` +
+      `<button onclick="ujiKameraWajahMurid('${escJs(String(b.nis))}')" class="shrink-0 h-6 px-2 bg-cyan-700 hover:bg-cyan-600 text-white rounded text-[10px] font-bold transition" title="Uji kamera 1:1 untuk murid ini (tidak menyimpan kehadiran)"><i class="fa-solid fa-camera"></i></button>` +
+      `</div>`;
+  }).join('');
+  const teksTxt =
+    'LAPORAN CEK WAJAH (read-only)\n' +
+    'Tanggal: ' + new Date().toLocaleString('id-ID') + '\n' +
+    'Mesin aktif: ' + ((hasil && hasil.mesin) || '-') + ' · Ambang cocok: ' + ((hasil && hasil.ambang != null) ? Number(hasil.ambang).toFixed(2) : '-') + '\n' +
+    `Cocok: ${r.ok || 0} · Ragu: ${r.ragu || 0} · Tidak cocok: ${r.tidak || 0} · Beda mesin: ${r.bedaMesin || 0} · Nonaktif: ${r.nonaktif || 0} · Belum: ${r.belum || 0} · Tanpa foto: ${r.tanpaFoto || 0} · Foto gagal: ${r.fotoGagal || 0}\n` +
+    ((hasil && hasil.pesanModel) ? 'Catatan model: ' + hasil.pesanModel + '\n' : '') +
+    (berhenti ? 'Dihentikan pengguna sebelum selesai.\n' : '') +
+    '\n--- RINCIAN ---\n' +
+    rincianKeTeks(barisLap.map(b => ({ label: `${b.nama} (NIS ${b.nis}) — ${b.pesan}`, status: (GAYA_VERDICT[b.verdict] || ['?'])[0] })));
+
+  return Swal.fire({
+    icon: (r.tidak || r.fotoGagal || r.bedaMesin) ? 'warning' : 'success',
+    title: 'Hasil Cek Wajah',
+    html: `<div class="text-left">` +
+      `<div class="text-[11px] text-slate-400 mb-1">Mesin aktif: <b class="text-slate-200">${escapeHtml((hasil && hasil.mesin) || '-')}</b> · Ambang cocok: ${(hasil && hasil.ambang != null) ? Number(hasil.ambang).toFixed(2) : '-'}</div>` +
+      `<div class="text-[11px] mb-2">${ringkasTeks}</div>` +
+      ((hasil && hasil.pesanModel) ? `<div class="text-[10px] text-orange-300 mb-2"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${escapeHtml(hasil.pesanModel)}</div>` : '') +
+      `<div class="flex justify-end mb-1"><button id="export-log-btn-cek" class="h-7 px-3 bg-slate-600 hover:bg-slate-500 text-white rounded text-[11px] font-bold transition">⬇ Export .txt</button></div>` +
+      `<div class="custom-scrollbar" style="max-height:250px;overflow:auto;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.1);border-radius:.5rem;padding:.4rem .5rem">${htmlLap || '<div class="text-[10px] text-slate-500">Tanpa baris.</div>'}</div>` +
+      `<div class="text-[10px] text-slate-500 mt-2">Probe foto bersifat PERKIRAAN (pose/cahaya foto profil bisa berbeda dari data registrasi). Bila hasilnya "Tidak cocok", coba <b>Uji Kamera</b> sebelum menyimpulkan data wajah salah.</div>` +
+      `</div>`,
+    width: '620px', background: '#1e293b', color: '#fff',
+    didOpen: () => {
+      const btn = document.getElementById('export-log-btn-cek');
+      if (btn) btn.onclick = () => unduhTeksSebagaiTxt('cek-wajah-log.txt', teksTxt);
+    }
+  });
+}
+
+/** Uji Kamera 1:1 satu murid dari laporan Cek Wajah (read-only: TIDAK menyimpan
+ *  kehadiran). Memakai pemindai Absen Mandiri (face.js) dengan descriptor murid
+ *  tsb — jadi hasilnya mengukur kemampuan nyata kamera + data wajah murid.
+ *  Panel dibuat manual (BUKAN Swal.fire): SweetAlert2 menutup popup yang sedang
+ *  terbuka, sehingga laporan Cek Wajah akan ikut hilang bila memakai Swal di sini. */
+async function ujiKameraWajahMurid(nis) {
+  const fw = window.FaceWajah;
+  if (!fw || typeof fw.pindaiWajahMandiri !== 'function') {
+    return showToast('error', 'Modul wajah (face.js) belum dimuat — muat ulang halaman.');
+  }
+  const d = (window.__cekWajahDaftar || []).find(x => String(x.nis) === String(nis)) || {};
+  const nama = d.nama || String(nis);
+  const lama = document.getElementById('cek-wajah-kamera-panel');
+  if (lama) lama.remove();
+  const panel = document.createElement('div');
+  panel.id = 'cek-wajah-kamera-panel';
+  panel.className = 'fixed inset-0 z-[9999] flex items-center justify-center p-3 bg-black/70';
+  panel.innerHTML =
+    `<div class="w-full max-w-lg bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl overflow-hidden">` +
+      `<div class="flex items-center justify-between gap-2 px-3 py-2 bg-slate-800/80 border-b border-white/10">` +
+        `<span class="text-[12px] font-bold text-white truncate"><i class="fa-solid fa-camera text-cyan-400 mr-1"></i> Uji Kamera — ${escapeHtml(nama)} <span class="text-slate-400 font-normal">(NIS ${escapeHtml(String(nis))})</span></span>` +
+        `<button type="button" id="cek-wajah-kamera-tutup" class="shrink-0 w-7 h-7 rounded bg-white/10 hover:bg-white/20 text-slate-200 flex items-center justify-center" title="Tutup"><i class="fa-solid fa-xmark"></i></button>` +
+      `</div>` +
+      `<div class="p-2"><div class="text-[10px] text-slate-400 mb-2">Pencocokan 1:1 memakai data wajah murid ini (ambang Absen Mandiri). Hasil <b>tidak</b> disimpan ke absensi — bila pemindai memunculkan suara "absen mandiri berhasil", itu bawaan pemindai, bukan pencatatan kehadiran.</div>` +
+      `<div id="cek-wajah-kamera-wrap"></div></div>` +
+    `</div>`;
+  document.body.appendChild(panel);
+  const tutup = () => {
+    try { if (fw.berhentiPindaiWajah) fw.berhentiPindaiWajah(); } catch (e) { /* opsional */ }
+    panel.remove();
+  };
+  const btnTutup = panel.querySelector('#cek-wajah-kamera-tutup');
+  if (btnTutup) btnTutup.onclick = tutup;
+  panel.addEventListener('click', (ev) => { if (ev.target === panel) tutup(); });
+  const wrap = panel.querySelector('#cek-wajah-kamera-wrap');
+  try {
+    // pindaiWajahMandiri() mem-berhenti-kan pemindai lama sendiri & mengisi UI kamera.
+    await fw.pindaiWajahMandiri(String(nis), nama, {
+      wrap: wrap,
+      onHasil: () => { try { showToast('success', 'Uji kamera COCOK — ' + nama); } catch (e) { /* opsional */ } }
+    });
+  } catch (e) {
+    if (wrap) wrap.innerHTML = `<div class="text-[11px] text-red-300 p-2">${escapeHtml((e && e.message) ? e.message : String(e))}</div>`;
+  }
+}
 
 /** Upload foto siswa secara MASSAL (banyak file sekaligus) — berlaku untuk SEMUA murid
  *  yang tercatat (tidak dipengaruhi filter tabel aktif). Cocokkan nama tiap file dengan murid

@@ -3992,6 +3992,134 @@
   }
 
   /* [8] EKSPOR API PUBLIK — jangan sampai terkomentari */
+  /**
+   * CEK WAJAH (READ-ONLY) — verifikasi kualitas data wajah sekumpulan murid.
+   * TIDAK menulis apa pun ke server. Tiga lapis pemeriksaan per murid:
+   *   1. STATIS : ada descriptor? dimensinya cocok dengan mesin aktif? statusnya?
+   *   2. FOTO   : descriptor dari FOTO PROFIL dicocokkan 1:1 ke data terdaftar
+   *               (min-distance antar sampel) → jarak + perkiraan kemiripan.
+   *   3. KAMERA : opsional, dipicu UI (`pindaiWajahMandiri`) — lihat app.js.
+   * Lapis 2 adalah PERKIRAAN: pose/cahaya foto profil berbeda dari data
+   * registrasi (khususnya bila registrasi dibuat lewat kamera), sehingga hasil
+   * "tidak cocok" di sini BELUM berarti wajah aslinya gagal di Face Scan —
+   * konfirmasikan lewat Uji Kamera.
+   * @param {Array<{nis:string,nama:string,url_foto:string}>} daftar
+   * @param {Object} opsi - { denganFoto=true, onProgress(i,total,nama), hentikan() }
+   * @returns {Promise<{baris:Array, ringkas:Object, mesin:string, ambang:number, pesanModel:string}>}
+   *   verdict baris: 'ok' | 'ragu' | 'tidak' | 'beda-mesin' | 'nonaktif' |
+   *                  'belum' | 'tanpa-foto' | 'foto-gagal'
+   */
+  async function verifikasiKualitasWajah(daftar, opsi) {
+    const cfg = opsi || {};
+    const denganFoto = cfg.denganFoto !== false;
+    const list = Array.isArray(daftar) ? daftar : [];
+    const baris = [];
+    const ringkas = { ok: 0, ragu: 0, tidak: 0, bedaMesin: 0, nonaktif: 0, belum: 0, tanpaFoto: 0, fotoGagal: 0 };
+    const mesin = motorAktif();
+    const amb = ambangCocok();
+
+    // Descriptor SELURUH daftar diambil sekali jalan (hemat 1 request per murid).
+    // Kunci NIS di-trim supaya spasi/tipe (angka vs teks) dari dua RPC berbeda
+    // tidak membuat murid terlihat "belum terdaftar" padahal datanya ada.
+    const kunciNis = (v) => String(v == null ? '' : v).trim();
+    const peta = {};
+    try {
+      const rows = await akunPetaWajah({ nisList: list.map(d => String((d && d.nis) || '')) });
+      (rows || []).forEach(r => { peta[kunciNis(r.nis_nip)] = r; });
+    } catch (e) { console.warn('verifikasiKualitasWajah peta:', e); }
+
+    // Model dimuat SEKALI sebelum loop foto. Gagal → lapis foto dilewati dengan
+    // pesan jelas, lapis statis tetap memberi hasil (jangan buntu total).
+    let modelSiap = false, pesanModel = '';
+    if (denganFoto && list.some(d => d && d.url_foto)) {
+      try { await pastikanModelsRinganTepatWaktu(); modelSiap = true; }
+      catch (e) { pesanModel = (e && e.message) ? e.message : String(e); }
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      if (typeof cfg.hentikan === 'function' && cfg.hentikan()) break;
+      const d = list[i] || {};
+      const nis = String(d.nis || '');
+      const nama = String(d.nama || nis);
+      if (typeof cfg.onProgress === 'function') { try { cfg.onProgress(i, list.length, nama); } catch (e) {} }
+      const hasil = { nis: nis, nama: nama, verdict: '', pesan: '', sampel: 0, dim: 0, jarak: null, mirip: null };
+      const row = peta[kunciNis(nis)];
+      const mentah = row && row.wajah_descriptor;
+      const dimMentah = dimensiVektorDescriptor(mentah);
+      const sampel = normalisasiDescriptorWajah(mentah);
+      hasil.dim = dimMentah;
+      hasil.sampel = sampel ? sampel.length : 0;
+      const statusW = row ? (row.wajah_status || 'aktif') : 'belum';
+
+      // ---- LAPIS 1: validitas statis ----
+      if (!sampel) {
+        if (dimMentah && dimMentah !== DIM_WAJAH_LEGACY && dimMentah !== DIM_WAJAH_MEDIAPIPE) {
+          hasil.verdict = 'beda-mesin';
+          hasil.pesan = 'Format ' + dimMentah + '-angka tidak dikenali aplikasi (hanya 128 face-api / 512 mediapipe-onnx).';
+          ringkas.bedaMesin++;
+        } else if (dimMentah && dimMentah !== dimWajahMotor()) {
+          hasil.verdict = 'beda-mesin';
+          hasil.pesan = 'Data ' + dimMentah + '-angka, sedangkan mesin aktif ' + namaMesinWajah(mesin) + '. Registrasi ulang agar cocok.';
+          ringkas.bedaMesin++;
+        } else {
+          hasil.verdict = 'belum';
+          hasil.pesan = 'Belum ada data wajah terdaftar.';
+          ringkas.belum++;
+        }
+        baris.push(hasil); continue;
+      }
+      if (statusW !== 'aktif') {
+        hasil.verdict = 'nonaktif';
+        hasil.pesan = 'Wajah berstatus nonaktif — tidak dipakai Face Scan (aktifkan dulu bila perlu).';
+        ringkas.nonaktif++;
+        baris.push(hasil); continue;
+      }
+
+      // ---- LAPIS 2: probe dari foto profil ----
+      if (!denganFoto || !d.url_foto) {
+        hasil.verdict = 'tanpa-foto';
+        hasil.pesan = 'Data wajah valid (' + hasil.sampel + ' sampel), tapi tidak ada foto profil untuk diuji.';
+        ringkas.tanpaFoto++;
+        baris.push(hasil); continue;
+      }
+      if (!modelSiap) {
+        hasil.verdict = 'foto-gagal';
+        hasil.pesan = 'Model wajah tidak siap: ' + (pesanModel || 'gagal memuat model.');
+        ringkas.fotoGagal++;
+        baris.push(hasil); continue;
+      }
+      try {
+        const img = await muatGambarDariUrl(d.url_foto);
+        const det = await hasilDeteksiKuat(img, 'foto profil');
+        const probe = det.descriptor;
+        let jarakMin = Infinity;
+        sampel.forEach(s => { const j = jarakEuclidean(probe, s); if (j < jarakMin) jarakMin = j; });
+        hasil.jarak = jarakMin;
+        hasil.mirip = persenKemiripan(jarakMin);
+        if (jarakMin <= amb) {
+          hasil.verdict = 'ok';
+          hasil.pesan = 'Cocok dengan foto profil (jarak ' + jarakMin.toFixed(2) + ', ~' + hasil.mirip + '% mirip).';
+          ringkas.ok++;
+        } else if (jarakMin <= amb + 0.07) {
+          hasil.verdict = 'ragu';
+          hasil.pesan = 'Mendekati ambang (jarak ' + jarakMin.toFixed(2) + ', butuh ≤ ' + amb.toFixed(2) + ') — konfirmasi lewat Uji Kamera.';
+          ringkas.ragu++;
+        } else {
+          hasil.verdict = 'tidak';
+          hasil.pesan = 'Tidak cocok dengan foto profil (jarak ' + jarakMin.toFixed(2) + ', butuh ≤ ' + amb.toFixed(2) + ') — kemungkinan foto profil ≠ wajah terdaftar.';
+          ringkas.tidak++;
+        }
+      } catch (e) {
+        hasil.verdict = 'foto-gagal';
+        hasil.pesan = 'Gagal membaca/mendeteksi foto profil: ' + ((e && e.message) ? e.message : String(e));
+        ringkas.fotoGagal++;
+      }
+      baris.push(hasil);
+    }
+
+    return { baris: baris, ringkas: ringkas, mesin: namaMesinWajah(mesin), ambang: amb, pesanModel: pesanModel };
+  }
+
   window.FaceWajah = {
     kelolaWajah,
     hapusDataWajah,
@@ -4004,6 +4132,7 @@
     isWajahMandiriAktif,
     pindaiWajahMandiri,
     registrasiOtomatisDariFoto,
+    verifikasiKualitasWajah,
     urlFotoUntukCanvas,
     // Lapisan kamera universal — dipakai pemindai QR (app.js) supaya daftar kamera,
     // ingatan kamera terakhir, dan pesan error SATU sumber dengan Face Scan.

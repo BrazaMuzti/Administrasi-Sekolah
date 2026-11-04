@@ -484,6 +484,36 @@ loop yang sama (`loopDeteksiPindai` di `web/js/face.js`). Perbaikan akurasi terb
   Jalankan setelah menyentuh `gambarLandmarkPindai`/`ambangCocok`/`ambangMandiri`/konstanta
   jarak; skrip keluar dengan kode `1` bila ada yang gagal (dan menggagalkan job
   **Validasi repo** di GitHub Actions, jadi regresi terdeteksi sebelum deploy).
+- **Penandaan H dari scan tidak lagi gagal senyap (build `20261104a`, `VERSION` SW `v11`).**
+  Gejala lapangan: kamera menampilkan "Cocok! …" (label wajah benar) tetapi baris siswa
+  **tidak** tercentang H — tanpa banner, TTS, maupun gulir. Sebabnya: setiap jalur
+  (QR modal, Face Scan modal, Face Scan nilai) menyalin logika "cari radio H" dan mencari
+  radio dengan `querySelector('input[name="absen_<nis>"]')` **persis**, padahal `nis`
+  datang dari **dua sumber berbeda** — label wajah = `akun.nis_nip` (teks dari DB),
+  sedangkan nama radio = `absensi.NIS` (bisa angka/format lain). Beda tipe/format
+  (mis. `1234` vs `"1234"`, `"0012"` vs `12`, atau ada spasi) membuat radio tak ketemu ⇒
+  `onMatch` mengembalikan `false` dan penandaan berhenti tanpa jejak. Kini semua jalur
+  memakai satu helper `tandaiHadirScan(nis)` (app.js): pencarian radio **3 strategi**
+  (nama persis → baris `#row-murid-*` → telusuri semua radio H dengan normalisasi NIS
+  `nisSama()`, termasuk padanan numerik), lalu efek dipusatkan (centang H + `dataset.on`,
+  banner, TTS `ucapkanNamaScan` yang `cancel()` dulu agar tidak mengantre, dan gulir +
+  animasi `sorotBarisMurid` ber-debounce 1,2 dtk per NIS). Bila baris benar-benar tidak
+  ada, muncul banner **amber** + `console.warn('[scan-hadir] …')` sebagai jejak (dulu:
+  diam). Helper yang sama dipakai Face Scan pada input nilai — nama siswa kini dibaca
+  dari `NIS`/`Nama Lengkap` **maupun** `nis`/`nama`.
+- **Tombol "Cek Wajah" (read-only) di Data Akun Murid (build `20261104a`).** Memeriksa
+  kualitas data wajah murid pada filter tabel aktif **tanpa mengubah apa pun**:
+  (1) *statis* — ada descriptor? dimensinya cocok dengan mesin aktif? status
+  aktif/nonaktif?; (2) *probe foto profil* — descriptor foto profil dicocokkan 1:1 ke
+  data terdaftar (min-distance antar sampel) → jarak + perkiraan kemiripan;
+  (3) *Uji Kamera* per murid dari laporan (`pindaiWajahMandiri`, panel melayang — bukan
+  Swal, supaya laporan tidak ikut tertutup). Verdict per murid: Cocok / Ragu /
+  Tidak cocok / Beda mesin / Nonaktif / Belum / Tanpa foto / Foto gagal, lengkap dengan
+  ringkasan + **Export .txt** (`cek-wajah-log.txt`). Hasil probe foto bersifat
+  **perkiraan** (pose/cahaya foto profil bisa berbeda dari data registrasi), jadi
+  "Tidak cocok" belum berarti gagal di Face Scan — konfirmasikan lewat Uji Kamera.
+  Hak akses mengikuti `aksesRegistrasiWajahMasal()` (admin & guru wali kelas/pembina).
+  **Tidak butuh migrasi SQL.**
 
 ### 7c. Akurasi Absen Mandiri (verifikasi selfie 1:1)
 
