@@ -481,6 +481,10 @@ loop yang sama (`loopDeteksiPindai` di `web/js/face.js`). Perbaikan akurasi terb
   ambang baku + kalibrasi + perilaku saat `localStorage` diblokir, deteksi vektor mesin
   lain, fusi multi-frame, gerbang kualitas citra & pose, ambang 1:1 Absen Mandiri, serta
   pemeriksaan struktural jalur `mandiri` (fusi/pose/`motorPaksa` benar-benar terpasang).
+  Bagian **7** menjaga fitur **Cek Wajah**: `modeCari` benar-benar `continue` sebelum
+  penandaan hadir, `setWajahNonaktif` hanya mematikan status, tombol di `app.js` memanggil
+  `cekWajahKameraMurid()` (bukan laporan kualitas lama), dan overlay landmark registrasi
+  tidak dibalik dua kali di kamera depan (`mirror: false` + `setTransformReg`).
   Jalankan setelah menyentuh `gambarLandmarkPindai`/`ambangCocok`/`ambangMandiri`/konstanta
   jarak; skrip keluar dengan kode `1` bila ada yang gagal (dan menggagalkan job
   **Validasi repo** di GitHub Actions, jadi regresi terdeteksi sebelum deploy).
@@ -501,19 +505,23 @@ loop yang sama (`loopDeteksiPindai` di `web/js/face.js`). Perbaikan akurasi terb
   ada, muncul banner **amber** + `console.warn('[scan-hadir] …')` sebagai jejak (dulu:
   diam). Helper yang sama dipakai Face Scan pada input nilai — nama siswa kini dibaca
   dari `NIS`/`Nama Lengkap` **maupun** `nis`/`nama`.
-- **Tombol "Cek Wajah" (read-only) di Data Akun Murid (build `20261104a`).** Memeriksa
-  kualitas data wajah murid pada filter tabel aktif **tanpa mengubah apa pun**:
-  (1) *statis* — ada descriptor? dimensinya cocok dengan mesin aktif? status
-  aktif/nonaktif?; (2) *probe foto profil* — descriptor foto profil dicocokkan 1:1 ke
-  data terdaftar (min-distance antar sampel) → jarak + perkiraan kemiripan;
-  (3) *Uji Kamera* per murid dari laporan (`pindaiWajahMandiri`, panel melayang — bukan
-  Swal, supaya laporan tidak ikut tertutup). Verdict per murid: Cocok / Ragu /
-  Tidak cocok / Beda mesin / Nonaktif / Belum / Tanpa foto / Foto gagal, lengkap dengan
-  ringkasan + **Export .txt** (`cek-wajah-log.txt`). Hasil probe foto bersifat
-  **perkiraan** (pose/cahaya foto profil bisa berbeda dari data registrasi), jadi
-  "Tidak cocok" belum berarti gagal di Face Scan — konfirmasikan lewat Uji Kamera.
-  Hak akses mengikuti `aksesRegistrasiWajahMasal()` (admin & guru wali kelas/pembina).
-  **Tidak butuh migrasi SQL.**
+- **Tombol "Cek Wajah" di Data Akun Murid (build `20261105a`) — identifikasi kamera
+  READ-ONLY, seperti "Cari NIS/Nama".** Arahkan wajah ke kamera, panel menampilkan
+  **siapa yang dikenali**: daftar kandidat murid paling mirip (maks 6) + % kemiripan,
+  diperbarui tiap frame; kandidat teratas yang sudah di bawah `ambangCocok()` diberi
+  kotak hijau di pratinjau. Mesin = pemindai kelas yang sudah terbukti
+  (`pindaiCariWajah` → `mulaiPindaiWajahAbsen` dengan `modeCari`): kamera universal
+  (dropdown Depan/Belakang, ingatan kamera terakhir), model ringan, multi-sampel, dan
+  murid berstatus `nonaktif` otomatis tidak ikut diperingkat. `modeCari` **tidak
+  mencatat kehadiran** dan melewati gerbang pose/kualitas serta cooldown/konfirmasi
+  2-frame (tujuan: identifikasi cepat, bukan absensi). Cakupan pencarian mengikuti
+  **filter tabel aktif** (`muridTersaring`). Aksi di panel: **Simpan** (hanya menutup
+  panel — tidak ada data yang ditulis), **Next** (kandidat berikutnya tanpa menutup
+  panel), **Registrasi Wajah** (buka modal registrasi murid terpilih), dan **Bukan
+  wajah saya** (konfirmasi → `setWajahNonaktif` — descriptor TIDAK dihapus, hanya
+  `wajah_status='nonaktif'` lewat RPC `simpan_wajah_murid` — lalu tawarkan rekam
+  ulang). Hak akses mengikuti `aksesRegistrasiWajahMasal()` (admin & guru wali
+  kelas/pembina). **Tidak butuh migrasi SQL.**
 
 ### 7c. Akurasi Absen Mandiri (verifikasi selfie 1:1)
 

@@ -978,6 +978,53 @@
     };
   }
 
+  /** Peringkat kemiripan SELURUH wajah terdaftar terhadap satu descriptor probe.
+   *  READ-ONLY — dipakai fitur "Cek Wajah" (mode 'cari') untuk menampilkan daftar
+   *  kandidat murid paling mirip beserta jarak & % kemiripan. Skor sebuah NIS =
+   *  jarak TERBAIK ke semua sampelnya (min-distance Euclidean untuk face-api &
+   *  mediapipe; 1 − kemiripan-kosinus-maksimum untuk motor onnx — sama persis
+   *  dengan semantik matcher absen 1:N sehingga `distance <= ambangCocok()` konsisten).
+   *  Murid berstatus 'nonaktif' tidak pernah ada di `peta` (lihat muatPetaWajah) →
+   *  otomatis tak ikut diperingkat.
+   *  @param peta       - { nis: { descriptor } } (mis. akunPetaWajah / hasil muatPetaWajah)
+   *  @param descriptor - vektor hasil deteksi live (Array / Float32Array)
+   *  @param opsi       - { limit = 8, abaikan = [nis,...] } jumlah baris & NIS yang dilewati
+   *  @returns Array<{ nis, distance, mirip }> urut jarak menaik (paling mirip dulu).
+   *  Murni (tanpa DOM) → bisa diuji. */
+  function peringkatKandidat(peta, descriptor, opsi) {
+    const o = opsi || {};
+    const limit = (typeof o.limit === 'number' && o.limit > 0) ? Math.floor(o.limit) : 8;
+    const abaikan = (o.abaikan instanceof Set)
+      ? o.abaikan
+      : new Set(Array.isArray(o.abaikan) ? o.abaikan.map(String) : []);
+    if (!descriptor || !descriptor.length) return [];
+    const dim = descriptor.length;
+    const d0 = (descriptor instanceof Float32Array) ? descriptor : new Float32Array(descriptor);
+    const pakaiKosinus = motorAktif() === 'onnx';
+    const hasil = [];
+    Object.keys(peta || {}).forEach(nis => {
+      const kunci = String(nis);
+      if (abaikan.has(kunci)) return;
+      const list = normalisasiDescriptorWajah(peta[nis] && peta[nis].descriptor, dim);
+      if (!list || !list.length) return;
+      let terbaik = Infinity;
+      for (let i = 0; i < list.length; i++) {
+        if (pakaiKosinus) {
+          const s = kemiripanKosinus(d0, list[i]);
+          const jar = 1 - s;
+          if (jar < terbaik) terbaik = jar;
+        } else {
+          const jar = jarakEuclidean(d0, list[i]);
+          if (jar < terbaik) terbaik = jar;
+        }
+      }
+      if (!isFinite(terbaik)) return;
+      hasil.push({ nis: kunci, distance: terbaik, mirip: persenKemiripan(terbaik) });
+    });
+    hasil.sort((a, b) => a.distance - b.distance);
+    return hasil.slice(0, limit);
+  }
+
   // ------------------------------------------------------------------
   // 4b. DETEKSI + DESCRIPTOR — MOTOR MEDIAPIPE (Face Landmarker + MobileFaceNet)
   // ------------------------------------------------------------------
@@ -2007,9 +2054,10 @@
     kameraBerjalan = null;
   }
 
-  /** Gambar kotak deteksi + kerangka landmark pada overlay (mirror object-cover),
-   *  memetakan koordinat frame video ke ukuran tampilan area kamera — sama seperti
-   *  overlay modal absensi, sehingga "scan" kamera terlihat jelas oleh admin. */
+  /** Gambar kotak deteksi + kerangka landmark pada overlay (skala object-cover).
+   *  Overlay registrasi ikut transform CSS video (mirror+zoom) → landmark TIDAK
+   *  dibalik di sini. Memetakan koordinat frame video ke ukuran tampilan area
+   *  kamera — sama seperti overlay modal absensi, sehingga "scan" terlihat jelas. */
   function gambarScanKamera(ctx, hasilDeteksi, oW, oH, videoEl) {
     if (!ctx || !hasilDeteksi || !videoEl) return;
     const vw = videoEl.videoWidth || 640;
@@ -2028,19 +2076,16 @@
       ctx.strokeRect(offX + b.x * s, offY + b.y * s, b.width * s, b.height * s);
     }
     if (pts && pts.length) {
-      ctx.fillStyle = 'rgba(34,197,94,0.30)';
-      ctx.strokeStyle = 'rgba(34,197,94,0.50)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < pts.length; i++) {
-        const px = offX + pts[i].x * s;
-        const py = offY + pts[i].y * s;
-        ctx.beginPath(); ctx.arc(px, py, 1.2, 0, Math.PI * 2); ctx.fill();
-        if (i > 0) {
-          ctx.beginPath();
-          ctx.moveTo(offX + pts[i - 1].x * s, offY + pts[i - 1].y * s);
-          ctx.lineTo(px, py); ctx.stroke();
-        }
-      }
+      // Kerangka landmark memakai SATU jalur gambar dengan pemindai lain
+      // (gambarLandmarkPindai): 68 titik face-api → kontur dlib, 478 mediapipe →
+      // mesh, 5 titik YuNet → rangka mata–hidung–mulut. Warna cyan terang 90%
+      // (dulu hijau alpha 0,3 → nyaris tak terlihat di kamera depan yang terang,
+      // sehingga pengguna hanya melihat kotak hijau tanpa titik landmark).
+      // Overlay registrasi ini ikut ter-transform CSS (mirror+zoom) bersama video
+      // → mirror:false supaya titik TIDAK dibalik dua kali.
+      gambarLandmarkPindai(ctx, pts, {
+        s, offX, offY, cW: elW, mirror: false, warna: 'rgba(34,211,238,0.9)'
+      });
     }
   }
 
@@ -2699,7 +2744,12 @@
             let zoomReg = 1;
             const setTransformReg = () => {
               zoomReg = Math.min(3, Math.max(0.75, zoomReg));
-              const t = 'scaleX(-1) scale(' + zoomReg + ')';
+              // Mirror HANYA untuk kamera depan (selfie). Kamera belakang dibiarkan
+              // apa adanya (dulu selalu scaleX(-1) → teks/arah terbalik & overlay
+              // terkesan tidak cocok). Video DAN overlay memakai transform sama supaya
+              // kotak & landmark tetap menempel di wajah pada kedua kamera.
+              const depanReg = (bacaMukaStream(kameraBerjalan && kameraBerjalan.stream) || 'user') === 'user';
+              const t = (depanReg ? 'scaleX(-1) ' : '') + 'scale(' + zoomReg + ')';
               if (videoEl) { videoEl.style.transform = t; videoEl.style.transformOrigin = 'center'; }
               if (overlayEl) { overlayEl.style.transform = t; overlayEl.style.transformOrigin = 'center'; }
               if (lblZR) lblZR.textContent = Math.round(zoomReg * 100) + '%';
@@ -2715,6 +2765,7 @@
               const deviceId = (pilihan && pilihan.charAt(0) !== '_') ? pilihan : '';
               try {
                 await mulaiKameraKe(videoEl, deviceId, true); // potret juga utk kamera diganti
+                setTransformReg(); // mirror/zoom mengikuti kamera baru (depan↔belakang)
                 setHasil('<i class="fa-solid fa-video mr-1"></i>Kamera diganti. Atur posisi wajah lalu klik <b>Deteksi dari Kamera</b>.');
               } catch (e) {
                 console.error(e);
@@ -2998,6 +3049,21 @@
     }
   }
 
+  /** Tandai wajah seorang murid NONAKTIF (dipakai tombol "Bukan wajah saya" pada
+   *  Cek Wajah). Data descriptor TIDAK dihapus — hanya status yang dimatikan
+   *  sehingga wajah itu tidak lagi ikut pencocokan absensi/identifikasi sampai
+   *  diaktifkan/didaftarkan ulang. Satu jalur dengan tombol Nonaktif di modal
+   *  Registrasi Wajah (`simpan_wajah_murid` + cache + hook tabel). */
+  async function setWajahNonaktif(nisPen) {
+    const nis = String(nisPen || '');
+    if (!nis) throw new Error('NIS kosong — tidak ada wajah yang dinonaktifkan.');
+    await simpanWajahKeDb(nis, null, 'nonaktif');
+    if (petaWajahCache && petaWajahCache[nis]) petaWajahCache[nis].status = 'nonaktif';
+    beriTahuWajahTersimpan(nis, 'nonaktif');
+    refreshDaftarWajahTable();
+    return true;
+  }
+
   // ==================================================================
   // 7. PEMINDAIAN WAJAH LIVE DI MODAL ABSENSI
   // ==================================================================
@@ -3029,6 +3095,19 @@
    *   3) Loop matching baru berjalan setelah model + data kelas siap, dengan
    *      indikator progres unduhan di bilah status.
    */
+  /** CEK WAJAH (identifikasi kamera, READ-ONLY) — tampilkan murid paling mirip
+   *  dengan wajah di depan kamera. Pembungkus tipis di atas pemindai kelas yang
+   *  sudah terbukti (kamera universal, dropdown kamera, zoom/mirror, model, dsb)
+   *  dengan `modeCari` — loop TIDAK mencatat kehadiran, hanya memanggil
+   *  `cfg.onKandidat(peringkat, info)` setiap frame yang lolos kualitas.
+   *  @param {Array} listMurid — daftar siswa yang ikut diperingkat ({ nis, nama })
+   *  @param {Object} cfg — { wrap, onKandidat(peringkat, info), limitKandidat=8,
+   *                          abaikanKandidat: [nis...] }
+   *  peringkat = [{ nis, distance, mirip }] urut paling mirip (lihat peringkatKandidat). */
+  async function pindaiCariWajah(listMurid, cfg) {
+    return mulaiPindaiWajahAbsen(listMurid, Object.assign({}, cfg || {}, { modeCari: true }));
+  }
+
   async function mulaiPindaiWajahAbsen(listMurid, cfg) {
     berhentiPindaiWajah();
     const wrap = cfg && cfg.wrap;
@@ -3299,7 +3378,12 @@
 
       setStatus('<i class="fa-solid fa-video mr-1"></i>Kamera menyala — hadapkan wajah ke kamera.');
 
-      await loopDeteksiPindai({ wrap, video, overlay, matcher, peta, targhe: targheAktif, cooldown, setStatus, onMatch, nisList });
+      await loopDeteksiPindai({ wrap, video, overlay, matcher, peta, targhe: targheAktif, cooldown, setStatus, onMatch, nisList,
+        // Mode CARI (Cek Wajah): read-only identifikasi — lihat loopDeteksiPindai.
+        modeCari: !!(cfg && cfg.modeCari),
+        onKandidat: (cfg && cfg.onKandidat) || null,
+        limitKandidat: (cfg && cfg.limitKandidat) || 8,
+        abaikanKandidat: (cfg && cfg.abaikanKandidat) || null });
     } catch (e) {
       console.error('mulaiPindaiWajahAbsen:', e);
       const pesanKamera = /notallowederror|permissiondenied|denied/i.test(String((e && e.message) || e))
@@ -3458,6 +3542,30 @@
         kandidatNis = ''; kandidatN = 0; // frame buruk memutus konfirmasi berurutan
         bufferFusi.length = 0;
         o.setStatus('<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Wajah terbaca — mendekat &amp; tahan (' + Math.round(skorFrame * 100) + '%).', 'text-cyan-100');
+        await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
+        continue;
+      }
+
+      // ---- MODE CARI (Cek Wajah) — identifikasi 1:N READ-ONLY --------------------
+      // Tidak mencatat kehadiran & tidak memakai cooldown/konfirmasi 2-frame:
+      // setiap frame yang lolos kualitas diperingkat terhadap SELURUH wajah
+      // terdaftar lalu dilaporkan ke pemanggil (o.onKandidat). Dipakai fitur
+      // "Cek Wajah" di Data Akun Murid — hanya membaca, tidak menulis apa pun.
+      if (o.modeCari) {
+        let peringkat = [];
+        try {
+          peringkat = peringkatKandidat(o.petaRanking || o.peta, descriptor, {
+            limit: o.limitKandidat, abaikan: o.abaikanKandidat
+          });
+        } catch (e) { peringkat = []; }
+        if (typeof o.onKandidat === 'function') {
+          try { o.onKandidat(peringkat, { skor: skorFrame }); } catch (e) { console.error('onKandidat:', e); }
+        }
+        // Kotak hijau solid bila kandidat teratas sudah di bawah ambang cocok.
+        if (peringkat.length && peringkat[0].distance <= ambangCocok()) {
+          ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.setLineDash([]);
+          ctx.strokeRect(bx, by, b.width * s, b.height * s);
+        }
         await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
         continue;
       }
@@ -4128,6 +4236,11 @@
     htmlBadgeWajah,
     ikonStatusWajah,
     mulaiPindaiWajahAbsen,
+    pindaiCariWajah,
+    peringkatKandidat,
+    ambangCocok,
+    setWajahNonaktif,
+    simpanWajahKeDb,
     berhentiPindaiWajah,
     isWajahMandiriAktif,
     pindaiWajahMandiri,

@@ -27,6 +27,11 @@
  *      `buatMatcherKosinus` (margin top-2), ambang/dimensi mesin onnx, gerbang pose
  *      dari 5 titik, pemeriksaan struktural jalur onnx, dan penahan bug crop
  *      `drawImage` (argumen sumber/tujuan pernah tertukar → descriptor kosong).
+ *   7. Fitur **Cek Wajah** (identifikasi kamera READ-ONLY): `pindaiCariWajah` memaksa
+ *      `modeCari`, cabang `modeCari` di loop melaporkan `onKandidat` lalu `continue`
+ *      (tidak pernah menandai hadir), `setWajahNonaktif` hanya mematikan status,
+ *      wiring `app.js` (`cekWajahKameraMurid` + tombol + panel), dan Bug A overlay
+ *      landmark registrasi kamera depan (`mirror: false` + `setTransformReg`).
  *
  * Jalankan: `npm run test:face` (atau `node scripts/uji-face.mjs`; di sandbox
  * tanpa Node: `deno run -A scripts/uji-face.mjs`).
@@ -38,6 +43,7 @@ import path from 'node:path';
 
 const AKAR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SUMBER = readFileSync(path.join(AKAR, 'web', 'js', 'face.js'), 'utf8');
+const SUMBER_APP = readFileSync(path.join(AKAR, 'web', 'js', 'app.js'), 'utf8');
 
 let gagal = 0;
 let lulus = 0;
@@ -646,6 +652,50 @@ cek('tidak ada lagi crop pojok-kiri 112×112 / S×S',
   !/drawImage\(el, 0, 0, 112, 112/.test(SUMBER) && !/drawImage\(el, 0, 0, S, S/.test(SUMBER));
 cek('skala snapshot → 112 memakai dimensi gambar sumber',
   /drawImage\(tmp, 0, 0, tmp\.width, tmp\.height, 0, 0, 112, 112\)/.test(SUMBER));
+
+// ---------------------------------------------------------------------------
+// 7. CEK WAJAH (identifikasi kamera READ-ONLY) — modeCari + wiring app.js
+// ---------------------------------------------------------------------------
+// Fitur "Cek Wajah" di Data Akun Murid hanya MEMBACA: loop pindai memakai
+// `modeCari` (tidak mencatat kehadiran) dan melaporkan kandidat ke pemanggil.
+// Uji ini menjaga kontrak itu tetap terpasang (regresi paling mahal: modeCari
+// hilang → Cek Wajah diam-diam menandai hadir, atau tombol memanggil fungsi lama).
+cek('face.js mengekspor pindaiCariWajah', /window\.FaceWajah = \{[\s\S]*?\bpindaiCariWajah\b/.test(SUMBER));
+cek('face.js mengekspor setWajahNonaktif', /window\.FaceWajah = \{[\s\S]*?\bsetWajahNonaktif\b/.test(SUMBER));
+cek('face.js mengekspor ambangCocok (dipakai UI utk label "cocok")',
+  /window\.FaceWajah = \{[\s\S]*?\bambangCocok\b/.test(SUMBER));
+cek('pindaiCariWajah memaksa modeCari: true',
+  /function pindaiCariWajah\(listMurid, cfg\) \{[\s\S]{0,200}?modeCari: true/.test(SUMBER));
+cek('loop pindai punya cabang modeCari', /if \(o\.modeCari\) \{/.test(SUMBER));
+cek('cabang modeCari melaporkan onKandidat lalu continue (tidak menandai hadir)',
+  /if \(o\.modeCari\) \{[\s\S]{0,900}?o\.onKandidat\(peringkat[\s\S]{0,700}?continue;/.test(SUMBER));
+cek('modeCari memakai peringkatKandidat + limit/abaikan',
+  /peringkatKandidat\(o\.petaRanking \|\| o\.peta, descriptor, \{[\s\S]{0,160}?limit: o\.limitKandidat, abaikan: o\.abaikanKandidat/.test(SUMBER));
+cek('setWajahNonaktif hanya mematikan status (descriptor tidak dihapus)',
+  /async function setWajahNonaktif\(nisPen\) \{[\s\S]{0,400}?simpanWajahKeDb\(nis, null, 'nonaktif'\)/.test(SUMBER));
+cek('murid nonaktif tidak ikut diperingkat (filter wajah_status aktif)',
+  /r\.wajah_status !== 'aktif' \|\| !r\.wajah_descriptor\) return;/.test(SUMBER));
+// --- Wiring UI di app.js ---
+cek('app.js punya cekWajahKameraMurid()', /async function cekWajahKameraMurid\(\) \{/.test(SUMBER_APP));
+cek('tombol "Cek Wajah" memanggil cekWajahKameraMurid()',
+  /onclick="cekWajahKameraMurid\(\)"/.test(SUMBER_APP));
+cek('laporan kualitas wajah lama sudah dihapus dari app.js',
+  !/cekKualitasWajahMurid|renderBannerCekWajah|exportCekWajahTxt/.test(SUMBER_APP));
+cek('UI Cek Wajah memakai pindaiCariWajah + onKandidat',
+  /fw\.pindaiCariWajah\(daftar, \{[\s\S]{0,200}?onKandidat:/.test(SUMBER_APP));
+cek('UI Cek Wajah menutup panel = menghentikan kamera',
+  /const tutup = \(\) => \{[\s\S]{0,160}?berhentiPindaiWajah\(\)[\s\S]{0,80}?panel\.remove\(\)/.test(SUMBER_APP));
+cek('"Bukan wajah saya" memakai setWajahNonaktif + konfirmasi',
+  /aksiBukanWajah[\s\S]{0,900}?fw\.setWajahNonaktif\(String\(nis\)\)/.test(SUMBER_APP));
+// --- Bug A: overlay landmark kamera depan (registrasi) ---
+cek('overlay landmark registrasi TIDAK dibalik dua kali (mirror: false)',
+  /gambarLandmarkPindai\(ctx, pts, \{\s*\n?\s*s, offX, offY, cW: elW, mirror: false/.test(SUMBER));
+cek('transform registrasi me-mirror HANYA kamera depan',
+  /const t = \(depanReg \? 'scaleX\(-1\) ' : ''\) \+ 'scale\(' \+ zoomReg \+ '\)'/.test(SUMBER));
+cek('transform registrasi dipasang ke video DAN overlay',
+  /videoEl\.style\.transform = t;[\s\S]{0,200}?overlayEl\.style\.transform = t;/.test(SUMBER));
+cek('transform registrasi diperbarui saat kamera diganti',
+  /mulaiKameraKe\(videoEl, deviceId, true\);[\s\S]{0,120}?setTransformReg\(\);/.test(SUMBER));
 
 // ---------------------------------------------------------------------------
 console.log(lulus + ' lulus, ' + gagal + ' gagal.');
