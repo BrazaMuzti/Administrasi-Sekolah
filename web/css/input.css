@@ -443,3 +443,44 @@ table {
   body { overscroll-behavior-y: none; }
 }
 
+/* ============================================================
+   [F3] ABSEN MANDIRI — tinggi layar dinamis & wadah kamera (2026-11-16)
+   Masalah: `h-screen` (100vh) diukur dengan bilah alamat browser seluler
+   TERBUKA, sehingga bagian bawah `#main-content` (form & kamera Absen Mandiri)
+   terpotong dan tidak bisa digulir (body `overflow-hidden`). `dvh` = tinggi
+   viewport yang benar-benar terlihat (mengikuti bilah alamat yang menyusut).
+   ============================================================ */
+@supports (height: 100dvh) {
+  #view-dashboard { height: 100dvh; }
+  #view-login { height: 100dvh; }
+}
+
+/* Wadah kamera Absen Mandiri: beri jarak gulir (scroll-margin) supaya saat
+   di-gulir otomatis (gulirKeWadahKameraMandiri) kamera tidak menempel ke tepi. */
+#wajah-mandiri-wrap { scroll-margin-top: 4rem; scroll-margin-bottom: 4rem; }
+/* Video kamera tidak boleh kolaps jadi 0 tinggi (mis. saat layout flex menekan). */
+#wajah-mandiri-wrap video {
+  width: 100%;
+  min-height: 12rem;
+  background: #000;
+}
+
+/* ============================================================
+   [F4] CARI NAMA — sorotan hasil pencarian pada daftar siswa modal
+   absen masal (lihat cariNamaMasal() di web/js/app.js).
+   ============================================================ */
+mark.nm-cari-hit {
+  background: rgba(250, 204, 21, 0.85);
+  color: #1e293b;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 800;
+}
+/* Baris yang tidak cocok diredupkan agar hasil pencarian menonjol. */
+.nm-cari-redup { opacity: 0.35; }
+/* Baris hasil yang sedang aktif (dituju tombol ↑/↓ atau Enter). */
+.nm-cari-aktif {
+  background: rgba(250, 204, 21, 0.14);
+  box-shadow: inset 3px 0 0 0 rgb(250, 204, 21);
+}
+

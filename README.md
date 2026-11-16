@@ -661,17 +661,18 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    sedangkan data Supabase (melewati service worker) tetap butuh koneksi.
 5. Uji manual lengkap ada di `CHECKLIST_E2E.md` → **S14l** (PWA/offline) dan **S14m**
    (akurasi Face Scan + overlay landmark, README §7b).
-6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261031b'`; muncul di
+6. `js/install.js` menyimpan **stempel build** (`BUILD = '20261116a'`; muncul di
    console sebagai `[SISIP] build …` dan sebagai `<html data-sisip-build="…">`).
    Bila stempel di perangkat berbeda, seluruh cache `sisip-*` dihapus lalu halaman
    memuat ulang **sekali** — jadi perangkat yang masih menjalankan berkas lama
    (termasuk service worker rusak / cache `sisip-v1`) sembuh sendiri tanpa siswa
    perlu menghapus data situs. Naikkan `BUILD` bersama tag `?v=` dan `VERSION` di
    `sw.js`. **Semua** tag `?v=` untuk berkas yang di-precache (`css/style.css`,
-   `js/utils.js`, `js/app.js`, `js/face.js`, `js/install.js`) wajib ikut naik: `npm
-   run check:deploy` mencocokkan `BUILD` dengan tag `js/app.js?v=`/`css/style.css?v=`/
-   `js/utils.js?v=` di `index.html` **dan** di `PRECACHE`, jadi satu tag tertinggal
-   langsung dilaporkan merah.
+   `js/kelas.js`, `js/utils.js`, `js/app.js`, `js/face.js`, `js/install.js`) wajib
+   ikut naik: `npm run check:deploy` mencocokkan `BUILD` dengan tag
+   `js/app.js?v=`/`js/kelas.js?v=`/`css/style.css?v=`/`js/utils.js?v=` di
+   `index.html` **dan** di `PRECACHE`, jadi satu tag tertinggal langsung
+   dilaporkan merah.
 7. **Dua situs, satu folder `web/`.** Selain GitHub Pages, aplikasi juga disajikan
    Vercel dari repo mirror `BrazaMuzti/SMKN2Banjar` (**Root Directory = `web/`**,
    tanpa `vercel.json`). Folder `web/` di mirror itu **harus selalu identik dengan
@@ -733,11 +734,12 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    `scripts/cek-deploy.mjs`). Berkas JSON itu mendaftar **semua** host yang
    menyajikan aplikasi (Pages, mirror Vercel, custom domain `.my.id` nanti).
    `npm run check:deploy` mengunduh `index.html`, `sw.js`, `js/install.js`,
-   `js/app.js`, dan `js/utils.js` dari **setiap** host lalu membandingkannya
-   dengan folder `web/` repo ini: meta `sisip-build`, `BUILD` di `install.js`,
-   `VERSION` di `sw.js`, tag `?v=` di daftar `PRECACHE`, hash `js/app.js`,
-   keberadaan simbol `akunSesiAbsenMurid`/`ambil_sesi_absen_murid` di
-   `utils.js`, dan tidak adanya penanda template. Satu host berbeda → exit code
+   `js/app.js`, `js/utils.js`, dan `js/kelas.js` dari **setiap** host lalu
+   membandingkannya dengan folder `web/` repo ini: meta `sisip-build`, `BUILD`
+   di `install.js`, `VERSION` di `sw.js`, tag `?v=` di daftar `PRECACHE`, hash
+   `js/app.js`, keberadaan simbol `akunSesiAbsenMurid`/`ambil_sesi_absen_murid`
+   di `utils.js`, penanda modul kelas (`root.KELAS`/`pecah`) di `js/kelas.js`,
+   dan tidak adanya penanda template. Satu host berbeda → exit code
    `1` + daftar alasannya (ditambah blok "stempel" agar mudah dibandingkan).
    Jalankan **setiap habis deploy**; workflow Pages juga memanggilnya otomatis
    sebagai *peringatan* (CDN bisa tayang beberapa menit setelah job selesai).
@@ -748,5 +750,175 @@ selalu memakai `./`, dan `sw.js` menurunkan semua URL dari scope-nya sendiri
    `npm run check:deploy -- --json`; batasi host tertentu dengan
    `--host github-pages`. Skrip ini **tidak** menyentuh server mana pun
    (HTTP GET saja), jadi aman dijalankan kapan saja.
+
+## 9. Normalisasi Kelas — Tingkat · Jurusan · Rombel
+
+Kelas disimpan sebagai **satu label gabungan** (`"X LP 1"`). Aplikasi lama
+menebak isinya dengan `split()`/regex di puluhan tempat, sehingga label gaya
+angka — `"10 RPL 1"`, bentuk umum pada impor Excel — tidak terbaca konsisten
+(mis. angkatan `"10 RPL 1"` dulu menghasilkan `""`, dan `"10 RPL 1"` tidak
+dianggap sama dengan `"X RPL 1"`). Sejak **build `20261116a`** (SW `v13`)
+label kelas diuraikan **sekali** di satu sumber, lalu dipakai semua fitur.
+
+### a. Dua tahap perubahan
+
+| Tahap | Berkas | Isi |
+|---|---|---|
+| **2 (SQL)** | `supabase/sql/upgrade_20261115_kelas_normalisasi.sql` | kolom terstruktur `tingkat`/`jurusan_kode`/`jurusan`/`rombel` + generated `kelas_label` pada `master_data`, `akun`, `jadwal_pelajaran`; tabel referensi `master_jurusan` (+RLS); helper `fn_normal_tingkat`/`fn_pecah_kelas`/`fn_label_kelas`/`fn_enrich_riwayat_kelas`; **trigger sinkron dua arah** label ⇄ kolom terstruktur; RPC `proses_kenaikan_kelas`, `simpan_riwayat_murid`, `fn_akun_export`, `fn_akun_json` dibuat ulang (aditif) |
+| **3 (frontend)** | `web/js/kelas.js` + `web/js/app.js` | modul kelas murni (cermin helper SQL) + seluruh helper kelas lama di `app.js` menjadi **delegasi** ke modul itu, plus integrasi tabel referensi `master_jurusan` |
+
+Tahap 2 **wajib dijalankan lebih dulu** (`gabungan.sql` untuk project baru,
+atau file upgrade-nya untuk project yang sudah berjalan).
+
+### b. `web/js/kelas.js` — satu sumber kebenaran format kelas
+
+| API | Cermin SQL | Kegunaan |
+|---|---|---|
+| `KELAS.pecah(label)` | `fn_pecah_kelas` | `"10 RPL 1"` → `{tingkat:'X', jurusan_kode:'RPL', rombel:1}` |
+| `KELAS.label(t, k, r)` | `fn_label_kelas` | rakit label kanonik `"X RPL 1"` |
+| `KELAS.normalTingkat(v)` | `fn_normal_tingkat` | `10→X`, `11→XI`, `12→XII`, sisanya UPPER |
+| `KELAS.komponen(row)` | — | komponen baris DB: **kolom terstruktur dulu**, lalu uraian label |
+| `KELAS.komponenTahun(row, ta)` | `fn_enrich_riwayat_kelas` | komponen kelas murid pada satu TA (entri `riwayat_kelas`) |
+| `KELAS.labelDariBaris(row)` | — | label tersimpan bila ada, selain itu dirakit |
+| `KELAS.kunci(v)` / `KELAS.sama(a,b)` | — | pembanding kesetaraan: `"10 RPL 1"` ≡ `"X RPL 1"` ≡ `"x rpl 1"` |
+| `KELAS.naik(t)` / `KELAS.turun(t)` | — | `X→XI→XII→LULUS` / kebalikannya |
+| `KELAS.angkatan(v)` / `gayaTingkat` / `tingkatGaya` | — | angkatan (`"10 RPL 1"` → `X`) & menjaga gaya angka/romawi saat kenaikan kelas |
+
+**Label yang jelas BUKAN kelas** (`""`, `"Semua Kelas"`, `"Hadir"`, `"Islam"`,
+`"Aktif"`, …) tidak pernah diurai — komponennya kosong. Ini penting karena
+`master_data` menyimpan banyak kategori pada baris yang sama.
+
+Modul ini **murni** (tanpa DOM), dimuat `<script src="js/kelas.js?v=…">`
+**sebelum** `app.js`, dan di-precache service worker.
+
+### c. Aturan kompatibilitas yang tidak boleh dilanggar
+
+1. **Label tersimpan tidak pernah ditulis ulang otomatis.** Trigger Tahap 2
+   mem-parse label yang sudah ada untuk mengisi kolom terstruktur, tetapi
+   **tidak** mengganti labelnya — jadi filter lama (`"10 RPL 1"`) tetap cocok
+   dengan data yang sudah ada.
+2. **Daftar kelas & dropdown filter tetap memakai label tersimpan** (`listKelas`
+   dari `master_data."Tingkat/Kelas"`). Mengganti sumbernya ke label kanonik
+   akan memutus semua pembanding label di penjadwalan/absensi. Untuk
+   membandingkan dua kelas yang berbeda gayanya, gunakan `KELAS.sama(a, b)`.
+3. **Kolom terstruktur menang atas uraian teks.** `KELAS.komponen()` membaca
+   `tingkat`/`jurusan_kode`/`rombel` lebih dulu (hasil parser SQL yang lebih
+   andal), baru menguraikan label. Karena itu helper lama di `app.js` menerima
+   parameter kedua opsional berupa **baris DB** (`rombelKelas(kls, row)`,
+   `jurusanDariKelas(kelas, row)`, …) — kirim barisnya bila tersedia.
+4. **`KELAS_FALLBACK` di `app.js` wajib dipertahankan.** Bila `js/kelas.js`
+   gagal dimuat (kasus nyata: satu host belum ikut deploy → 404), `app.js`
+   otomatis memakai implementasi cadangan di dalam `app.js` (penanda
+   `// ── [KELAS-FALLBACK-MULAI]` … `SELESAI`) dengan perilaku identik, lalu
+   menulis satu `console.warn`. Ini menjaga aplikasi tetap jalan, bukan
+   halaman putih.
+
+### d. `master_jurusan` (tabel referensi jurusan)
+
+- Dimuat sekali per sesi oleh `ambilMasterJurusan()` (dipanggil tanpa memblokir
+  dari `ambilMasterData()`); `petaJurusanMaster()` menggabungkannya dengan
+  pasangan baris `master_data` (**master_data menang** karena itu yang diedit
+  admin), dan `daftarJurusanWizard()` memakainya untuk dropdown Wizard.
+- Saat admin menambah/mengubah jurusan di **Master Data → Wizard Jurusan /
+  Edit**, `simpanJurusanMaster(kode, nama)` menyinkronkan tabel referensi
+  (cari baris → update, selain itu insert; tanpa `upsert` karena tabel memakai
+  indeks unik ekspresi `upper(btrim(kode))`). Gagal sinkron hanya
+  `console.warn` — alur Master Data tidak pernah diblokir.
+- Bila migrasi Tahap 2 **belum** dijalankan, semua panggilan di atas gagal
+  senyap (cache kosong) dan aplikasi kembali memakai perilaku lama
+  (pasangan baris `master_data` + preset Wizard).
+
+### e. Uji & verifikasi
+
+- **Otomatis:** `npm run test:kelas` (`scripts/uji-kelas.mjs`) — 222 pemeriksaan
+  tanpa browser/DB: tabel kasus uraian/perakitan (`"10 RPL 1"`, `"x rpl 1"`,
+  `"X-RPL-1"`, `"X LP"`, label non-kelas, round-trip), kesetaraan kelas,
+  prioritas kolom terstruktur, `riwayat_kelas` per TA, naik/turun tingkat,
+  **daftar kelas wali Tahap 4A** (`normKelasList`/`adaKelas`/`gabungKelas`/
+  `teksKelasList`), **eksekusi blok `KELAS_FALLBACK` app.js**, parse `app.js`,
+  dan konsistensi registrasi aset (`index.html` ↔ `sw.js` ↔ `install.js`).
+  Skrip ini juga dijalankan di CI (job **Validasi repo**).
+- **Manual (setelah Tahap 2 dijalankan):** Master Data → tambah kelas lewat
+  Wizard Tingkat/Kelas → periksa tabel:
+  `select "Tingkat/Kelas", tingkat, jurusan_kode, rombel, kelas_label from master_data where "Tingkat/Kelas" <> '';`
+  → kolom terstruktur terisi dan label lama **tidak berubah**. Data Akun Murid →
+  Edit murid → lihat kolom Kelas & kartu/dokumen (jurusan tampil dari kode yang
+  benar, termasuk murid berlabel `"10 RPL 1"`). Kenaikan/Turunkan Kelas → murid
+  berlabel angka (`"10 RPL 1"`) ikut naik (`"11 RPL 1"`).
+- **Drift host:** `npm run check:deploy` kini juga memeriksa `js/kelas.js`
+  (keberadaan + penanda `root.KELAS`/`pecah`/`fn_pecah_kelas` + tag `?v=`).
+
+### f. Wali kelas multi-kelas — Tahap 4A (build `20261116b`, SW `v14`)
+
+Satu guru bisa menjadi **wali lebih dari satu kelas** (dan untuk beberapa tahun
+pelajaran sekaligus). Model lama hanya punya satu slot — `akun.wali_kelas`
+(satu teks) dan `akun.penugasan[TA].wali` (satu string) — sehingga daftar wali
+kelas, otorisasi wali/pembina, dan laporan menebak dari string gabungan.
+
+| Bagian | Berkas | Isi |
+|---|---|---|
+| **4A (SQL)** | `supabase/sql/upgrade_20261116_wali_kelas_multi.sql` | tabel relasi **`wali_kelas_penugasan`** (guru × TA × kelas, generated `kelas_label`) + trigger sinkron dari kolom akun + helper `fn_kelas_sama`/`fn_wali_list`/`fn_ta_berjalan`/`fn_wali_kelas_list`/`fn_wali_kelas_map`/`fn_kelas_murid`/`fn_guru_wali_ada`; `fn_is_wali_kelas`, `akun_guru_ampu_murid`, `ubah_anggota_ekskul`, `fn_akun_json` dibuat ulang (aditif) |
+| **4A (frontend)** | `web/js/kelas.js`, `web/js/app.js`, `web/js/utils.js` (+`.example`) | `penugasan[TA].wali` menjadi **array kelas**; form penugasan memakai **checkbox wali** (bukan satu dropdown); kolom lama `wali_kelas` tetap ditulis sebagai cerminan **gabungan koma** |
+| **4A (uji)** | `supabase/sql/uji_wali_kelas_multi.sql`, `scripts/uji-kelas.mjs`, `scripts/uji-wali-pglite.mjs` | uji SQL 40+ pemeriksaan (bertransaksi + `rollback`) & 222 pemeriksaan `npm run test:kelas`; uji PGlite opsional menjalankan migrasi di Postgres asli (WASM) |
+
+Aturan yang berlaku:
+
+1. **Sumber kebenaran:** tabel `wali_kelas_penugasan`; `penugasan[TA].wali`
+   (array) yang ditulis admin/Edge Function, dan kolom lama `wali_kelas`
+   (satu teks, boleh gabungan koma) tetap dibaca sebagai cadangan. Trigger
+   `trg_sync_wali_penugasan` menyusun ulang relasi setiap kali `akun` disimpan,
+   jadi data lama & jalur tulis lama tetap benar tanpa perubahan klien.
+2. **Pembanding kelas selalu kanonik:** `KELAS.sama()` di klien dan
+   `fn_kelas_sama()` di SQL, sehingga `"10 RPL 1"` ≡ `"X RPL 1"`.
+3. **Kolom lama belum dihapus** (`akun.wali_kelas` & `tingkat_kelas` tetap ada
+   dan tetap ditulis). Penghapusannya = **Tahap 4B/4C** (belum dijalankan).
+4. **Akses guru wali/pembina** kini memakai irisan {kelas wali guru} ∩ {kelas
+   efektif murid (`riwayat_kelas[TA].kelas` ∪ `tingkat_kelas`)} — jadi guru wali
+   tetap dapat mengakses muridnya untuk TA mana pun yang terdaftar.
+
+Cara memakai & verifikasi:
+
+- Jalankan migrasinya (project berjalan: berkas di atas; project baru:
+  `gabungan.sql` terbaru — blok terakhir).
+- **Uji manual tanpa efek samping:** tempel `supabase/sql/uji_wali_kelas_multi.sql`
+  ke SQL Editor → semua baris `✔ …` dan diakhiri `UJI WALI MULTI LULUS`
+  (seluruh uji di dalam satu transaksi yang di-`rollback`, data uji `UJIWM-*`
+  tidak tertinggal).
+- **Uji migrasi tanpa Supabase (opsional):**
+  `deno run -A --node-modules-dir=auto scripts/uji-wali-pglite.mjs` — menjalankan
+  **seluruh** migrasi Tahap 4A pada Postgres asli (PGlite/WASM) di memori, lalu
+  menguji helper, trigger/backfill, otorisasi wali multi, mode `fn_akun_json`,
+  dan berkas uji SQL di atas (61 pemeriksaan; butuh jaringan sekali).
+- Pemeriksaan cepat: `select * from wali_kelas_penugasan order by nis_nip, tahun_pelajaran, kelas_label;`
+  lalu `select fn_wali_kelas_list('<NIP>'), fn_wali_kelas_map('<NIP>');`
+- Di aplikasi: **Data Akun Guru → Edit** satu guru → bagian *Penugasan per
+  Tahun Pelajaran* → centang **dua kelas** pada Wali Kelas → Simpan → tab
+  **Daftar Wali Kelas** menampilkan guru itu pada kedua kelas, dan kolom
+  `akun.wali_kelas` terisi `"X LP 1, X LP 2"`.
+
+### g. Perbaikan UI Absen/Ekskul/Nilai (build `20261116c`, SW `v15`)
+
+Lima temuan lapangan — **tanpa perubahan SQL** (seluruh perbaikan di frontend):
+
+| # | Temuan | Akar masalah | Perbaikan (berkas) |
+|---|---|---|---|
+| 1 | Ekskul → **Pilih sub-ekskul** melempar keluar dari modal "Tambah Anggota" | popup Swal sub-ekskul MENGGANTIKAN modal Tambah Anggota; setelah Simpan/Batal modal tidak kembali | `formTambahAnggotaEkskul({ lanjutkan })` + `bacaFilterTambahAnggota()`/`pulihkanFilterTambahAnggota()`; `formPilihSubTambahAnggota()` membuka kembali modal dengan pilihan & filter utuh (`web/js/app.js`) |
+| 2 | Modal **Edit Absen Masal** sulit dipakai pada kelas besar | tidak ada pencarian siswa | kotak **Cari Nama / NIS** + sorot hasil + tombol ↑/↓/bersihkan + gulir otomatis (`cariNamaMasal`, `cariNamaMasalLompat`, `bersihkanCariNamaMasal`; kelas CSS `.nm-cari-hit`/`.nm-cari-redup`/`.nm-cari-aktif`) |
+| 3 | **Kamera Absen Mandiri** tidak tampil / tidak bisa digulir di HP | shell memakai `100vh` (bilah alamat HP memotong bagian bawah `#main-content`); blok Metode 2 bisa masih `hidden` | `@supports (height:100dvh){#view-dashboard{height:100dvh}}` + `min-height` video + `gantiMetodaAbsen('wajah')` sebelum pindai + `gulirKeWadahKameraMandiri()` (`web/css/input.css`, `web/js/app.js`, `web/js/face.js`) |
+| 4 | Dashboard murid: **Absensi Hari Ini** selalu "Belum Absen" | query difilter `tahun`+`semester` (baris hari ini terbuang bila TA/semester berbeda) dan status `D` tidak dihitung | query `absensi` per `nis` saja lewat `supaAmbilSemua` (tidak terpotong batas 1000 baris PostgREST); statistik disaring TA/semester di klien; chip membandingkan tanggal **WIB + lokal**; status **D (Dispen)** ikut dihitung |
+| 5 | **Laporan Nilai** berisi baris metadata ("ID Akun Guru", "Wali Kelas", …) | `Object.keys(nilai.data)` memuat kolom metadata yang ditulis modul Input Nilai | metadata dikecualikan (`KOLOM_META_NILAI`), identitas menjadi kartu **NIS/NISN/Kelas/Wali Kelas**, ditambah baris **Pembimbing** pada nilai ekskul |
+
+Catatan teknis:
+
+- **NISN/Wali Kelas** murid dibaca dari RPC `ambil_akun_satu` mode `profil_akun`
+  (murid hanya boleh membaca barisnya sendiri) bila tidak ada di sesi.
+- **Pembimbing ekskul** di halaman murid: `akunDaftarGuru('guru_pembina')` digerbang
+  staf → pada sesi murid nama pembina tidak terbaca, sehingga yang tampil adalah
+  **NIP pembina** dari tabel `ekstrakurikuler` (tetap informatif).
+- Tidak ada migrasi SQL baru: policy baca `absensi` (`absensi_baca_semua`) sudah
+  terbuka untuk sesi murid (anon) — `gabungan.sql` tidak berubah.
+- Regresi dijaga otomatis: `npm run test:kelas` (§11 — pola `app.js`) dan
+  `npm run test:face` (§8 — kamera Absen Mandiri).
+
 
 

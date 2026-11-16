@@ -49,26 +49,30 @@ function susunProfil(body: Record<string, unknown>) {
   if (body.gelar_depan !== undefined) profil.gelar_depan = String(body.gelar_depan).trim();
   if (body.gelar_belakang !== undefined) profil.gelar_belakang = String(body.gelar_belakang).trim();
   if (body.penugasan !== undefined) {
-    // Penugasan guru per tahun pelajaran: { "TA": { "mapel": [], "wali": "", "ekskul": [] } }
+    // Penugasan guru per tahun pelajaran: { "TA": { "mapel": [], "wali": [], "ekskul": [] } }
+    // [TAHAP 4A] `wali` = DAFTAR kelas (guru boleh wali >1 kelas); bentuk LAMA
+    // berupa satu string (atau string dipisah koma) tetap diterima → dijadikan array.
     profil.penugasan = susunPenugasan(body.penugasan);
   }
   return profil;
 }
 
 /** Validasi & normalisasi struktur penugasan per tahun pelajaran (jsonb). */
-function susunPenugasan(input: unknown): Record<string, { mapel: string[]; wali: string; ekskul: string[] }> {
-  const hasil: Record<string, { mapel: string[]; wali: string; ekskul: string[] }> = {};
+function susunPenugasan(input: unknown): Record<string, { mapel: string[]; wali: string[]; ekskul: string[] }> {
+  const hasil: Record<string, { mapel: string[]; wali: string[]; ekskul: string[] }> = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) return hasil;
   for (const [tahun, val] of Object.entries(input as Record<string, unknown>)) {
     const ta = String(tahun).trim();
     if (!ta || !val || typeof val !== "object" || Array.isArray(val)) continue;
     const v = val as Record<string, unknown>;
-    const arrStr = (x: unknown): string[] =>
-      Array.isArray(x) ? x.map((s) => String(s).trim()).filter(Boolean)
-        : String(x ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    // Menerima array BARU maupun string LAMA ("X LP 1" / "X LP 1, X LP 2") → array bersih & unik.
+    const arrStr = (x: unknown): string[] => {
+      const arr = Array.isArray(x) ? x : String(x ?? "").split(",");
+      return [...new Set(arr.map((s) => String(s).trim()).filter(Boolean))];
+    };
     hasil[ta] = {
       mapel: arrStr(v.mapel),
-      wali: String(v.wali ?? "").trim(),
+      wali: arrStr(v.wali),
       ekskul: arrStr(v.ekskul),
     };
   }

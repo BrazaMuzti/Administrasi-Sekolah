@@ -31,6 +31,9 @@ const INFO_APLIKASI = {
 
 let showNamaSiswa = true; let rekapModeState = 0; 
 let listMuridKelas = []; let masterDataCache = []; let rawAbsenData = []; let dataStatusKunciGuru = [];
+/** [TAHAP 3] Cache tabel referensi `master_jurusan` (Tahap 2). Kosong = tabel belum
+ *  ada/belum dimuat → seluruh alur tetap jalan memakai pasangan baris master_data. */
+let masterJurusanCache = [];
 let currentMenuId = 'dashboard'; let currentMenuText = 'Dashboard';
 
 // Preferensi Tahun Pelajaran & Semester (dipilih saat login / header dashboard)
@@ -115,6 +118,10 @@ function toggleUrutNamaModal() {
   }).forEach(n => c.appendChild(n));
   const btn = document.getElementById('btn-urut-nama-modal');
   if (btn) btn.innerHTML = urutNamaModalAsc ? '<i class="fa-solid fa-arrow-down-a-z"></i> A-Z' : '<i class="fa-solid fa-arrow-up-a-z"></i> Z-A';
+  // [FIX 2] Urutan berubah → hasil pencarian "Cari Nama" dihitung ulang supaya
+  // sorotan & lompatan hasil tetap mengikuti urutan yang baru tampil.
+  const inpCari = document.getElementById('cari-nama-masal');
+  if (inpCari && inpCari.value.trim()) cariNamaMasal();
 }
 
 /** Parse input hari bebas: "1, 3-5, 8 dan 10" / "1 sampai 3" → [1,3,4,5,8,10]. */
@@ -261,7 +268,11 @@ async function petaWaliKelas() {
   }
   const map = {};
   (cacheGuruWali || []).forEach(g => {
-    if (g.wali_kelas) map[g.wali_kelas] = [g.gelar_depan, g.nama_lengkap, g.gelar_belakang].filter(Boolean).join(' ').replace(' ,', ', ');
+    const nama = [g.gelar_depan, g.nama_lengkap, g.gelar_belakang].filter(Boolean).join(' ').replace(' ,', ', ');
+    // [TAHAP 4A] Satu guru bisa wali >1 kelas → petakan SETIAP kelasnya.
+    kelasModul().gabungKelas(g.wali_kelas_list, g.wali_kelas).forEach(k => {
+      if (!map[k]) map[k] = nama;
+    });
   });
   return map;
 }
@@ -708,8 +719,8 @@ async function bukaProfilAkun() {
   // Hadir Tatap Muka & Input Nilai. Fallback ke sesi bila fetch fresh gagal.
   const splitKoma = (v) => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
   const penugasanTampil = prof
-    ? { mapel: splitKoma(prof.mapel), wali: String(prof.wali_kelas || '').trim(), ekskul: splitKoma(prof.ekstrakurikuler) }
-    : { mapel: mapelDiampuAktif(), wali: waliKelasAktif(), ekskul: ekskulDiampuAktif() };
+    ? { mapel: splitKoma(prof.mapel), wali: kelasModul().teksKelasList(prof.wali_kelas_list || prof.wali_kelas), ekskul: splitKoma(prof.ekstrakurikuler) }
+    : { mapel: mapelDiampuAktif(), wali: waliKelasAktifTeks(), ekskul: ekskulDiampuAktif() };
 
   const baris = (label, nilai, icon, warna = 'text-slate-300') => `
     <div class="flex items-start justify-between gap-3 border-b border-white/5 py-1.5">
@@ -1668,10 +1679,14 @@ async function pindaiWajahMandiriSaya() {
     if (wrap) { wrap.classList.add('hidden'); wrap.innerHTML = ''; }
     return;
   }
+  // [FIX 3] Blok Metode 2 (Face Scan) WAJIB benar-benar terbuka sebelum kamera
+  // dipasang: bila masih `hidden`, video ada di DOM tetapi tak terlihat & tak bisa
+  // digulir (gejala "kamera Absen Mandiri tidak tampil / tidak bisa di-scroll").
+  if (metodaAbsenMandiri !== 'wajah') gantiMetodaAbsen('wajah');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Menyiapkan kamera...'; }
   if (wrap) wrap.classList.remove('hidden');
   try {
-    await window.FaceWajah.pindaiWajahMandiri(String(nis), nama, {
+    const janjiScan = window.FaceWajah.pindaiWajahMandiri(String(nis), nama, {
       wrap,
       onHasil: () => {
         wajahMandiriCocok = true;
@@ -1687,6 +1702,11 @@ async function pindaiWajahMandiriSaya() {
         })();
       }
     });
+    // Wadah kamera dipasang face.js setelah RPC descriptor selesai (asinkron) →
+    // pantau singkat lalu gulirkan begitu elemennya muncul, agar kamera benar-benar
+    // terlihat di layar kecil/HP (bukan tersembunyi di bawah lipatan layar).
+    gulirKeWadahKameraMandiri(wrap);
+    await janjiScan;
   } catch (e) {
     console.error('pindaiWajahMandiriSaya:', e);
     if (st) st.innerHTML = '<span class="text-red-400">' + escapeHtml((e && e.message) || e) + '</span>';
@@ -1696,6 +1716,23 @@ async function pindaiWajahMandiriSaya() {
       if (!wajahMandiriCocok) btn.innerHTML = '<i class="fa-solid fa-face-smile mr-1"></i> Pindai Wajah Saya';
     }
   }
+}
+
+/** [FIX 3] Gulirkan wadah kamera Absen Mandiri ke tengah layar SETELAH elemen
+ *  <video> benar-benar terpasang. face.js memasang markup kamera setelah RPC
+ *  descriptor selesai (asinkron), jadi pemantauan singkat dipakai — dibatasi
+ *  ~3 detik supaya tidak menggantung bila kamera gagal dibuka.
+ *  @param {HTMLElement|null} wrap
+ *  @param {number} [sisaCoba] jumlah percobaan tersisa (150 ms sekali) */
+function gulirKeWadahKameraMandiri(wrap, sisaCoba = 20) {
+  if (!wrap) return;
+  const video = document.getElementById('wajah-mandiri-video');
+  if (video && video.isConnected) {
+    try { wrap.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* opsional */ }
+    return;
+  }
+  if (sisaCoba <= 0) return;
+  setTimeout(() => gulirKeWadahKameraMandiri(wrap, sisaCoba - 1), 150);
 }
 
 /** [B1] Kamera/scan wajah mandiri sedang berjalan? (helper dipakai di beberapa tempat) */
@@ -1712,6 +1749,17 @@ function wajahMandiriAktif() {
 // ==========================================
 
 const HARI_INDO = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+/** Tanggal ISO (yyyy-mm-dd) menurut zona waktu sekolah (WIB / Asia/Jakarta).
+ *  Absensi ditulis server memakai tanggal WIB, sedangkan perangkat murid bisa
+ *  berada di zona waktu lain (atau jam perangkat belum disinkron) — dipakai
+ *  sebagai pembanding kedua untuk chip "Absensi Hari Ini" di dashboard murid.
+ *  `toLocaleDateString('sv-SE')` menghasilkan format ISO; bila tidak didukung,
+ *  kembali ke tanggal lokal perangkat (ISO_HARIAN). */
+function hariIniWibIso(d = new Date()) {
+  try { return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' }); }
+  catch (e) { return ISO_HARIAN(d); }
+}
 
 /** Dashboard khusus akun murid: QR NIS, hari efektif, libur, jadwal kelas, statistik pribadi, agenda 7 hari. */
 async function renderDashboardMurid(container) {
@@ -1849,19 +1897,31 @@ async function renderDashboardMurid(container) {
         </div>`).join(''));
 
   // --- Statistik kehadiran pribadi + status hari ini (Saran #3) ---
+  // [FIX 4] Dulu query difilter `.eq('tahun', …).eq('semester', …)`; bila TA/semester
+  // yang tersimpan pada baris absensi berbeda dari preferensi header di perangkat
+  // (mis. TA berjalan baru, atau perangkat menyetel TA lain), SELURUH baris hari ini
+  // ikut terbuang → chip "Absensi Hari Ini" selalu "Belum Absen" walau sudah absen.
+  // Kini SELURUH baris absensi murid dibaca (filter `nis` saja, lewat supaAmbilSemua
+  // agar TIDAK terpotong batas 1000 baris PostgREST — kalau terpotong, baris hari ini
+  // bisa ikut hilang untuk siswa dengan riwayat panjang): statistik disaring
+  // TA/semester preferensi, chip "hari ini" disaring TANGGAL (WIB + lokal).
   let rowsSaya = [];
   try {
-    const { data } = await supaClient.from('absensi')
-      .select('status, tanggal, mapel')
-      .eq('nis', nis).eq('tahun', tahun).eq('semester', smt);
-    rowsSaya = data || [];
+    rowsSaya = await supaAmbilSemua(
+      supaClient.from('absensi')
+        .select('status, tanggal, mapel, ekskul, tahun, semester')
+        .eq('nis', nis)
+        .order('tanggal', { ascending: true })
+    );
   } catch (e) { console.warn('statistik murid:', e); }
-  const tot = { H: 0, S: 0, I: 0, A: 0 };
-  (rowsSaya || []).forEach(r => {
+  const rowsSmtIni = rowsSaya.filter(r =>
+    String(r.tahun || '') === String(tahun) && String(r.semester || '') === String(smt));
+  const tot = { H: 0, S: 0, I: 0, A: 0, D: 0 };
+  rowsSmtIni.forEach(r => {
     const st = String(r.status || '').toUpperCase();
     if (tot.hasOwnProperty(st)) tot[st]++;
   });
-  const totalAbs = tot.H + tot.S + tot.I + tot.A;
+  const totalAbs = tot.H + tot.S + tot.I + tot.A + tot.D;
   const pctKehadiran = totalAbs ? Math.round(tot.H / totalAbs * 100) : 0;
   const barStat = (label, jumlah, warnaTeks, warnaBg) => {
     const pct = totalAbs ? Math.round(jumlah / totalAbs * 100) : 0;
@@ -1871,13 +1931,22 @@ async function renderDashboardMurid(container) {
       <span class="text-[9px] font-bold text-slate-300 w-20 text-right">${jumlah} · ${pct}%</span>
     </div>`;
   };
-  const absenHariIni = rowsSaya.filter(r => r.tanggal === isoHariIni);
+  // Chip "Absensi Hari Ini": cocokkan tanggal WIB (server menulis tanggal WIB) DAN
+  // tanggal perangkat — jadi chip tetap muncul walau zona waktu perangkat berbeda.
+  const tanggalCekHariIni = new Set([isoHariIni, hariIniWibIso(now)]);
+  const absenHariIni = rowsSaya.filter(r => tanggalCekHariIni.has(String(r.tanggal || '')));
   const chipHariIni = absenHariIni.length === 0
     ? `<span class="text-[9px] px-2 py-0.5 rounded-full bg-slate-600/40 text-slate-300 font-bold">Belum Absen</span>`
     : absenHariIni.map(r => {
       const st = String(r.status).toUpperCase();
-      const w = st === 'H' ? 'bg-green-600/40 text-green-200' : st === 'A' ? 'bg-red-600/40 text-red-200' : st === 'I' ? 'bg-yellow-600/40 text-yellow-200' : 'bg-blue-600/40 text-blue-200';
-      return `<span class="text-[9px] px-2 py-0.5 rounded-full ${w} font-bold">${st} · ${escapeHtml(r.mapel || '-')}</span>`;
+      // H=Hadir (hijau), S=Sakit (biru), I=Ijin (kuning), A=Alfa (merah), D=Dispen (ungu)
+      const w = st === 'H' ? 'bg-green-600/40 text-green-200'
+        : st === 'S' ? 'bg-blue-600/40 text-blue-200'
+          : st === 'I' ? 'bg-yellow-600/40 text-yellow-200'
+            : st === 'D' ? 'bg-purple-600/40 text-purple-200'
+              : 'bg-red-600/40 text-red-200';
+      const label = r.mapel || r.ekskul || '-';
+      return `<span class="text-[9px] px-2 py-0.5 rounded-full ${w} font-bold">${escapeHtml(st || '?')} · ${escapeHtml(label)}</span>`;
     }).join(' ');
   const statHTML = totalAbs === 0
     ? `<p class="text-[11px] text-slate-500 italic">Belum ada data absensi semester ini.</p>`
@@ -1891,6 +1960,7 @@ async function renderDashboardMurid(container) {
         ${barStat('S', tot.S, 'text-blue-400', 'bg-blue-500')}
         ${barStat('I', tot.I, 'text-yellow-400', 'bg-yellow-500')}
         ${barStat('A', tot.A, 'text-red-400', 'bg-red-500')}
+        ${barStat('D', tot.D, 'text-purple-400', 'bg-purple-500')}
       </div>`;
 
   // --- Kartu QR NIS (Saran #1: tombol cetak kartu) ---
@@ -2740,6 +2810,7 @@ async function renderLaporanNilaiMurid(container) {
   container.innerHTML = `<div class="p-6 text-center text-slate-300"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><br>Memuat Laporan Nilai...</div>`;
   const user = (currentUser || {}).user || {};
   const nis = user["NIS"] || '';
+  const kelasSaya = user["Tingkat/Kelas"] || '';
   const pref = getPreferensiSesi();
   const now = new Date();
   const tahunDef = pref.tahun || currentTahun;
@@ -2760,29 +2831,99 @@ async function renderLaporanNilaiMurid(container) {
   const kategoriList = ['Data Nilai Pengetahuan', 'Data Nilai Keterampilan', 'Data Nilai Sikap', 'Data Nilai Eskul'];
   const labelKategori = { 'Data Nilai Pengetahuan': 'Pengetahuan', 'Data Nilai Keterampilan': 'Keterampilan', 'Data Nilai Sikap': 'Sikap', 'Data Nilai Eskul': 'Ekstrakurikuler' };
 
+  // [FIX 5] Kolom METADATA yang ditulis modul Input Nilai (bukan komponen nilai) dulu
+  // ikut tampil sebagai baris "nilai" — mis. "ID Akun Guru", "No", "NISN", "L/P",
+  // "Wali Kelas", "Mata Pelajaran", "Ekstrakurikuler" (lihat static data injector di
+  // penyimpanan nilai) — sehingga tabel laporan berisi baris sampah & sulit dibaca.
+  // Metadata itu kini disembunyikan; identitasnya ditampilkan sebagai kartu identitas.
+  const KOLOM_META_NILAI = ['ID Akun Guru', 'No', 'NISN', 'L/P', 'Wali Kelas', 'Mata Pelajaran', 'Ekstrakurikuler', 'nis', 'nama'];
+  const kolomKomponen = (d) => Object.keys(d || {}).filter(k =>
+    !KOLOM_META_NILAI.includes(k) && d[k] !== null && d[k] !== undefined && d[k] !== '');
+
+  // --- Identitas murid untuk kartu nilai ---
+  // NISN & Wali Kelas tidak selalu ada di sesi murid versi lama → dibaca dari RPC
+  // `ambil_akun_satu` mode 'profil_akun' (murid hanya boleh membaca barisnya sendiri).
+  let nisnSaya = String(user["NISN"] || '');
+  let waliKelasSaya = String(user["Wali Kelas"] || '');
+  if (!nisnSaya || !waliKelasSaya) {
+    try {
+      const baris = await akunSatu({ nis, mode: 'profil_akun' });
+      if (baris) {
+        nisnSaya = nisnSaya || String(baris.nisn || '');
+        waliKelasSaya = waliKelasSaya || String(baris.wali_kelas || '');
+      }
+    } catch (e) { console.warn('renderLaporanNilaiMurid/profil:', e); }
+  }
+  if (!waliKelasSaya) {
+    try {
+      const w = getNamaWaliKelas(kelasSaya);
+      waliKelasSaya = (w && w !== '-') ? w : '';
+    } catch (e) { /* opsional */ }
+  }
+
+  // --- Pembimbing ekstrakurikuler (kartu nilai ekskul) ---
+  // Nama pembina diambil dari daftar guru bila bisa dibaca (staf/guru); sesi murid
+  // biasa tidak boleh membaca daftar guru → ditampilkan NIP pembina (tetap
+  // informatif, bukan baris kosong).
+  let guruPembina = window.__cacheGuruEkskul || [];
+  if (!guruPembina.length) {
+    try {
+      guruPembina = await akunDaftarGuru('guru_pembina');
+      if (guruPembina.length) window.__cacheGuruEkskul = guruPembina;
+    } catch (e) { guruPembina = []; }
+  }
+  try { if (!(cacheEkstrakurikuler || []).length) await ambilDaftarEkskul(); } catch (e) { /* opsional */ }
+  const pembimbingEkskulTeks = (namaEkskul) => {
+    const rowE = (cacheEkstrakurikuler || []).find(e => String(e.nama_ekskul || '') === String(namaEkskul || ''));
+    if (!rowE) return '';
+    return pembinaEkskulList(rowE, guruPembina)
+      .map(p => String(p.nama || p.nip || '')).filter(Boolean).join(', ');
+  };
+
+  const kartuIdentitas = (label, nilai, icon) => `
+    <div class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5">
+      <div class="text-[8px] uppercase tracking-wider text-slate-400 font-bold"><i class="fa-solid ${icon} mr-1"></i>${escapeHtml(label)}</div>
+      <div class="text-[11px] text-white font-bold truncate" title="${escapeHtml(String(nilai || '-'))}">${escapeHtml(String(nilai || '-'))}</div>
+    </div>`;
+
+  const kartuNilai = (r, kat) => {
+    const d = r.data || {};
+    const kolom = kolomKomponen(d);
+    const ekskul = kat.includes('Eskul');
+    const pembimbing = ekskul ? pembimbingEkskulTeks(r.ekskul) : '';
+    const ringkas = kolom.map(k => `<div class="flex justify-between gap-2 bg-white/5 rounded px-2 py-1">
+        <span class="text-slate-400 text-[9px] truncate" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
+        <span class="text-white font-bold text-[10px] text-right">${escapeHtml(String(d[k]))}</span>
+      </div>`).join('');
+    return `<div class="bg-white/5 border border-white/10 rounded-xl p-3">
+      <div class="flex items-start justify-between gap-2 mb-1.5 flex-wrap">
+        <span class="text-[11px] font-bold text-white"><i class="fa-solid fa-book ${ekskul ? 'text-yellow-400' : 'text-blue-400'} mr-1"></i> ${escapeHtml(ekskul ? (r.ekskul || '-') : (r.mapel || '-'))}</span>
+        <span class="text-[9px] text-slate-400">${escapeHtml(r.kelas || kelasSaya || '')} · ${escapeHtml(r.tahun || '')} ${escapeHtml(r.semester || '')}</span>
+      </div>
+      ${pembimbing ? `<div class="text-[9px] text-amber-300 mb-1.5"><i class="fa-solid fa-user-tie mr-1"></i>Pembimbing: ${escapeHtml(pembimbing)}</div>` : ''}
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">${ringkas || '<span class="text-[10px] text-slate-500 italic">Belum ada rincian.</span>'}</div>
+    </div>`;
+  };
+
   const tabelKategori = (kat) => {
     const baris = rows.filter(r => r.kategori === kat);
     if (baris.length === 0) return `<p class="text-[11px] text-slate-500 italic">Belum ada data nilai ${escapeHtml(labelKategori[kat] || kat)}.</p>`;
-    return baris.map(r => {
-      const d = r.data || {};
-      const kolom = Object.keys(d).filter(k => d[k] !== null && d[k] !== '');
-      const ringkas = kolom.slice(0, 8).map(k => `<div class="flex justify-between gap-2 bg-white/5 rounded px-2 py-1"><span class="text-slate-400 text-[9px] truncate">${escapeHtml(k)}</span><span class="text-white font-bold text-[10px]">${escapeHtml(String(d[k]))}</span></div>`).join('');
-      return `<div class="bg-white/5 border border-white/10 rounded-xl p-3">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-[11px] font-bold text-white"><i class="fa-solid fa-book ${kat.includes('Eskul') ? 'text-yellow-400' : 'text-blue-400'} mr-1"></i> ${escapeHtml(kat.includes('Eskul') ? (r.ekskul || '-') : (r.mapel || '-'))}</span>
-          <span class="text-[9px] text-slate-400">${escapeHtml(r.kelas || '')} · ${escapeHtml(r.tahun || '')} ${escapeHtml(r.semester || '')}</span>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">${ringkas || '<span class="text-[10px] text-slate-500 italic">Belum ada rincian.</span>'}</div>
-        ${kolom.length > 8 ? `<div class="text-[9px] text-slate-500 italic mt-1">+ ${kolom.length - 8} komponen lainnya</div>` : ''}
-      </div>`;
-    }).join('');
+    return `<div class="space-y-2">${baris.map(r => kartuNilai(r, kat)).join('')}</div>`;
   };
 
   container.innerHTML = `
     <div class="p-4 space-y-4">
       <div class="text-center mt-2">
         <h2 class="text-base font-extrabold text-white tracking-wider uppercase"><i class="fa-solid fa-file-lines text-emerald-400 mr-2"></i> Laporan Nilai</h2>
-        <p class="text-[10px] text-slate-400">${escapeHtml(user["Nama Lengkap"] || '')} · NIS ${escapeHtml(nis)} · ${escapeHtml(tahunDef)} — ${escapeHtml(smtDef)} · Mode Baca Saja</p>
+        <p class="text-[10px] text-slate-400">${escapeHtml(user["Nama Lengkap"] || '')} · ${escapeHtml(tahunDef)} — ${escapeHtml(smtDef)} · Mode Baca Saja</p>
+      </div>
+      <!-- [FIX 5] Identitas murid dipisah dari tabel nilai (dulu metadata NISN/Kelas/
+           Wali Kelas ikut tampil sebagai baris nilai di dalam kartu mapel). -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        ${kartuIdentitas('NIS', nis, 'fa-id-badge')}
+        ${kartuIdentitas('NISN', nisnSaya, 'fa-id-card')}
+        ${kartuIdentitas('Kelas', kelasSaya, 'fa-chalkboard')}
+        ${kartuIdentitas('Wali Kelas', waliKelasSaya, 'fa-user-tie')}
       </div>
       <div class="flex justify-center">
         <button onclick="bukaRaporSaya()" class="bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold px-4 py-2 rounded-lg shadow transition"><i class="fa-solid fa-scroll mr-1"></i> Rapor Saya (PDF)</button>
@@ -2792,7 +2933,7 @@ async function renderLaporanNilaiMurid(container) {
           <h3 class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-layer-group text-emerald-400 mr-1"></i> ${escapeHtml(labelKategori[k])}</h3>
           ${tabelKategori(k)}
         </div>`).join('')}
-                                       </div>`;
+    </div>`;
 }
 
 // ==========================================
@@ -3162,14 +3303,17 @@ function perbaruiLabelTahunAbsen() {
   wrap.title = 'Pilih ' + labelTahunAbsen(isEkskul);
 }
 
-/** Ringkasan angkatan anggota dari daftar murid, mis. "X (12), XI (8)". Kosong bila tak ada data tingkat. */
+/** Ringkasan angkatan anggota dari daftar murid, mis. "X (12), XI (8)". Kosong bila tak ada data tingkat.
+ *  [TAHAP 3] Angkatan diambil dari modul kelas (kolom terstruktur bila ada), sehingga label gaya
+ *  angka ("10 RPL 1") ikut masuk kelompok "X" — tidak lagi terhitung sebagai angkatan terpisah. */
 function angkatanDariDaftarMurid(daftar) {
   const urutan = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
   const hitung = {};
   (daftar || []).forEach(m => {
-    const mt = String(m.kelasAsli || '').trim().toUpperCase().match(/^(XII|XI|X|IX|VIII|VII|VI|IV|V|III|II|I|\d{1,2})\b/);
-    if (!mt) return;
-    hitung[mt[1]] = (hitung[mt[1]] || 0) + 1;
+    const mod = kelasModul();
+    const tingkat = mod.angkatan(m) || mod.angkatan(m && m.kelasAsli);
+    if (!tingkat) return;
+    hitung[tingkat] = (hitung[tingkat] || 0) + 1;
   });
   const kunci = Object.keys(hitung).sort((a, b) => {
     const ia = urutan.indexOf(a), ib = urutan.indexOf(b);
@@ -4085,7 +4229,7 @@ function showModalEditAbsen(tanggal) {
   
   Swal.fire({
     title: `<div class="text-lg font-bold mt-2">Tgl ${tanggal} ${currentBulan}</div>`, width: '600px',
-    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-kamera-bar-modal" class="hidden mb-3 flex items-center gap-2 bg-slate-800/70 border border-white/10 rounded-lg px-2 py-1.5"><span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span><select id="qr-kamera-modal" class="flex-1 min-w-0 bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 focus:outline-none focus:border-blue-500" title="Pilih kamera pemindai QR (Depan/Belakang/kamera lain)"></select></div><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div id="toast-scan-inline" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60"></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
+    html: `${btnToggleAdmin}${uiAdminGuru}<div class="flex items-stretch justify-between gap-2 mb-3 bg-slate-700/50 p-2 rounded-lg border border-slate-500 shadow-inner w-full h-10"><button id="btn-qr-modal" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-camera text-xs"></i> <span class="hidden sm:inline">QR Scan</span><span class="sm:hidden">QR</span></button><button id="btn-face-modal" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-face-viewfinder text-xs"></i> <span class="hidden sm:inline">Face Scan</span><span class="sm:hidden">Face</span></button><input type="text" id="input-ket-kehadiran-masal" value="${ketMasalDB}" class="flex-1 w-0 bg-black/50 border border-white/30 rounded px-2 text-[10px] sm:text-[11px] text-center text-white placeholder-slate-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition" placeholder="Ket. Masal..."><button id="btn-hadir-semua" class="flex-1 bg-green-600 hover:bg-green-700 text-white rounded text-[10px] font-bold flex justify-center items-center gap-1 transition"><i class="fa-solid fa-check-double text-xs"></i> <span class="hidden sm:inline">Masal Hadir</span><span class="sm:hidden">Hadir</span></button><button id="btn-kosongkan-absen" onclick="hapusPilihanAbsen(${tanggal})" title="Kosongkan Data — hapus status H/S/I/A/D dari database" class="p-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition border border-red-500/30 shadow-sm flex items-center justify-center"><i class="fa-solid fa-eraser text-base"></i></button></div><details class="bg-black/30 border border-white/10 rounded-lg mb-3 px-3 py-2 text-left"><summary class="text-[11px] font-bold text-amber-300 cursor-pointer select-none"><i class="fa-solid fa-book-open-reader"></i> Agenda Guru / Jurnal Harian</summary><div class="grid grid-cols-2 gap-2 mt-2 text-[10px]"><div><label class="text-slate-400 font-bold">Hari/Tanggal</label><input id="j_tanggal" readonly value="${tanggal} ${currentBulan} ${currentTahun}" class="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-slate-300 outline-none"></div><div><label class="text-slate-400 font-bold">Pertemuan Ke-</label><input id="j_pertemuan" type="number" min="1" placeholder="otomatis" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div><label class="text-slate-400 font-bold" title="Otomatis sinkron jadwal & Master Jam Pelajaran — dapat diedit">Jam ke</label><input id="j_jamke" value="${escJs(jamkeOtomatis)}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKD}</label><input id="j_kd" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMateri}</label><input id="j_materi" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalKBM}</label><textarea id="j_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">${lblJurnalMasalah}</label><textarea id="j_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></textarea></div><div class="col-span-2"><label class="text-slate-400 font-bold">Keterangan Pencapaian</label><input id="j_pencapaian" placeholder="mis. 28 dari 32 siswa tuntas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-amber-400"></div></div></details><div id="qr-kamera-bar-modal" class="hidden mb-3 flex items-center gap-2 bg-slate-800/70 border border-white/10 rounded-lg px-2 py-1.5"><span class="text-[9px] uppercase tracking-wider text-slate-400 shrink-0"><i class="fa-solid fa-camera-rotate mr-1"></i>Kamera</span><select id="qr-kamera-modal" class="flex-1 min-w-0 bg-slate-800 border border-white/10 text-white text-[10px] rounded px-1.5 py-1 focus:outline-none focus:border-blue-500" title="Pilih kamera pemindai QR (Depan/Belakang/kamera lain)"></select></div><div id="qr-reader-in-modal" class="w-full hidden border-2 border-blue-500 rounded-lg mb-3"></div><div id="face-reader-wrap" class="hidden"></div><div id="toast-scan-inline" class="hidden items-center justify-center gap-1.5 mb-3 px-3 py-2 rounded-lg text-xs font-bold text-white shadow-lg border bg-emerald-600/90 border-emerald-400/60"></div><div class="flex items-center gap-1.5 mb-2"><div class="relative flex-1 min-w-0"><i class="fa-solid fa-magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px] pointer-events-none"></i><input type="text" id="cari-nama-masal" autocomplete="off" placeholder="Cari Nama / NIS siswa..." oninput="cariNamaMasal()" onkeydown="if(event.key==='Enter'){event.preventDefault();cariNamaMasalLompat(event.shiftKey?-1:1);}" class="w-full bg-black/40 border border-white/20 rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-white placeholder-slate-500 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition"></div><span id="cari-nama-info" class="text-[9px] text-slate-400 tabular-nums whitespace-nowrap w-16 text-right"></span><button type="button" onclick="cariNamaMasalLompat(-1)" class="p-1.5 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white rounded-lg transition" title="Hasil sebelumnya (Shift+Enter)"><i class="fa-solid fa-chevron-up text-[10px]"></i></button><button type="button" onclick="cariNamaMasalLompat(1)" class="p-1.5 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white rounded-lg transition" title="Hasil berikutnya (Enter)"><i class="fa-solid fa-chevron-down text-[10px]"></i></button><button type="button" id="cari-nama-bersih" onclick="bersihkanCariNamaMasal()" class="p-1.5 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white rounded-lg transition" title="Bersihkan pencarian"><i class="fa-solid fa-xmark text-[10px]"></i></button></div><div class="flex items-center justify-between px-2 pt-2 pb-1"><span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider"><i class="fa-solid fa-user-group"></i> Nama Siswa (${listMuridKelas.length})</span><button id="btn-urut-nama-modal" onclick="toggleUrutNamaModal()" class="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-300 hover:text-white transition" title="Urutkan Nama Siswa (A-Z / Z-A)"><i class="fa-solid fa-sort"></i> Urutkan</button></div><div id="daftar-siswa-modal" class="max-h-[35vh] overflow-y-auto px-2 text-left custom-scrollbar border-t border-white/10 pt-2">${siswaListHTML}</div>`,
     background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save"></i> Simpan', cancelButtonText: 'Batal',
         didOpen: () => {
       document.getElementById('btn-hadir-semua').addEventListener('click', () => document.querySelectorAll('.radio-h').forEach(r => { r.checked = true; r.dataset.on = '1'; }));
@@ -4170,6 +4314,111 @@ function showModalEditAbsen(tanggal) {
     }
     if (res.value.jurnal) simpanJurnalGuru(tanggal, res.value.jurnal);
   });
+}
+
+// ---------- [FIX 2] CARI NAMA pada modal Input Hadir Masal (Edit Absen) ----------
+/** Indeks hasil pencarian yang sedang disorot (-1 = belum ada). */
+let cariNamaMasalIdx = -1;
+/** Baris siswa yang cocok dengan kata kunci pencarian (urut tampil di daftar). */
+let cariNamaMasalHasil = [];
+
+/** Baris-baris siswa pada modal Edit Absen Masal (#daftar-siswa-modal). */
+function barisSiswaMasal() {
+  return Array.from(document.querySelectorAll('#daftar-siswa-modal [id^="row-murid-"]'));
+}
+
+/** NIS satu baris siswa — diambil dari id baris (`row-murid-<NIS>`). */
+function nisBarisMasal(row) {
+  return String((row && row.id) || '').replace('row-murid-', '');
+}
+
+/** Teks nama ASLI satu baris (tanpa penanda sorotan). Disimpan sekali di `dataset`
+ *  supaya pencarian berikutnya tidak menumpuk <mark> dan selalu bisa dipulihkan. */
+function teksNamaBarisMasal(row) {
+  const span = row.querySelector('.modal-nama-absen');
+  if (!span) return '';
+  if (span.dataset.namaAsli === undefined) span.dataset.namaAsli = span.textContent || '';
+  return span.dataset.namaAsli;
+}
+
+/** Tulis ulang nama satu baris: bagian yang cocok disorot `<mark class="nm-cari-hit">`
+ *  (teks asli tidak diubah — bagian lain di-escape ulang). */
+function tulisNamaBarisMasal(row, kunci) {
+  const span = row.querySelector('.modal-nama-absen');
+  if (!span) return;
+  const asli = teksNamaBarisMasal(row);
+  const i = kunci ? asli.toLowerCase().indexOf(kunci) : -1;
+  if (i < 0) { span.textContent = asli; return; }
+  span.innerHTML = escapeHtml(asli.slice(0, i))
+    + '<mark class="nm-cari-hit">' + escapeHtml(asli.slice(i, i + kunci.length)) + '</mark>'
+    + escapeHtml(asli.slice(i + kunci.length));
+}
+
+/** Cari nama/NIS siswa di modal Edit Absen Masal: sorot semua yang cocok, redupkan
+ *  yang tidak cocok, lalu lompat ke hasil pertama (sekaligus menggulirkannya). */
+function cariNamaMasal() {
+  const kunci = String((document.getElementById('cari-nama-masal') || {}).value || '').trim().toLowerCase();
+  cariNamaMasalHasil = [];
+  cariNamaMasalIdx = -1;
+  barisSiswaMasal().forEach(row => {
+    row.classList.remove('nm-cari-redup', 'nm-cari-aktif');
+    tulisNamaBarisMasal(row, kunci);
+    if (!kunci) return;
+    const cocok = teksNamaBarisMasal(row).toLowerCase().includes(kunci)
+      || nisBarisMasal(row).toLowerCase().includes(kunci);
+    if (cocok) cariNamaMasalHasil.push(row);
+    else row.classList.add('nm-cari-redup');
+  });
+  if (kunci && cariNamaMasalHasil.length) cariNamaMasalLompat(1, true);
+  else perbaruiInfoCariNamaMasal();
+}
+
+/** Pindah ke hasil pencarian berikutnya (+1) / sebelumnya (-1) & gulirkan ke tengah
+ *  daftar (daftar bisa panjang — hasil terakhir sering di luar layar).
+ *  @param {number} arah -1 | 1
+ *  @param {boolean} [mulai] true = mulai dari hasil pertama/terakhir (setelah mengetik) */
+function cariNamaMasalLompat(arah, mulai) {
+  const n = cariNamaMasalHasil.length;
+  if (!n) { perbaruiInfoCariNamaMasal(); return; }
+  const idx = mulai
+    ? (arah < 0 ? n - 1 : 0)
+    : (((cariNamaMasalIdx + (arah < 0 ? -1 : 1)) % n) + n) % n;
+  cariNamaMasalHasil.forEach(r => r.classList.remove('nm-cari-aktif'));
+  const row = cariNamaMasalHasil[idx];
+  cariNamaMasalIdx = idx;
+  if (row) {
+    row.classList.add('nm-cari-aktif');
+    try { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* opsional */ }
+  }
+  perbaruiInfoCariNamaMasal();
+}
+
+/** Info hasil pencarian: "2/5" saat ada hasil, "0 hasil" bila tidak ada. */
+function perbaruiInfoCariNamaMasal() {
+  const info = document.getElementById('cari-nama-info');
+  if (!info) return;
+  const kunci = String((document.getElementById('cari-nama-masal') || {}).value || '').trim();
+  if (!kunci) { info.textContent = ''; info.className = 'text-[9px] text-slate-400 tabular-nums whitespace-nowrap w-16 text-right'; return; }
+  if (!cariNamaMasalHasil.length) {
+    info.textContent = '0 hasil';
+    info.className = 'text-[9px] text-amber-300 whitespace-nowrap w-16 text-right';
+    return;
+  }
+  info.textContent = (cariNamaMasalIdx + 1) + '/' + cariNamaMasalHasil.length;
+  info.className = 'text-[9px] text-slate-200 tabular-nums whitespace-nowrap w-16 text-right';
+}
+
+/** Bersihkan pencarian: kosongkan kata kunci, pulihkan nama asli, hilangkan sorotan. */
+function bersihkanCariNamaMasal() {
+  const inp = document.getElementById('cari-nama-masal');
+  if (inp) { inp.value = ''; inp.focus(); }
+  cariNamaMasalHasil = [];
+  cariNamaMasalIdx = -1;
+  barisSiswaMasal().forEach(row => {
+    row.classList.remove('nm-cari-redup', 'nm-cari-aktif');
+    tulisNamaBarisMasal(row, '');
+  });
+  perbaruiInfoCariNamaMasal();
 }
 
 /** True bila teks berupa koordinat "lat, lng" yang valid (format keluaran getDeviceGPS). */
@@ -4973,7 +5222,7 @@ function showInfoKelasAbsen() {
   let namaWali = typeof getNamaWaliKelas === 'function' ? getNamaWaliKelas(kelas) : "Nama Wali Kelas";
   let hpWali = "-";
   if (dataStatusKunciGuru && dataStatusKunciGuru.length > 0) {
-    const w = dataStatusKunciGuru.find(g => (g["Wali Kelas"] || "") === kelas);
+    const w = dataStatusKunciGuru.find(g => waliKelasBarisAda(g, kelas));
     if (w) hpWali = w["No HP"] || "-";
   }
   
@@ -6524,7 +6773,7 @@ function showInfoKelas() {
   let namaWali = getNamaWaliKelas(kelas);
   let hpWali = "-";
   if (dataStatusKunciGuru && dataStatusKunciGuru.length > 0) {
-    const w = dataStatusKunciGuru.find(g => (g["Wali Kelas"] || "") === kelas);
+    const w = dataStatusKunciGuru.find(g => waliKelasBarisAda(g, kelas));
     if (w) hpWali = w["No HP"] || "-";
   }
 
@@ -6579,7 +6828,14 @@ function showInfoEkskulNilai(ekskul) {
     background: '#1e293b', color: '#fff', confirmButtonText: 'Tutup'
   });
 }
-function getNamaWaliKelas(kelas) { if (dataStatusKunciGuru && dataStatusKunciGuru.length > 0) { const w = dataStatusKunciGuru.find(g => waliKelasTahun(g) === kelas); if(w) return w["Nama Guru"]; } return "-"; }
+/** [TAHAP 4A] Nama wali kelas satu kelas: cari guru yang wali kelas tsb (bisa >1 kelas per guru). */
+function getNamaWaliKelas(kelas) {
+  if (dataStatusKunciGuru && dataStatusKunciGuru.length > 0) {
+    const w = dataStatusKunciGuru.find(g => waliKelasBarisAda(g, kelas));
+    if (w) return w["Nama Guru Bergelar"] || w["Nama Guru"] || "-";
+  }
+  return "-";
+}
 
 // ================= // ================= LOGIKA AUTO KALKULASI & VALIDASI =================
 function storeOldVal(el) { el.dataset.oldval = el.value; }
@@ -14377,9 +14633,187 @@ function wizardPunyaPreset(kolom) {
 // ==========================================
 const DAFTAR_TINGKAT = ['X', 'XI', 'XII'];
 
-/** Ambil peta jurusan { SINGKATAN: namaLengkap } dari cache master_data. */
+// ==========================================
+// [TAHAP 3] MODUL KELAS — `web/js/kelas.js` (satu sumber kebenaran format kelas)
+// Semua helper kelas di berkas ini HANYA mendelegasikan ke modul tersebut, sehingga
+// uraian/perakitan label ("X LP 1" ⇄ tingkat/jurusan_kode/rombel) tidak lagi
+// tersebar sebagai regex ad-hoc. Blok `KELAS_FALLBACK` di bawah adalah jaring
+// pengaman: dipakai bila kelas.js gagal termuat (drift build antar-host — lihat
+// `npm run check:deploy`) supaya aplikasi tetap jalan dengan perilaku IDENTIK.
+// ── [KELAS-FALLBACK-MULAI] ──────────────────────────────────────────────
+function fbBersih(v) { return String(v === null || v === undefined ? '' : v).replace(/^\s+|\s+$/g, ''); }
+function fbNormalTingkat(v) {
+  const t = fbBersih(v).toUpperCase();
+  return t === '10' ? 'X' : t === '11' ? 'XI' : t === '12' ? 'XII' : t;
+}
+function fbPecah(label) {
+  const kosong = { tingkat: '', jurusan_kode: '', rombel: null };
+  const v = fbBersih(fbBersih(label).replace(/\s+/g, ' ').replace(/[-_]+/g, ' '));
+  if (!v || /semua/i.test(v)) return kosong;
+  const tk = fbNormalTingkat((v.match(/^(\S+)/) || [])[1] || '');
+  if (!/^([IVX]+|[0-9]{1,2})$/.test(tk)) return kosong;
+  const mNo = v.match(/([0-9]{1,2})\s*$/);
+  const kode = fbBersih(v.replace(/^\S+\s*/, '').replace(/\s*[0-9]{1,2}\s*$/, '')).toUpperCase();
+  return { tingkat: tk, jurusan_kode: kode, rombel: mNo ? parseInt(mNo[1], 10) : null };
+}
+function fbLabel(t, k, r) {
+  let out = fbBersih(t);
+  const kode = fbBersih(k).toUpperCase();
+  if (kode) out += (out ? ' ' : '') + kode;
+  const no = (r === null || r === undefined || r === '') ? null : parseInt(r, 10);
+  if (no !== null && Number.isFinite(no)) out += (out ? ' ' : '') + no;
+  return fbBersih(out);
+}
+function fbKomponen(row) {
+  if (row === null || row === undefined) return { tingkat: '', jurusan_kode: '', rombel: null };
+  if (typeof row === 'string' || typeof row === 'number') return fbPecah(row);
+  const dari = fbPecah(row['Tingkat/Kelas'] ?? row.tingkat_kelas ?? row.kelas ?? row.kelas_label ?? '');
+  const no = (row.rombel === null || row.rombel === undefined || row.rombel === '') ? null : parseInt(row.rombel, 10);
+  return {
+    tingkat: fbBersih(row.tingkat) ? fbBersih(row.tingkat).toUpperCase() : dari.tingkat,
+    jurusan_kode: fbBersih(row.jurusan_kode) ? fbBersih(row.jurusan_kode).toUpperCase() : dari.jurusan_kode,
+    rombel: (no !== null && Number.isFinite(no)) ? no : dari.rombel
+  };
+}
+function fbKomponenTahun(row, tahun) {
+  const rw = (row && (row.riwayat_kelas || row.RiwayatKelas)) || null;
+  const entri = (rw && tahun) ? rw[String(tahun)] : null;
+  if (!entri) return fbKomponen(row);
+  const k = fbKomponen({ tingkat: entri.tingkat, jurusan_kode: entri.jurusan_kode, rombel: entri.rombel, kelas: entri.kelas });
+  if (!k.tingkat && !k.jurusan_kode && k.rombel === null) return fbKomponen(row);
+  return k;
+}
+function fbLabelDariBaris(row) {
+  const tersimpan = fbBersih(row && (row['Tingkat/Kelas'] ?? row.tingkat_kelas ?? row.kelas ?? row.kelas_label));
+  if (tersimpan) return tersimpan;
+  const k = fbKomponen(row);
+  return fbLabel(k.tingkat, k.jurusan_kode, k.rombel);
+}
+function fbKunci(v) {
+  if (v && typeof v === 'object') {
+    const k = fbKomponen(v);
+    return fbLabel(k.tingkat, k.jurusan_kode, k.rombel) || fbLabelDariBaris(v).toUpperCase();
+  }
+  const p = fbPecah(v);
+  return p.tingkat ? fbLabel(p.tingkat, p.jurusan_kode, p.rombel) : fbBersih(v).toUpperCase();
+}
+const KELAS_FALLBACK = {
+  versi: 'fallback', TINGKAT: ['X', 'XI', 'XII'],
+  bersih: fbBersih,
+  normalTingkat: fbNormalTingkat,
+  pecah: fbPecah,
+  label: fbLabel,
+  komponen: fbKomponen,
+  komponenTahun: fbKomponenTahun,
+  labelDariBaris: fbLabelDariBaris,
+  kunci: fbKunci,
+  sama: function (a, b) { const ka = fbKunci(a), kb = fbKunci(b); return ka !== '' && ka === kb; },
+  naik: function (t) { const i = ['X', 'XI', 'XII'].indexOf(fbNormalTingkat(t)); return i === -1 ? '' : (i === 2 ? 'LULUS' : ['X', 'XI', 'XII'][i + 1]); },
+  turun: function (t) { const i = ['X', 'XI', 'XII'].indexOf(fbNormalTingkat(t)); return i <= 0 ? '' : ['X', 'XI', 'XII'][i - 1]; },
+  angkatan: function (v) { return ((v && typeof v === 'object') ? fbKomponen(v) : fbPecah(v)).tingkat || ''; },
+  gayaTingkat: function (l) { const tok = (fbBersih(String(l || '')).match(/^(\S+)/) || [])[1] || ''; return /^[0-9]{1,2}$/.test(tok) ? 'angka' : 'romawi'; },
+  tingkatGaya: function (t, gaya) { const n = fbNormalTingkat(t); if (gaya !== 'angka') return n; return n === 'X' ? '10' : n === 'XI' ? '11' : n === 'XII' ? '12' : n; },
+  // Daftar kelas wali (Tahap 4A) — mirror dari web/js/kelas.js
+  normKelasList: function (v) {
+    const sumber = Array.isArray(v)
+      ? v
+      : (v && typeof v === 'object' ? [v] : String(v === null || v === undefined ? '' : v).split(','));
+    const hasil = [];
+    sumber.forEach(function (x) {
+      const k = fbBersih(x && typeof x === 'object' ? fbLabelDariBaris(x) : x);
+      if (!k) return;
+      if (hasil.some(function (y) { return fbKunci(y) !== '' && fbKunci(y) === fbKunci(k); })) return;
+      hasil.push(k);
+    });
+    return hasil;
+  },
+  adaKelas: function (daftar, kelas) {
+    const target = fbBersih(kelas && typeof kelas === 'object' ? fbLabelDariBaris(kelas) : kelas);
+    if (!target) return false;
+    return KELAS_FALLBACK.normKelasList(daftar).some(function (k) { return fbKunci(k) !== '' && fbKunci(k) === fbKunci(target); });
+  },
+  gabungKelas: function () {
+    const hasil = [];
+    Array.prototype.slice.call(arguments).forEach(function (d) {
+      KELAS_FALLBACK.normKelasList(d).forEach(function (k) {
+        if (!KELAS_FALLBACK.adaKelas(hasil, k)) hasil.push(k);
+      });
+    });
+    return hasil;
+  },
+  teksKelasList: function (v) { return KELAS_FALLBACK.normKelasList(v).join(', '); }
+};
+// ── [KELAS-FALLBACK-SELESAI] ────────────────────────────────────────────
+
+/** Modul kelas aktif: `web/js/kelas.js` bila termuat, selain itu KELAS_FALLBACK. */
+function kelasModul() {
+  if (typeof KELAS !== 'undefined' && KELAS && typeof KELAS.pecah === 'function') return KELAS;
+  if (!kelasModul.__peringatan) {
+    kelasModul.__peringatan = true;
+    console.warn('[kelas] web/js/kelas.js tidak termuat — memakai KELAS_FALLBACK (perilaku sama).');
+  }
+  return KELAS_FALLBACK;
+}
+
+/** Muat tabel referensi `master_jurusan` (Tahap 2) sekali per sesi.
+ *  Aman bila tabel belum ada/RLS menolak → cache kosong, tanpa galat, dan semua
+ *  alur tetap memakai pasangan baris master_data ("Jurusan"+"Jurusan Lengkap"). */
+async function ambilMasterJurusan(force = false) {
+  if (!force && masterJurusanCache.length) return masterJurusanCache;
+  try {
+    const { data, error } = await supaClient
+      .from('master_jurusan')
+      .select('kode, nama, jenjang, bidang, aktif, urutan')
+      .order('urutan', { ascending: true })
+      .order('kode', { ascending: true });
+    if (error) throw error;
+    masterJurusanCache = (data || []).filter(r => r && r.aktif !== false && String(r.kode || '').trim() !== '');
+  } catch (e) {
+    masterJurusanCache = [];
+  }
+  return masterJurusanCache;
+}
+
+/** Sinkronkan satu jurusan (dari Wizard/Edit Master Data) ke tabel referensi
+ *  `master_jurusan`. Tanpa upsert `onConflict` karena tabel memakai indeks unik
+ *  ekspresi (upper(btrim(kode))) — jadi: cari baris → update, selain itu insert.
+ *  Gagal (tabel belum ada / RLS) hanya menghasilkan console.warn: alur Master Data
+ *  TIDAK pernah diblokir oleh tabel referensi opsional ini. */
+async function simpanJurusanMaster(kode, nama) {
+  const kd = String(kode || '').trim().toUpperCase();
+  if (!kd) return false;
+  const nm = String(nama || '').trim();
+  try {
+    const { data, error } = await supaClient.from('master_jurusan').select('id, nama').eq('kode', kd).limit(1);
+    if (error) throw error;
+    const baris = (data || [])[0] || null;
+    if (baris) {
+      if (nm && nm !== String(baris.nama || '')) {
+        const { error: e2 } = await supaClient.from('master_jurusan').update({ nama: nm }).eq('id', baris.id);
+        if (e2) throw e2;
+      }
+    } else {
+      const { error: e3 } = await supaClient.from('master_jurusan').insert({ kode: kd, nama: nm });
+      if (e3) throw e3;
+    }
+    await ambilMasterJurusan(true);
+    return true;
+  } catch (e) {
+    console.warn('[master_jurusan] sinkron dilewati:', (e && e.message) || e);
+    return false;
+  }
+}
+
+/** Peta jurusan { KODE(UPPER): namaLengkap }.
+ *  Sumber: tabel referensi `master_jurusan` (Tahap 2) lalu pasangan baris
+ *  master_data ("Jurusan" + "Jurusan Lengkap") — yang terakhir menang karena
+ *  itulah yang diedit admin lewat Wizard/Edit Master Data. */
 function petaJurusanMaster() {
   const map = {};
+  (masterJurusanCache || []).forEach(j => {
+    const kode = String(j.kode || '').trim().toUpperCase(), nama = String(j.nama || '').trim();
+    if (kode) map[kode] = nama;
+  });
   (masterDataCache || []).forEach(m => {
     const sg = String(m['Jurusan'] || '').trim(), lg = String(m['Jurusan Lengkap'] || '').trim();
     if (sg && lg) map[sg.toUpperCase()] = lg;
@@ -14387,32 +14821,39 @@ function petaJurusanMaster() {
   return map;
 }
 
-/** Nomor rombel dari string kelas ("X LP 1" -> 1; "X RPL 12" -> 12). */
-function rombelKelas(kls) {
-  const k = String(kls || '').trim();
-  const m = k.match(/(\d+)\s*$/);
-  return m ? parseInt(m[1], 10) : 0;
+/** Nomor rombel dari label kelas / baris DB ("X LP 1" → 1; "10 RPL 12" → 12). 0 bila tak ada. */
+function rombelKelas(kls, row) {
+  return kelasModul().komponen(row || kls).rombel || 0;
 }
 
-/** Nama rombel lengkap: "X LP 1" -> "Layanan Perbankan 1"; tanpa jurusan -> "Kelas 1". */
-function namaRombel(kls) {
-  const k = String(kls || '').trim();
-  const no = rombelKelas(k);
-  if (!no) return k;
-  const map = petaJurusanMaster();
-  const kata = k.split(/\s+/).filter(Boolean);
-  const sing = kata.find(w => map[String(w).toUpperCase()]);
-  if (sing) return `${map[String(sing).toUpperCase()]} ${no}`.trim();
-  return `Kelas ${no}`;
+/** Nama rombel lengkap: "X LP 1" → "Layanan Perbankan 1"; tanpa jurusan → "Kelas 1".
+ *  `jurusan_kode` (kolom terstruktur Tahap 2) dipakai lebih dulu; jurusan yang belum
+ *  terdaftar di Master Jurusan ditampilkan sebagai kodenya (tidak lagi kosong). */
+function namaRombel(kls, row) {
+  const asli = String(kls || '').trim();
+  const k = kelasModul().komponen(row || kls);
+  const no = k.rombel || 0;
+  if (!no) return asli;
+  const nama = petaJurusanMaster()[String(k.jurusan_kode || '').toUpperCase()] || '';
+  if (nama) return `${nama} ${no}`;
+  return k.jurusan_kode ? `${k.jurusan_kode} ${no}` : `Kelas ${no}`;
 }
 
-/** Singkatan jurusan yang terkandung dalam string kelas ("X LP 1" -> "LP"). */
-function singkatanJurusanDariKelas(kls) {
-  const k = String(kls || '').trim();
+/** Singkatan jurusan pada label kelas / baris DB ("X LP 1" → "LP").
+ *  Urutan sumber: (1) `jurusan_kode` yang terdaftar di Master Jurusan, (2) nama
+ *  lengkap komponen → kode, (3) kata pada label mentah yang terdaftar (perilaku
+ *  lama), (4) kode hasil uraian apa adanya untuk jurusan yang belum terdaftar. */
+function singkatanJurusanDariKelas(kls, row) {
+  const kode = String(kelasModul().komponen(row || kls).jurusan_kode || '').trim().toUpperCase();
   const map = petaJurusanMaster();
-  const kata = k.split(/\s+/).filter(Boolean);
+  if (kode && map[kode]) return kode;
+  if (kode) {
+    const kodeDariNama = Object.keys(map).find(kd => String(map[kd]).trim().toUpperCase() === kode);
+    if (kodeDariNama) return kodeDariNama;
+  }
+  const kata = String(kls || '').trim().split(/\s+/).filter(Boolean);
   const sing = kata.find(w => map[String(w).toUpperCase()]);
-  return sing || '';
+  return sing || kode;
 }
 
 const MASTER_JADWAL_SECTIONS = [
@@ -14482,6 +14923,10 @@ async function ambilMasterData() {
     const { data, error } = await supaClient.from('master_data').select('*');
     if (error) throw error;
     masterDataCache = data || []; // refresh cache bersama (format kunci = nama kolom)
+    // [TAHAP 3] Siapkan referensi jurusan (master_jurusan) tanpa memblokir alur:
+    // bila tabel belum ada (migrasi Tahap 2 belum dijalankan) cache tetap kosong
+    // dan seluruh fitur memakai pasangan baris master_data seperti sebelumnya.
+    if (!masterJurusanCache.length) ambilMasterJurusan().catch(() => {});
     return masterDataCache;
 }
 
@@ -14975,6 +15420,7 @@ async function tambahMasterDaftarJurusan() {
           ? await supaClient.from('master_data').update(payload).eq('id', target.id)
           : await supaClient.from('master_data').insert(payload);
         if (error) throw error;
+        await simpanJurusanMaster(sing, lengkap); // [TAHAP 3] sinkron referensi jurusan
         await ambilMasterData();
         Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Ditambahkan!', showConfirmButton: false, timer: 1200, background: '#1e293b', color: '#fff' });
         refreshMasterUI();
@@ -15101,9 +15547,14 @@ function wizardToggleSemua(checked) {
 // WIZARD TINGKAT/KELAS — gabungkan Tingkat × Jurusan × Rombel
 // ==========================================
 
-/** Urutkan daftar jurusan valid (grup wizard + master_data) tanpa duplikasi. */
+/** Urutkan daftar jurusan valid (tabel referensi master_jurusan + grup wizard + master_data)
+ *  tanpa duplikasi. Prioritas nama: master_data/Wizard (yang diedit admin) menang. */
 function daftarJurusanWizard() {
   const map = new Map(); // SINGKATAN -> lengkap
+  (masterJurusanCache || []).forEach(j => {
+    const sg = String(j.kode || '').trim().toUpperCase(), lg = String(j.nama || '').trim();
+    if (sg) map.set(sg, lg);
+  });
   (masterDataCache || []).forEach(m => {
     const sg = String(m['Jurusan'] || '').trim().toUpperCase(), lg = String(m['Jurusan Lengkap'] || '').trim();
     if (sg) map.set(sg, lg);
@@ -15232,7 +15683,7 @@ function bukaWizardJurusan() {
         const { error } = target
           ? await supaClient.from('master_data').update(payload).eq('id', target.id)
           : await supaClient.from('master_data').insert(payload);
-        if (!error) { ok++; await ambilMasterData(); }
+        if (!error) { ok++; await simpanJurusanMaster(p.sing, p.lengkap); await ambilMasterData(); }
       } catch (e) {}
     }
     refreshMasterUI();
@@ -15316,6 +15767,8 @@ async function simpanEditMasterDaftar(rowId, kolom, nilaiBaru, lengkapBaru) {
         const { error } = await supaClient.from('master_data').update(payload).eq('id', rowId);
         if (error) throw error;
         await ambilMasterData();
+        // [TAHAP 3] Jaga tabel referensi master_jurusan tetap sinkron dengan Master Data.
+        if (kolom === 'Jurusan') await simpanJurusanMaster(nilaiBaru, (lengkapBaru || '').trim());
         Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Diperbarui!', showConfirmButton: false, timer: 1200, background: '#1e293b', color: '#fff' });
         refreshMasterUI();
         if (typeof isiHeaderSesi === 'function') isiHeaderSesi();
@@ -15388,21 +15841,23 @@ function barisGuruSesi() {
 }
 
 /** Penugasan efektif satu guru (baris akun/status_guru/sesi) utk tahun tertentu.
- *  [REQ 4a] Fallback kolom umum DIHAPUS — TA tanpa entri penugasan = belum mengampu apa pun. */
+ *  [REQ 4a] Fallback kolom umum DIHAPUS — TA tanpa entri penugasan = belum mengampu apa pun.
+ *  [TAHAP 4A] `wali` kini DAFTAR kelas (array) — dukung wali >1 kelas; bentuk
+ *  LAMA (satu string) tetap terbaca lewat kelasModul().normKelasList(). */
 function penugasanGuruAktif(row, tahun = currentTahun) {
     const u = row || {};
     const p = u.Penugasan || u.penugasan || {};
     const entri = (tahun && p[String(tahun)]) || null;
     return {
         mapel: entri ? (entri.mapel || []) : [],
-        wali: entri ? String(entri.wali || '') : '',
+        wali: entri ? kelasModul().normKelasList(entri.wali) : [],
         ekskul: entri ? (entri.ekskul || []) : []
     };
 }
 
 /** [REQ 4b] Apakah entri penugasan satu TA ada isinya (mapel/wali/ekskul)? */
 function penugasanTahunAda(e) {
-    return !!e && ((e.mapel || []).length > 0 || String(e.wali || '').trim() !== '' || (e.ekskul || []).length > 0);
+    return !!e && ((e.mapel || []).length > 0 || kelasModul().normKelasList(e.wali).length > 0 || (e.ekskul || []).length > 0);
 }
 
 /** [REQ 4b] Buang entri penugasan yang kosong (tanpa mapel/wali/ekskul). */
@@ -15412,7 +15867,7 @@ function bersihkanPenugasan(p) {
         if (!penugasanTahunAda(e)) return;
         hasil[ta] = {
             mapel: (e.mapel || []).filter(Boolean),
-            wali: String(e.wali || '').trim(),
+            wali: kelasModul().normKelasList(e.wali),
             ekskul: (e.ekskul || []).filter(Boolean)
         };
     });
@@ -15420,13 +15875,14 @@ function bersihkanPenugasan(p) {
 }
 
 /** [REQ 4a] Auto-seed sekali: susun penugasan TA dari kolom lama (wali_kelas/mapel/ekstrakurikuler).
- *  Null bila guru memang belum pernah punya penugasan umum. */
+ *  Null bila guru memang belum pernah punya penugasan umum.
+ *  [TAHAP 4A] Kolom lama boleh berisi >1 kelas ("X LP 1, X LP 2") → ikut jadi daftar. */
 function seedPenugasanDariKolomLama(data, ta) {
     const split = (v) => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
     const mapel = split(data.mapel || data["Custom Teks Mata Pelajaran"]);
-    const wali = String(data.wali_kelas || data["Wali Kelas"] || '').trim();
+    const wali = kelasModul().gabungKelas(data.wali_kelas, data["Wali Kelas"]);
     const ekskul = split(data.ekstrakurikuler || data.Ekstrakurikuler);
-    if (!mapel.length && !wali && !ekskul.length) return null;
+    if (!mapel.length && !wali.length && !ekskul.length) return null;
     return { mapel, wali, ekskul };
 }
 
@@ -15436,9 +15892,41 @@ function guruPunyaMapelTahun(guruRow, mapel, tahun = currentTahun) {
     return penugasanGuruAktif(guruRow, tahun).mapel.some(m => m.toLowerCase() === target);
 }
 
-/** Wali kelas guru (baris akun/status_guru) pada tahun aktif ('' bila bukan wali). */
+/** Wali kelas guru (baris akun/status_guru) pada tahun aktif — DAFTAR kelas ([] bila bukan wali).
+ *  [TAHAP 4A] Satu guru boleh wali >1 kelas; bentuk lama (satu string) tetap terbaca. */
 function waliKelasTahun(guruRow, tahun = currentTahun) {
     return penugasanGuruAktif(guruRow, tahun).wali;
+}
+
+/** Teks kelas wali guru pada tahun aktif ("X LP 1, X LP 2"; '' bila bukan wali). */
+function waliKelasTahunTeks(guruRow, tahun = currentTahun) {
+    return kelasModul().teksKelasList(waliKelasTahun(guruRow, tahun));
+}
+
+/** Guru (baris) wali kelas tertentu pada tahun tertentu? (pembanding kanonik kelas) */
+function waliKelasTahunAda(guruRow, kelas, tahun = currentTahun) {
+    return kelasModul().adaKelas(waliKelasTahun(guruRow, tahun), kelas);
+}
+
+/** Guru (baris apa pun: akun/RPC guru_wali/guru_dashboard/dari SQL) wali kelas tertentu?
+ *  Sumber berurutan: penugasan[TA].wali (array|string) → kolom baru `wali_kelas_list`
+ *  (Tahap 4A) → kolom lama `wali_kelas`/"Wali Kelas" (cerminan TA aktif). */
+function waliKelasBarisAda(guruRow, kelas, tahun = currentTahun) {
+    const g = guruRow || {};
+    if (waliKelasTahunAda(g, kelas, tahun)) return true;
+    const mod = kelasModul();
+    if (mod.adaKelas(g.wali_kelas_list || g["Wali Kelas List"], kelas)) return true;
+    return mod.adaKelas(g.wali_kelas || g["Wali Kelas"], kelas);
+}
+
+/** Daftar kelas wali baris (gabungan semua sumber) — untuk tabel/dokumen. */
+function waliKelasBarisList(guruRow, tahun = currentTahun) {
+    const g = guruRow || {};
+    return kelasModul().gabungKelas(
+        waliKelasTahun(g, tahun),
+        g.wali_kelas_list || g["Wali Kelas List"],
+        g.wali_kelas || g["Wali Kelas"]
+    );
 }
 
 /** Guru (baris) membina ekskul tertentu pada tahun aktif? */
@@ -15455,9 +15943,14 @@ function mapelDiampuAktif() {
     const u = barisGuruSesi();
     return String(u.mapel || u["Custom Teks Mata Pelajaran"] || u["Mapel"] || '').split(',').map(s => s.trim()).filter(Boolean);
 }
+/** Kelas wali guru yang sedang login — DAFTAR kelas ([] bila bukan wali). */
 function waliKelasAktif() {
     const u = barisGuruSesi();
-    return String(u.wali_kelas || u["Wali Kelas"] || '').trim();
+    return kelasModul().gabungKelas(u.wali_kelas_list, u.wali_kelas || u["Wali Kelas"]);
+}
+/** Teks kelas wali guru yang sedang login ("X LP 1, X LP 2"). */
+function waliKelasAktifTeks() {
+    return kelasModul().teksKelasList(waliKelasAktif());
 }
 function ekskulDiampuAktif() {
     const u = barisGuruSesi();
@@ -15469,7 +15962,7 @@ function ekskulDiampuAktif() {
 function bisaImportMuridAktif() {
     if (isAdminAktif()) return true;
     if (((currentUser || {}).role) !== 'guru') return false;
-    return !!waliKelasAktif() || ekskulDiampuAktif().length > 0;
+    return waliKelasAktif().length > 0 || ekskulDiampuAktif().length > 0;
 }
 
 /** Normalkan NIS/NIP dari satu baris akun murid (kolom gaya Sheets/snake_case). */
@@ -15534,12 +16027,14 @@ function aksesSimpanDataAkunMurid(data, isNew) {
     return bisaEditAkunMurid(data || {});                  // guru: hanya murid yang diampu
 }
 
-/** Ringkasan penugasan utk badge tabel: "TA: Mapel1, Mapel2 · Wali X" per tahun. */
+/** Ringkasan penugasan utk badge tabel: "TA: Mapel1, Mapel2 · Wali X, Y" per tahun.
+ *  [TAHAP 4A] `wali` bisa berisi >1 kelas → digabung koma. */
 function ringkasanPenugasan(row) {
     const p = row.Penugasan || row.penugasan || {};
     return Object.keys(p).sort().map(ta => {
         const e = p[ta] || {};
-        const bagian = [(e.mapel || []).join(', '), e.wali ? `Wali ${e.wali}` : '', (e.ekskul || []).length ? `Ekskul: ${(e.ekskul || []).join(', ')}` : ''].filter(Boolean).join(' · ');
+        const waliTeks = kelasModul().teksKelasList(e.wali);
+        const bagian = [(e.mapel || []).join(', '), waliTeks ? `Wali ${waliTeks}` : '', (e.ekskul || []).length ? `Ekskul: ${(e.ekskul || []).join(', ')}` : ''].filter(Boolean).join(' · ');
         return bagian ? `<span class="inline-block bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 mr-1 mb-1"><b class="text-green-300">${escapeHtml(ta)}</b>: ${escapeHtml(bagian)}</span>` : '';
     }).join('') || '<span class="text-slate-500 italic text-[9px]">Belum ada penugasan per TA</span>';
 }
@@ -15571,25 +16066,33 @@ function statusSiswaTahun(row, tahun = currentTahun) { return riwayatSiswaAktif(
 /** Apakah siswa aktif pada tahun tertentu? */
 function siswaAktifTahun(row, tahun = currentTahun) { return statusSiswaTahun(row, tahun) === 'Aktif'; }
 
-/** Kenaikan tingkat kelas: X→XI→XII→Lulus (dukung awalan romawi & angka 10/11/12; jurusan/rombel tetap). */
+/** Kenaikan tingkat kelas: X→XI→XII→Lulus (dukung awalan romawi & angka 10/11/12;
+ *  jurusan/rombel tetap, gaya tingkat masukan dipertahankan).
+ *  Uraian/perakitan label dikerjakan modul kelas (KELAS.pecah/naik/label). */
 function naikkanKelas(kelas) {
     const s = String(kelas || '').trim();
     if (!s) return { kelas: '', lulus: false };
-    const kunci = s.split(/\s+/)[0].toUpperCase();
-    const peta = { 'X': 'XI', 'XI': 'XII', '10': '11', '11': '12' };
-    if (peta[kunci]) return { kelas: peta[kunci] + s.slice(kunci.length), lulus: false };
-    if (kunci === 'XII' || kunci === '12') return { kelas: s, lulus: true };
-    return { kelas: s, lulus: false };
+    const mod = kelasModul();
+    const k = mod.pecah(s);
+    if (!k.tingkat) return { kelas: s, lulus: false };
+    const lanjut = mod.naik(k.tingkat);
+    if (!lanjut || lanjut === 'LULUS') return { kelas: s, lulus: true };
+    const tingkat = mod.tingkatGaya(lanjut, mod.gayaTingkat(s));
+    return { kelas: mod.label(tingkat, k.jurusan_kode, k.rombel), lulus: false };
 }
 
-/** Koreksi turun tingkat kelas (perbaikan kesalahan kenaikan): XI→X, XII→XI, 11→10, 12→11 (jurusan/rombel tetap). */
+/** Koreksi turun tingkat kelas (perbaikan kesalahan kenaikan): XI→X, XII→XI, 11→10, 12→11
+ *  (jurusan/rombel tetap, gaya tingkat masukan dipertahankan). */
 function turunkanKelas(kelas) {
     const s = String(kelas || '').trim();
     if (!s) return { kelas: '', turun: false };
-    const kunci = s.split(/\s+/)[0].toUpperCase();
-    const peta = { 'XI': 'X', 'XII': 'XI', '11': '10', '12': '11' };
-    if (peta[kunci]) return { kelas: peta[kunci] + s.slice(kunci.length), turun: true };
-    return { kelas: s, turun: false };
+    const mod = kelasModul();
+    const k = mod.pecah(s);
+    if (!k.tingkat) return { kelas: s, turun: false };
+    const mundur = mod.turun(k.tingkat);
+    if (!mundur) return { kelas: s, turun: false };
+    const tingkat = mod.tingkatGaya(mundur, mod.gayaTingkat(s));
+    return { kelas: mod.label(tingkat, k.jurusan_kode, k.rombel), turun: true };
 }
 
 /** Badge warna status siswa (kelas Tailwind). */
@@ -15696,13 +16199,13 @@ function renderTabWaliKelas() {
     const tahun = (tahunEl && tahunEl.value) ? tahunEl.value : currentTahun;
     const jurEl = document.getElementById('wk-jurusan');
     const filterJur = (jurEl && jurEl.value) ? jurEl.value : 'ALL';
-    const daftarWali = (cacheAkunGuru || [])
-        .map(d => ({
-            nama: namaDenganGelar(d.nama_lengkap || d["Nama Guru"] || 'Tanpa Nama', d.gelar_depan, d.gelar_belakang),
-            nip: d.nis_nip || d.NIP || '-',
-            kelas: waliKelasTahun(d, tahun) // penugasan per-tahun (fallback kolom statis)
-        }))
-        .filter(d => d.kelas);
+    // [TAHAP 4A] Satu guru bisa wali >1 kelas → satu baris tabel per (guru × kelas).
+    const daftarWali = [];
+    (cacheAkunGuru || []).forEach(d => {
+        const nama = namaDenganGelar(d.nama_lengkap || d["Nama Guru"] || 'Tanpa Nama', d.gelar_depan, d.gelar_belakang);
+        const nip = d.nis_nip || d.NIP || '-';
+        waliKelasBarisList(d, tahun).forEach(kelas => daftarWali.push({ nama, nip, kelas }));
+    });
 
     const grup = {};
     daftarWali.forEach(d => {
@@ -15761,7 +16264,7 @@ function generateTbodyGuru(data, isAdmin) {
         );
         const nip = d.nis_nip || d.NIP || '-';
         const jabatan = d.jabatan || d.Jabatan || '-';
-        const wali = waliKelasTahun(d); // penugasan per-tahun (fallback statis)
+        const wali = waliKelasTahunTeks(d); // penugasan per-tahun ([TAHAP 4A] boleh >1 kelas, digabung koma)
         // [REQ 4a] Tampilkan penugasan TA aktif (sumber tunggal), bukan kolom umum
         const pt = penugasanGuruAktif(d);
         const mapel = (pt.mapel || []).join(', ') || d.mapel || '';
@@ -15850,7 +16353,9 @@ function filterTabelGuru() {
 }
 
 // ---- Form Penugasan per Tahun Pelajaran (dalam form akun guru) ----
-let formPenugasanData = {};   // working copy { "TA": { mapel: [], wali: '', ekskul: [] } }
+// [TAHAP 4A] `wali` = DAFTAR kelas (array) — satu guru boleh wali >1 kelas;
+// bentuk LAMA (satu string) tetap terbaca lewat kelasModul().normKelasList().
+let formPenugasanData = {};   // working copy { "TA": { mapel: [], wali: [], ekskul: [] } }
 let formPenugasanTahun = '';  // TA yang sedang diedit di form
 
 function penugasanTahunList() {
@@ -15866,7 +16371,8 @@ function kumpulkanFormPenugasan() {
     if (!tahun) return;
     const mapel = [...document.querySelectorAll('.chk-pt-mapel:checked')].map(el => el.value);
     const ekskul = [...document.querySelectorAll('.chk-pt-ekskul:checked')].map(el => el.value);
-    const wali = (document.getElementById('pt_wali') || {}).value || '';
+    // [TAHAP 4A] Wali kelas multi-pilih (checkbox `.chk-pt-wali`) → array kelas.
+    const wali = [...document.querySelectorAll('.chk-pt-wali:checked')].map(el => el.value);
     formPenugasanData[tahun] = { mapel, wali, ekskul };
     perbaruiCeklisTahunPenugasan();
 }
@@ -15894,15 +16400,15 @@ function renderFormPenugasan() {
     const listKelas = urutAz([...new Set((masterDataCache || []).map(m => mdVal(m, "Tingkat/Kelas", "tingkat_kelas")).filter(Boolean))]);
     const listMapel = urutAz([...new Set((masterDataCache || []).map(m => mdVal(m, "Mata Pelajaran", "mata_pelajaran")).filter(Boolean))]);
     const listEkskul = urutAz(denganSto([...new Set(masterDataCache.map(m => mdVal(m, "Ekstrakurikuler", "ekstrakurikuler")).filter(Boolean))]));
-    const e = formPenugasanData[formPenugasanTahun] || { mapel: [], wali: '', ekskul: [] };
-    const chk = (cls, v, arr) => `<label class="flex items-center gap-1.5 cursor-pointer hover:text-white bg-slate-800 p-1 rounded border border-white/10"><input type="checkbox" class="${cls}" value="${escJs(v)}" ${arr.includes(v) ? 'checked' : ''}><span class="truncate text-[10px]">${escapeHtml(v)}</span></label>`;
+    const e = formPenugasanData[formPenugasanTahun] || { mapel: [], wali: [], ekskul: [] };
+    const chk = (cls, v, arr) => `<label class="flex items-center gap-1.5 cursor-pointer hover:text-white bg-slate-800 p-1 rounded border border-white/10"><input type="checkbox" class="${cls}" value="${escJs(v)}" ${kelasModul().adaKelas(arr, v) ? 'checked' : ''}><span class="truncate text-[10px]">${escapeHtml(v)}</span></label>`;
     const tahunLain = penugasanTahunList().filter(t => t !== formPenugasanTahun);
     konten.innerHTML = `
         <div class="text-[9px] text-slate-400 mb-1">Aturan khusus <b class="text-emerald-300">${escapeHtml(formPenugasanTahun || '-')}</b>:</div>
         <label class="block text-[10px] font-bold text-green-300 mb-0.5">Mapel Diampu</label>
         <div class="grid grid-cols-2 gap-1 bg-black/20 p-1.5 rounded border border-white/10 max-h-24 overflow-y-auto custom-scrollbar mb-1.5">${listMapel.map(m => chk('chk-pt-mapel', m, e.mapel)).join('')}</div>
-        <label class="block text-[10px] font-bold text-green-300 mb-0.5">Wali Kelas</label>
-        <select id="pt_wali" onchange="kumpulkanFormPenugasan()" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1 text-[10px] text-white outline-none mb-1.5"><option value="">-- Bukan Wali Kelas --</option>${listKelas.map(k => `<option value="${escJs(k)}" ${e.wali === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+        <label class="block text-[10px] font-bold text-green-300 mb-0.5">Wali Kelas <span class="font-normal text-slate-400">(boleh lebih dari satu)</span></label>
+        <div class="grid grid-cols-2 gap-1 bg-black/20 p-1.5 rounded border border-white/10 max-h-24 overflow-y-auto custom-scrollbar mb-1.5">${listKelas.map(k => chk('chk-pt-wali', k, e.wali)).join('')}</div>
         <label class="block text-[10px] font-bold text-green-300 mb-0.5">Pembina Ekstrakurikuler</label>
         <div class="grid grid-cols-2 gap-1 bg-black/20 p-1.5 rounded border border-white/10 max-h-24 overflow-y-auto custom-scrollbar mb-1.5">${listEkskul.map(x => chk('chk-pt-ekskul', x, e.ekskul)).join('')}</div>
         <div class="flex items-center gap-1.5 flex-wrap">
@@ -15913,8 +16419,8 @@ function renderFormPenugasan() {
             <button type="button" onclick="salinPenugasanForm()" class="bg-blue-600/40 hover:bg-blue-600 text-blue-200 hover:text-white px-2 py-1 rounded text-[10px] font-bold transition"><i class="fa-solid fa-copy mr-1"></i> Salin</button>
             <button type="button" onclick="hapusPenugasanForm()" class="bg-red-600/30 hover:bg-red-600 text-red-200 hover:text-white px-2 py-1 rounded text-[10px] font-bold transition"><i class="fa-solid fa-trash mr-1"></i> Hapus TA Ini</button>
         </div>`;
-    // Ceklis mapel/ekskul langsung menandai tahun ✓ (REQ 4b) tanpa merender ulang form
-    konten.querySelectorAll('.chk-pt-mapel, .chk-pt-ekskul').forEach(el => {
+    // Ceklis mapel/wali/ekskul langsung menandai tahun ✓ (REQ 4b) tanpa merender ulang form
+    konten.querySelectorAll('.chk-pt-mapel, .chk-pt-wali, .chk-pt-ekskul').forEach(el => {
         el.addEventListener('change', kumpulkanFormPenugasan);
     });
     perbaruiCeklisTahunPenugasan();
@@ -16061,7 +16567,7 @@ function openFormAkunGuru(isNew, data = {}) {
 
             // [REQ 4a] Fallback umum dihapus — penugasan diambil dari "Penugasan per Tahun Pelajaran"
             kumpulkanFormPenugasan();
-            const ptAktif = formPenugasanData[currentTahun] || { mapel: [], wali: '', ekskul: [] };
+            const ptAktif = formPenugasanData[currentTahun] || { mapel: [], wali: [], ekskul: [] };
 
             return {
                 nama_lengkap: namaVal,
@@ -16070,8 +16576,8 @@ function openFormAkunGuru(isNew, data = {}) {
                 nis_nip: document.getElementById('f_nip').value.trim(),
                 jabatan: document.getElementById('f_jabatan_guru').value,
                 // Kolom lama dipertahankan sebagai cerminan penugasan TA aktif (dipakai absen mandiri murid,
-                // deteksi pembina, dsb.) — bukan lagi sumber penugasan.
-                wali_kelas: String(ptAktif.wali || ''),
+                // deteksi pembina, dsb.) — bukan lagi sumber penugasan. [TAHAP 4A] daftar kelas digabung koma.
+                wali_kelas: kelasModul().teksKelasList(ptAktif.wali),
                 mapel: (ptAktif.mapel || []).join(', '),
                 ekstrakurikuler: (ptAktif.ekskul || []).join(', '),
                 penugasan: formPenugasanData,
@@ -16088,7 +16594,7 @@ function openFormAkunGuru(isNew, data = {}) {
             const seed = seedPenugasanDariKolomLama(data, currentTahun);
             if (seed) {
                 res.value.penugasan = { [currentTahun]: seed };
-                res.value.wali_kelas = seed.wali;
+                res.value.wali_kelas = kelasModul().teksKelasList(seed.wali);
                 res.value.mapel = seed.mapel.join(', ');
                 res.value.ekstrakurikuler = seed.ekskul.join(', ');
                 formPenugasanData = res.value.penugasan;
@@ -16096,13 +16602,17 @@ function openFormAkunGuru(isNew, data = {}) {
         } else {
             res.value.penugasan = bersih;
         }
-        // Validasi lunak: wali kelas ganda pada TA yang sama (tidak memblokir)
+        // Validasi lunak: wali kelas ganda pada TA yang sama (tidak memblokir).
+        // [TAHAP 4A] Satu guru boleh memegang >1 kelas → periksa TIAP kelas pada tiap TA.
         const nipBaru = (res.value.nis_nip || '').trim();
         const konflikWali = [];
         Object.entries(res.value.penugasan).forEach(([ta, e]) => {
-            if (!e || !e.wali) return;
-            const lain = (cacheAkunGuru || []).filter(g => String(g.nis_nip || '') !== nipBaru && waliKelasTahun(g, ta) === e.wali);
-            if (lain.length) konflikWali.push(`<b>${escapeHtml(ta)}</b> — ${escapeHtml(e.wali)}: ${lain.map(g => escapeHtml(g.nama_lengkap || g.nis_nip)).join(', ')}`);
+            const kelasList = kelasModul().normKelasList(e && e.wali);
+            if (!kelasList.length) return;
+            kelasList.forEach(kelas => {
+                const lain = (cacheAkunGuru || []).filter(g => String(g.nis_nip || '') !== nipBaru && waliKelasBarisAda(g, kelas, ta));
+                if (lain.length) konflikWali.push(`<b>${escapeHtml(ta)}</b> — ${escapeHtml(kelas)}: ${lain.map(g => escapeHtml(g.nama_lengkap || g.nis_nip)).join(', ')}`);
+            });
         });
         if (konflikWali.length) {
             const lanjut = await Swal.fire({
@@ -16194,9 +16704,13 @@ function openFormAkun(tipe, isNew, data = {}) {
     
     // Ambil list kelas dari cache (jika ada)
     let klsOptions = "";
+    let klsOptionsMulti = "";
     if (typeof masterDataCache !== 'undefined' && masterDataCache.length > 0) {
         const lKelas = [...new Set(masterDataCache.map(m => m["Tingkat/Kelas"]).filter(Boolean))];
         klsOptions = lKelas.map(k => `<option value="${k}" ${data["Tingkat/Kelas"] === k ? 'selected' : ''}>${k}</option>`).join('');
+        // [TAHAP 4A] Wali kelas boleh >1 kelas → multi-pilih (nilai disimpan gabung koma).
+        const waliLama = kelasModul().normKelasList(data["Wali Kelas"] || data.wali_kelas);
+        klsOptionsMulti = lKelas.map(k => `<option value="${k}" ${kelasModul().adaKelas(waliLama, k) ? 'selected' : ''}>${k}</option>`).join('');
     }
 
     let formHTML = isMurid ? `
@@ -16222,8 +16736,8 @@ function openFormAkun(tipe, isNew, data = {}) {
             <div class="col-span-2"><label class="font-bold text-green-300">ID Akun Guru / NIP *</label><input id="f_idguru" value="${data["ID Akun Guru"]||''}" ${!isNew?'readonly':''} class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-green-500"></div>
             <div class="col-span-2"><label class="font-bold text-green-300">Nama Guru *</label><input id="f_nama_guru" value="${data["Nama Guru"]||''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-green-500"></div>
             <div><label class="font-bold text-green-300">Jabatan</label><input id="f_jabatan" value="${data.Jabatan||'Guru'}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-green-500"></div>
-            <div><label class="font-bold text-green-300">Wali Kelas</label>
-                <select id="f_wali" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"><option value="">-- Bukan Wali Kelas --</option>${klsOptions}</select>
+            <div><label class="font-bold text-green-300">Wali Kelas <span class="font-normal text-slate-400">(Ctrl/Cmd untuk >1)</span></label>
+                <select id="f_wali" multiple size="3" class="w-full bg-slate-700 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${klsOptionsMulti}</select>
             </div>
             <div class="col-span-2"><label class="font-bold text-green-300">Mapel Diampu (Pisahkan Koma)</label><input id="f_mapel_guru" value="${data["Custom Teks Mata Pelajaran"]||''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-green-500" placeholder="Matematika, IPA"></div>
             <div><label class="font-bold text-green-300">Pembina Ekstrakurikuler</label><input id="f_ekskul_guru" value="${data.Ekstrakurikuler||''}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-green-500"></div>
@@ -16242,7 +16756,8 @@ function openFormAkun(tipe, isNew, data = {}) {
                 payload = { "NIS": document.getElementById('f_nis').value, "NISN": document.getElementById('f_nisn').value, "Nama Lengkap": document.getElementById('f_nama').value, "Tingkat/Kelas": document.getElementById('f_kelas').value, "Jenis Kelamin": document.getElementById('f_jk').value, "Ekstrakurikuler": document.getElementById('f_ekskul').value, "Email": document.getElementById('f_email').value, "Password": document.getElementById('f_pass').value };
                 if(!payload.NIS || !payload["Nama Lengkap"]) { Swal.showValidationMessage('NIS dan Nama wajib diisi!'); return false; }
             } else {
-                payload = { "ID Akun Guru": document.getElementById('f_idguru').value, "Nama Guru": document.getElementById('f_nama_guru').value, "Jabatan": document.getElementById('f_jabatan').value, "Wali Kelas": document.getElementById('f_wali').value, "Custom Teks Mata Pelajaran": document.getElementById('f_mapel_guru').value, "Ekstrakurikuler": document.getElementById('f_ekskul_guru').value, "Password": document.getElementById('f_pass_guru').value };
+                const elWali = document.getElementById('f_wali');
+                payload = { "ID Akun Guru": document.getElementById('f_idguru').value, "Nama Guru": document.getElementById('f_nama_guru').value, "Jabatan": document.getElementById('f_jabatan').value, "Wali Kelas": (elWali ? [...elWali.selectedOptions].map(o => o.value).join(', ') : ''), "Custom Teks Mata Pelajaran": document.getElementById('f_mapel_guru').value, "Ekstrakurikuler": document.getElementById('f_ekskul_guru').value, "Password": document.getElementById('f_pass_guru').value };
                 if(!payload["ID Akun Guru"] || !payload["Nama Guru"]) { Swal.showValidationMessage('ID Guru dan Nama wajib diisi!'); return false; }
             }
             return payload;
@@ -16475,11 +16990,25 @@ function daftarJamPelajaranHari(hari) {
   return hasil.sort((a, b) => (parseInt(a.jamKe, 10) || 99) - (parseInt(b.jamKe, 10) || 99));
 }
 
-/** Deteksi jurusan dari nama kelas via Master Data "Jurusan" (nama lengkap / inisial / kata ≥3 huruf). */
-function jurusanDariKelas(kelas) {
-  const k = String(kelas || '').toLowerCase();
-  if (!k) return '';
+/** Deteksi jurusan dari kelas/baris DB via Master Data "Jurusan".
+ *  [TAHAP 3] Kode terstruktur (`jurusan_kode` Tahap 2) dipakai lebih dulu — label gaya
+ *  lama ("10 RPL 1") tetap terdeteksi tanpa menebak teks; bila Master Jurusan belum
+ *  terisi sama sekali, kode terstruktur dikembalikan apa adanya. Urutan berikutnya
+ *  (perilaku lama): nama lengkap → semua kata ≥3 huruf → inisial.
+ *  `row` opsional (baris master_data/jadwal_pelajaran) agar kolom terstruktur ikut dibaca. */
+function jurusanDariKelas(kelas, row) {
   const list = [...new Set((masterDataCache || []).map(m => (m["Jurusan"] || '').trim()).filter(Boolean))];
+  const peta = petaJurusanMaster();
+  const kode = String(kelasModul().komponen(row || kelas).jurusan_kode || '').trim().toUpperCase();
+  if (kode) {
+    const samaKode = list.find(j => j.toUpperCase() === kode);
+    if (samaKode) return samaKode;
+    const samaNama = list.find(j => String(peta[kode] || '').trim().toLowerCase() === j.toLowerCase());
+    if (samaNama) return samaNama;
+    if (!list.length) return kode;
+  }
+  const k = String(kelas || '').toLowerCase();
+  if (!k) return kode;
   for (const j of list) {
     const jl = j.toLowerCase();
     if (k.includes(jl)) return j;
@@ -17938,11 +18467,13 @@ function renderLihatJadwalMaster(tahun) {
         return i < 0 ? { hari: '', jam: s.trim() } : { hari: s.slice(0, i).trim(), jam: s.slice(i + 1).trim() };
     };
 
-    // Kelompokkan kelas per Jurusan.
+    // Kelompokkan kelas per Jurusan (baris jadwal ikut dikirim agar kolom terstruktur
+    // `jurusan_kode` dari Tahap 2 dipakai lebih dulu alih-alih menebak teks label).
     const semuaKelas = [...new Set(jadwalTampil.map(j => j["Tingkat/Kelas"]).filter(Boolean))].sort();
     const kelasPerJurusan = {};
     semuaKelas.forEach(k => {
-        const j = jurusanDariKelas(k) || 'Lainnya';
+        const baris = jadwalTampil.find(d => String(d["Tingkat/Kelas"] || '') === String(k)) || null;
+        const j = jurusanDariKelas(k, baris) || 'Lainnya';
         (kelasPerJurusan[j] = kelasPerJurusan[j] || []).push(k);
     });
     const daftarJurusan = Object.keys(kelasPerJurusan).sort();
@@ -17999,7 +18530,7 @@ function renderLihatJadwalMaster(tahun) {
         const kunciSet = new Set();
         const guruList = [];
         jadwalTampil.forEach(d => {
-            if (jurusanDariKelas(d["Tingkat/Kelas"]) !== j && !(j === 'Lainnya' && !jurusanDariKelas(d["Tingkat/Kelas"]))) return;
+            if (jurusanDariKelas(d["Tingkat/Kelas"], d) !== j && !(j === 'Lainnya' && !jurusanDariKelas(d["Tingkat/Kelas"], d))) return;
             const kode = (d["ID Akun Guru"] || d["Guru Custom"] || '').toString().slice(0, 8);
             const kunci = kunciGuruBarisJadwal(d);
             if (!kode || kunciSet.has(kunci)) return;
@@ -21288,25 +21819,80 @@ function renderDaftarTambahAnggota() {
   hitungTerpilihTambahAnggota();
 }
 
-/** Modal Tambah Anggota: daftar siswa + filter ID Tahun & Kelas + ceklis (req 1b). */
-async function formTambahAnggotaEkskul() {
+/** Snapshot kontrol filter modal Tambah Anggota (dipakai agar filter & pencarian tidak
+ *  hilang saat modal itu dibuka kembali setelah popup Sub-Ekskul menggantikannya). */
+function bacaFilterTambahAnggota() {
+  const nilai = (id) => (document.getElementById(id) || {}).value || '';
+  return {
+    anggotaTa: nilai('ta_anggota_ta'),
+    anggotaSmt: nilai('ta_anggota_smt'),
+    tahun: nilai('ta_tahun'),
+    kelas: nilai('ta_kelas'),
+    sub: nilai('ta_sub'),
+    cari: nilai('ta_cari')
+  };
+}
+
+/** Isi kembali kontrol filter modal Tambah Anggota dari snapshot (lihat bacaFilterTambahAnggota). */
+function pulihkanFilterTambahAnggota(f) {
+  if (!f) return;
+  const pasang = (id, nilai) => {
+    const el = document.getElementById(id);
+    if (el && nilai !== undefined && nilai !== null && nilai !== '') el.value = nilai;
+  };
+  pasang('ta_anggota_ta', f.anggotaTa);
+  pasang('ta_anggota_smt', f.anggotaSmt);
+  pasang('ta_tahun', f.tahun);
+  pasang('ta_kelas', f.kelas);
+  pasang('ta_sub', f.sub);
+  const cari = document.getElementById('ta_cari');
+  if (cari && typeof f.cari === 'string') cari.value = f.cari;
+}
+
+/** Modal Tambah Anggota: daftar siswa + filter ID Tahun & Kelas + ceklis (req 1b).
+ *  @param {Object} [o] { lanjutkan } — dibuka KEMBALI setelah popup lain (mis. pilih
+ *  Sub-Ekskul) menggantikan modal Swal yang sedang terbuka. Isi `lanjutkan` =
+ *  { anggotaSaatIni, murid, filter } (lihat formPilihSubTambahAnggota) sehingga
+ *  pilihan siswa (window.__taTerpilih), penandaan Sub di memori, dan filter TIDAK
+ *  di-reset dari server. */
+async function formTambahAnggotaEkskul(o = {}) {
   // [REQ 1f] Hanya admin/wali kelas (semua), pembina ekskul aktif, atau pengurus (menjabat).
   if (!bolehKelolaAnggotaEkskul(window.__ekskulAktif)) return showToast('error', 'Akses tidak diizinkan.');
   const aktif = window.__ekskulAktif;
   if (!aktif) return showToast('error', 'Pilih ekstrakurikuler dulu.');
-  const anggotaSaatIni = await ambilAnggotaEkskul(aktif);
-  window.__taTerpilih = new Set(anggotaSaatIni.map(a => a.nis_nip));
-  // [REQ 1] Sub-Ekstrakurikuler per kandidat anggota
-  const subsTersedia = await ambilSubEkskul(aktif);
-  window.__taSubList = subsTersedia.map(s => s.nama_sub);
-  window.__taSub = await ambilSubAnggota(aktif);
-  let murid = [];
-  try {
-    // [REQ 1b] Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan
-    // semua halaman agar seluruh "Data Akun Murid" terload (bukan hanya sebagian).
-    // [FASE B] Kandidat anggota lewat RPC (tabel `akun` RLS ketat).
-    murid = await akunDaftarMurid('pemilih');
-  } catch (e) { return Swal.fire({ icon: 'error', title: 'Gagal', text: 'Gagal memuat daftar siswa: ' + (e.message || ''), background: '#1e293b', color: '#fff' }); }
+  const lanjut = (o && o.lanjutkan) || null;
+  const anggotaSaatIni = (lanjut && Array.isArray(lanjut.anggotaSaatIni))
+    ? lanjut.anggotaSaatIni
+    : await ambilAnggotaEkskul(aktif);
+  // Anggota aktif di-snapshot supaya pengecekan anti-duplikat saat Simpan tetap benar
+  // walau modal dibuka kembali tanpa memuat ulang dari server.
+  window.__taAnggotaSaatIni = anggotaSaatIni;
+  if (!lanjut) {
+    window.__taTerpilih = new Set(anggotaSaatIni.map(a => a.nis_nip));
+    // [REQ 1] Sub-Ekstrakurikuler per kandidat anggota
+    const subsTersedia = await ambilSubEkskul(aktif);
+    window.__taSubList = subsTersedia.map(s => s.nama_sub);
+    window.__taSub = await ambilSubAnggota(aktif);
+  } else {
+    // Dibuka kembali: JANGAN menimpa peta Sub di memori (penandaan yang belum
+    // disimpan akan hilang). Hanya pastikan daftar Sub tersedia.
+    if (!(window.__taSubList || []).length) {
+      try {
+        const subsTersedia = await ambilSubEkskul(aktif);
+        window.__taSubList = subsTersedia.map(s => s.nama_sub);
+      } catch (e) { console.warn('formTambahAnggotaEkskul/sub:', e); }
+    }
+    window.__taSub = window.__taSub || {};
+  }
+  let murid = (lanjut && Array.isArray(lanjut.murid) && lanjut.murid.length) ? lanjut.murid : [];
+  if (!murid.length) {
+    try {
+      // [REQ 1b] Paginasi: PostgREST maks 1000 baris/request — supaAmbilSemua menggabungkan
+      // semua halaman agar seluruh "Data Akun Murid" terload (bukan hanya sebagian).
+      // [FASE B] Kandidat anggota lewat RPC (tabel `akun` RLS ketat).
+      murid = await akunDaftarMurid('pemilih');
+    } catch (e) { return Swal.fire({ icon: 'error', title: 'Gagal', text: 'Gagal memuat daftar siswa: ' + (e.message || ''), background: '#1e293b', color: '#fff' }); }
+  }
   window.__cacheMuridTambah = murid;
   const listTahun = urutAz([...new Set(murid.map(m => m.tahun_pelajaran).filter(Boolean))]);
   const listKelas = urutAz([...new Set(murid.map(m => m.tingkat_kelas).filter(Boolean))]);
@@ -21342,7 +21928,12 @@ async function formTambahAnggotaEkskul() {
     width: '60rem',
     background: '#1e293b', color: '#fff', showCancelButton: true, cancelButtonText: 'Batal',
     confirmButtonText: '<i class="fa-solid fa-user-plus"></i> Jadikan Anggota',
-    didOpen: () => renderDaftarTambahAnggota(),
+    didOpen: () => {
+      // Dibuka kembali setelah popup Sub-Ekskul → filter & pencarian dipulihkan dulu,
+      // baru tabel kandidat di-render sesuai filter itu.
+      pulihkanFilterTambahAnggota(lanjut && lanjut.filter);
+      renderDaftarTambahAnggota();
+    },
     preConfirm: () => {
       const taSel = (document.getElementById('ta_anggota_ta') || {}).value || getCurrentTAEkskul();
       const smtSel = (document.getElementById('ta_anggota_smt') || {}).value || currentSemesterEkskul;
@@ -21500,12 +22091,22 @@ async function formImportAnggotaEkskul() {
   if (rinci.length) showToast('info', rinci.join(' · '));
   renderTabEkskul();
 }
-/** [MULTI-SUB] Popup checklist untuk memilih Sub-Ekskul kandidat pada modal Tambah Anggota (di memori). */
+/** [MULTI-SUB] Popup checklist untuk memilih Sub-Ekskul kandidat pada modal Tambah Anggota (di memori).
+ *  [FIX] Popup Swal ini MENGGANTIKAN modal "Tambah Anggota" yang sedang terbuka, sehingga
+ *  setelah Simpan/Batal pengguna dulu terlempar keluar dari alur (modal tidak kembali).
+ *  Kini konteks modal disimpan lebih dulu (snapshot ctx) lalu modal Tambah Anggota
+ *  dibuka KEMBALI dengan pilihan siswa, penandaan Sub, dan filter yang sama. */
 async function formPilihSubTambahAnggota(nis, namaLengkap) {
   const daftarSub = window.__taSubList || [];
   if (!daftarSub.length) return showToast('info', 'Belum ada Sub-Ekstrakurikuler pada ekskul ini.');
   window.__taSub = window.__taSub || {};
   const subSaya = new Set(window.__taSub[nis] || []);
+  // Snapshot konteks SEBELUM popup ini menutup modal Tambah Anggota.
+  const ctx = {
+    anggotaSaatIni: window.__taAnggotaSaatIni || [],
+    murid: window.__cacheMuridTambah || [],
+    filter: bacaFilterTambahAnggota()
+  };
   const { value: hasil } = await Swal.fire({
     title: `Sub-Ekstrakurikuler — ${escapeHtml(namaLengkap || '')}`,
     html: `<div class="text-left text-[11px] text-slate-300 mt-2 space-y-1.5 max-h-64 overflow-y-auto">
@@ -21520,9 +22121,10 @@ async function formPilihSubTambahAnggota(nis, namaLengkap) {
     cancelButtonText: 'Batal',
     preConfirm: () => Array.from(document.querySelectorAll('.chk-sub-ta:checked')).map(el => el.value)
   });
-  if (hasil === undefined) return; // dibatalkan
-  window.__taSub[nis] = hasil;
-  renderDaftarTambahAnggota();
+  // Simpan penandaan Sub siswa ini (dibatalkan → penandaan lama dipertahankan).
+  if (hasil !== undefined) window.__taSub[nis] = hasil;
+  // Kembali ke modal Tambah Anggota (pilihan & filter utuh) — bukan keluar dari alur.
+  return formTambahAnggotaEkskul({ lanjutkan: ctx });
 }
 
 /** Pilih / kosongkan semua siswa pada hasil filter Tambah Anggota. */
@@ -23449,10 +24051,9 @@ function ikonSortKasAnggota(kolom) {
   return sortKasAnggota.arah === 'asc' ? '<i class="fa-solid fa-sort-up text-yellow-300"></i>' : '<i class="fa-solid fa-sort-down text-yellow-300"></i>';
 }
 
-/** Angkatan sederhana dari tingkat_kelas ("X RPL 1" -> "X"; "XI"/"XII" dsb). */
+/** Angkatan sederhana dari tingkat_kelas / baris DB ("X RPL 1" → "X"; "10 RPL 1" → "X"). */
 function angkatanDariTingkatKelas(tingkat_kelas) {
-  const m = String(tingkat_kelas || '').trim().match(/^(XII|XI|X)\b/i);
-  return m ? m[1].toUpperCase() : '';
+  return kelasModul().angkatan(tingkat_kelas);
 }
 
 async function muatKasAnggota() {

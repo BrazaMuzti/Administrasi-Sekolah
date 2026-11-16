@@ -152,7 +152,16 @@ const URUTAN = [
   'fix_20261028d_sesi_wajib.sql',
   'fix_20261029_murid_kanal_absen.sql',
   'upgrade_20261031_akses_admin_akun_murid.sql',
-  'fix_20261031b_peta_wajah_murid.sql'
+  'fix_20261031b_peta_wajah_murid.sql',
+  // --- 2026-11-15: normalisasi kelas (tingkat/jurusan/rombel) ---
+  // WAJIB paling akhir: membuat ulang fn_akun_json/fn_akun_export (20261028b)
+  // dan menambah trigger sinkronisasi pada master_data/akun/jadwal_pelajaran.
+  'upgrade_20261115_kelas_normalisasi.sql',
+  // --- 2026-11-16: wali kelas multi-kelas (tabel wali_kelas_penugasan) ---
+  // WAJIB SETELAH 20261115 (memakai fn_pecah_kelas/fn_label_kelas) dan setelah
+  // 20261028b2/20261027 (membuat ulang fn_akun_json, ubah_anggota_ekskul,
+  // fn_is_wali_kelas, akun_guru_ampu_murid).
+  'upgrade_20261116_wali_kelas_multi.sql'
 ];
 
 // ============================================================
@@ -181,9 +190,13 @@ function buatHeader(jml, awal, akhir) {
     '--     jangan diacak. Dua blok jadwal_pelajaran (20260920_fix_kolom &',
     '--     20260920b_lepas_notnull) sengaja diletakkan SETELAH 20260929_jadwal_',
     '--     pelajaran.sql karena bergantung pada tabel yang dibuat blok itu.',
-    '--   - Dua blok PALING AKHIR (20261028c RLS akun ketat & fix_20261028d sesi',
-    '--     wajib) mengandaikan frontend versi terbaru. Jalankan berurutan:',
+    '--   - Blok 20261028c (RLS akun ketat) & fix_20261028d (sesi wajib)',
+    '--     mengandaikan frontend versi terbaru. Jalankan berurutan:',
     '--     a → b → b2 → (deploy frontend) → c → d.',
+    '--   - Blok TERAKHIR (upgrade_20261115_kelas_normalisasi.sql) justru boleh',
+    '--     dijalankan SEBELUM frontend apa pun di-deploy: kolom kelas lama tetap',
+    '--     ditulis klien lama, sedangkan kolom terstruktur baru dijaga trigger',
+    '--     dua arah (label lama ⇄ tingkat/jurusan_kode/rombel).',
     '--   - Dihasilkan ulang oleh: npm run build:sql',
     '--     (periksa tanpa menulis: npm run check:sql)',
     '-- ============================================================================',

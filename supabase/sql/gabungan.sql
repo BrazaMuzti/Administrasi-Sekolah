@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SIAKAD / SISIP — SKEMA DATABASE LENGKAP (VERSI SEKARANG)
--- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-10-31 (85 berkas)
+-- Gabungan seluruh upgrade skema: 2026-09-03 s.d. 2026-11-16 (87 berkas)
 --
 -- CARA PAKAI (project Supabase BARU):
 --   1) Buka Supabase Dashboard → SQL Editor → New query
@@ -19,14 +19,18 @@
 --     jangan diacak. Dua blok jadwal_pelajaran (20260920_fix_kolom &
 --     20260920b_lepas_notnull) sengaja diletakkan SETELAH 20260929_jadwal_
 --     pelajaran.sql karena bergantung pada tabel yang dibuat blok itu.
---   - Dua blok PALING AKHIR (20261028c RLS akun ketat & fix_20261028d sesi
---     wajib) mengandaikan frontend versi terbaru. Jalankan berurutan:
+--   - Blok 20261028c (RLS akun ketat) & fix_20261028d (sesi wajib)
+--     mengandaikan frontend versi terbaru. Jalankan berurutan:
 --     a → b → b2 → (deploy frontend) → c → d.
+--   - Blok TERAKHIR (upgrade_20261115_kelas_normalisasi.sql) justru boleh
+--     dijalankan SEBELUM frontend apa pun di-deploy: kolom kelas lama tetap
+--     ditulis klien lama, sedangkan kolom terstruktur baru dijaga trigger
+--     dua arah (label lama ⇄ tingkat/jurusan_kode/rombel).
 --   - Dihasilkan ulang oleh: npm run build:sql
 --     (periksa tanpa menulis: npm run check:sql)
 -- ============================================================================
 -- ============================================================
--- [1/85] upgrade_20260903.sql
+-- [1/87] upgrade_20260903.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE SKEMA SIAKAD — 2026-09-03
@@ -89,7 +93,7 @@ create policy "master_data_hapus_authenticated" on master_data
   for delete to authenticated using (true);
 
 -- ============================================================
--- [2/85] fix_20260903_kredensial.sql
+-- [2/87] fix_20260903_kredensial.sql
 -- ============================================================
 -- ============================================================
 -- FIX KREDENSIAL MURID — 2026-09-03 (v2)
@@ -341,7 +345,7 @@ grant execute on function set_password_murid(text, text) to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [3/85] fix_master_data_insert.sql
+-- [3/87] fix_master_data_insert.sql
 -- ============================================================
 -- ============================================================
 -- FIX INSERT master_data (400 Bad Request) — 2026-09-03
@@ -428,7 +432,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [4/85] upgrade_20260904_akun.sql
+-- [4/87] upgrade_20260904_akun.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE AKUN (GURU & MURID) — 2026-09-04
@@ -678,7 +682,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [5/85] upgrade_20260904_master_data_tambahan.sql
+-- [5/87] upgrade_20260904_master_data_tambahan.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE MASTER_DATA — 2026-09-04
@@ -722,7 +726,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [6/85] upgrade_20260904_absensi.sql
+-- [6/87] upgrade_20260904_absensi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI — 2026-09-04
@@ -791,7 +795,7 @@ grant select, update on akun to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [7/85] upgrade_20260904_absensi_d.sql
+-- [7/87] upgrade_20260904_absensi_d.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI: STATUS D (DISPEN) — 2026-09-04
@@ -809,7 +813,7 @@ alter table absensi
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [8/85] upgrade_20260904_jurnal.sql
+-- [8/87] upgrade_20260904_jurnal.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JURNAL HARIAN GURU — 2026-09-04
@@ -864,7 +868,7 @@ grant select, insert, update, delete on jurnal_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [9/85] upgrade_20260904_nilai.sql
+-- [9/87] upgrade_20260904_nilai.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE INPUT NILAI — 2026-09-04
@@ -948,7 +952,7 @@ grant select, insert, update, delete on nilai_konfigurasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [10/85] upgrade_20260904_ekskul.sql
+-- [10/87] upgrade_20260904_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — 2026-09-04
@@ -1061,7 +1065,7 @@ grant select, insert, delete on dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [11/85] upgrade_20260905_ekskul_pengurus.sql
+-- [11/87] upgrade_20260905_ekskul_pengurus.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER (LANJUTAN) — 2026-09-05
@@ -1120,7 +1124,7 @@ grant update (ekstrakurikuler) on akun to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [12/85] upgrade_20260906_sikap_teman.sql
+-- [12/87] upgrade_20260906_sikap_teman.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE SIKAP — TEMAN SEJAWAT & JURNAL PENILAIAN SIKAP — 2026-09-06
@@ -1394,7 +1398,7 @@ grant execute on function simpan_penilaian_teman(text, text, jsonb) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [13/85] upgrade_20260906_ekskul_surat.sql
+-- [13/87] upgrade_20260906_ekskul_surat.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — SURAT DISPENSASI & SUB-EKSKUL — 2026-09-06
@@ -1532,7 +1536,7 @@ grant select, insert, update, delete on preset_dispensasi to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [14/85] upgrade_20260906_ekskul_surat_v2.sql
+-- [14/87] upgrade_20260906_ekskul_surat_v2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE EKSTRAKURIKULER — SURAT DISPENSASI v2 — 2026-09-06
@@ -1593,7 +1597,7 @@ drop table if exists anggota_sub_ekskul;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [15/85] upgrade_20260908_kalender.sql
+-- [15/87] upgrade_20260908_kalender.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KALENDER PENDIDIKAN — 2026-09-08
@@ -1643,7 +1647,7 @@ create policy "kalender_hapus_auth" on kalender_pendidikan
   for delete to authenticated using (true);
 
 -- ============================================================
--- [16/85] upgrade_20260909_administrasi_guru.sql
+-- [16/87] upgrade_20260909_administrasi_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ADMINISTRASI GURU LAINNYA — 2026-09-09
@@ -1855,7 +1859,7 @@ grant select, insert, update, delete on dokumen_guru to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [17/85] upgrade_20260910_penugasan_guru.sql
+-- [17/87] upgrade_20260910_penugasan_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENUGASAN GURU PER TAHUN PELAJARAN — 2026-09-10
@@ -1886,7 +1890,7 @@ comment on column akun.penugasan is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [18/85] upgrade_20260911_riwayat_siswa.sql
+-- [18/87] upgrade_20260911_riwayat_siswa.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RIWAYAT KELAS & STATUS SISWA PER TAHUN PELAJARAN — 2026-09-11
@@ -1922,7 +1926,7 @@ comment on column akun.riwayat_kelas is
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [19/85] upgrade_20260912_nisn_sync.sql
+-- [19/87] upgrade_20260912_nisn_sync.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SINKRONISASI NISN + PERBAIKAN FORM AKUN MURID — 2026-09-12
@@ -2054,7 +2058,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [20/85] upgrade_20260913_jabatan_ekskul.sql
+-- [20/87] upgrade_20260913_jabatan_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JABATAN EKSTRAKURIKULER — 2026-09-13
@@ -2184,7 +2188,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [21/85] upgrade_20260914_akses_murid.sql
+-- [21/87] upgrade_20260914_akses_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE AKSES MURID — 2026-09-14
@@ -2310,7 +2314,7 @@ grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [22/85] upgrade_20260914_absensi_delete.sql
+-- [22/87] upgrade_20260914_absensi_delete.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE ABSENSI (DELETE) — 2026-09-14
@@ -2333,7 +2337,7 @@ create policy "absensi_hapus_semua" on absensi
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [23/85] upgrade_20260915_proses_kenaikan_rpc.sql
+-- [23/87] upgrade_20260915_proses_kenaikan_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE PROSES KENAIKAN KELAS (ADMIN-ONLY) — 2026-09-15
@@ -2393,7 +2397,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [24/85] upgrade_20260916_fase1.sql
+-- [24/87] upgrade_20260916_fase1.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 1 MODUL ADMINISTRASI SEKOLAH — 2026-09-16
@@ -2471,7 +2475,7 @@ grant select, insert, update, delete on jadwal_ujian, pengumuman, rapor_catatan,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [25/85] upgrade_20260917_fase2.sql
+-- [25/87] upgrade_20260917_fase2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 2 MODUL ADMINISTRASI SEKOLAH — 2026-09-17
@@ -2576,7 +2580,7 @@ grant select, insert, update, delete on poin_kategori, poin_siswa, spp_tagihan, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [26/85] upgrade_20260918_fase3.sql
+-- [26/87] upgrade_20260918_fase3.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 3 MODUL ADMINISTRASI SEKOLAH — 2026-09-18
@@ -2675,7 +2679,7 @@ grant select, insert, update, delete on perpus_buku, perpus_pinjam, inv_barang, 
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [27/85] upgrade_20260919_fase4.sql
+-- [27/87] upgrade_20260919_fase4.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE FASE 4 MODUL ADMINISTRASI SEKOLAH — 2026-09-19
@@ -2725,7 +2729,7 @@ grant select, insert, update, delete on ppdb_calon to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [28/85] upgrade_20260920_murid_rpc.sql
+-- [28/87] upgrade_20260920_murid_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE PERBAIKAN AKSES MURID (ANON) — 2026-09-20
@@ -2840,7 +2844,7 @@ grant execute on function catatan_wali_murid(text, text, text) to anon, authenti
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [29/85] upgrade_20260921_rls_policies.sql
+-- [29/87] upgrade_20260921_rls_policies.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE RLS POLICIES TABEL FASE 1-4 — 2026-09-21
@@ -2907,7 +2911,7 @@ grant select, insert, update, delete on
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [30/85] upgrade_20260922_nilai_murid_rpc.sql
+-- [30/87] upgrade_20260922_nilai_murid_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE RPC RAPOR MURID — 2026-09-22
@@ -2955,7 +2959,7 @@ grant execute on function ambil_rapor_nilai_murid(text, text, text) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [31/85] upgrade_20260926_ekskul_akses_guru.sql
+-- [31/87] upgrade_20260926_ekskul_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES EKSTRAKURIKULER PENGURUS MURID + JABATAN EKSKUL MAP — 2026-09-26
@@ -3068,7 +3072,7 @@ grant execute on function cek_login_murid(text, text) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [32/85] upgrade_20260927_sub_ekskul_anggota.sql
+-- [32/87] upgrade_20260927_sub_ekskul_anggota.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SUB-EKSTRAKURIKULER KOLOM ANGGOTA (PERBAIKAN SIMPAN) — 2026-09-27
@@ -3164,7 +3168,7 @@ alter table agenda_ekskul alter column tanggal drop not null;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [33/85] upgrade_20260928_rpc_akun_murid.sql
+-- [33/87] upgrade_20260928_rpc_akun_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RPC AKUN MURID (PERBAIKAN SIMPAN PROFIL MURID) — 2026-09-28
@@ -3306,7 +3310,7 @@ grant execute on function ambil_laporan_nilai_murid(text, text, text) to anon, a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [34/85] upgrade_20260929_jadwal_pelajaran.sql
+-- [34/87] upgrade_20260929_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: TABEL JADWAL PELAJARAN (PERBAIKAN SIMPAN JADWAL) — 2026-09-29
@@ -3385,7 +3389,7 @@ grant select on jadwal_pelajaran to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [35/85] upgrade_20260920_fix_kolom_jadwal_pelajaran.sql
+-- [35/87] upgrade_20260920_fix_kolom_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PERBAIKAN NAMA KOLOM TABEL jadwal_pelajaran — 2026-09-20
@@ -3444,7 +3448,7 @@ alter table jadwal_pelajaran
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [36/85] upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql
+-- [36/87] upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: LEPAS NOT NULL KOLOM LEGACY TABEL jadwal_pelajaran — 2026-09-20
@@ -3498,7 +3502,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [37/85] upgrade_20260930_pengurus_tambah_anggota.sql
+-- [37/87] upgrade_20260930_pengurus_tambah_anggota.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENGURUS EKSKUL DAFTARKAN ANGGOTA BARU — 2026-09-30
@@ -3594,7 +3598,7 @@ grant execute on function daftar_anggota_ekskul_baru(text, text, jsonb) to anon,
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [38/85] upgrade_20260930b_fix_akun_grant_anon.sql
+-- [38/87] upgrade_20260930b_fix_akun_grant_anon.sql
 -- ============================================================
 -- ============================================================
 -- FIX: GRANT TABEL AKUN UNTUK ANON (PENGURUS EKSKUL MURID) — 2026-09-30 (b)
@@ -3632,7 +3636,7 @@ grant update (jabatan_ekskul_map) on akun to anon;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [39/85] upgrade_20261001_kas_ekstrakurikuler.sql
+-- [39/87] upgrade_20261001_kas_ekstrakurikuler.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-01: KAS EKSTRAKURIKULER (Kas Umum + Kas Anggota)
@@ -3861,7 +3865,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [40/85] upgrade_20261002_kas_masterdata_v2.sql
+-- [40/87] upgrade_20261002_kas_masterdata_v2.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-02: KAS EKSTRAKURIKULER v2 + MASTER DATA DRIVE LINKS
@@ -3979,7 +3983,7 @@ grant select, insert, update, delete on notifikasi to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [41/85] upgrade_20261003_kas_anggota_rentang.sql
+-- [41/87] upgrade_20261003_kas_anggota_rentang.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-03: KAS ANGGOTA - FILTER RENTANG TANGGAL
@@ -4041,7 +4045,7 @@ grant execute on function iuran_anggota_rentang(text, date, date) to anon, authe
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [42/85] upgrade_20261005_kas_anggota_cicil.sql
+-- [42/87] upgrade_20261005_kas_anggota_cicil.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-05: KAS ANGGOTA - STATUS "CICIL" + TANGGAL AKHIR BAYAR
@@ -4123,7 +4127,7 @@ grant execute on function iuran_anggota_rentang(text, date, date) to anon, authe
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [43/85] upgrade_20261006_import_murid_akses_guru.sql
+-- [43/87] upgrade_20261006_import_murid_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES IMPORT DATA MURID UNTUK GURU (WALI KELAS/PEMBINA) — 2026-10-06
@@ -4271,7 +4275,7 @@ grant execute on function import_akun_murid(jsonb, text) to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [44/85] upgrade_20261006b_add_anggota_akses_admin_pembina.sql
+-- [44/87] upgrade_20261006b_add_anggota_akses_admin_pembina.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: AKSES ADMIN & PEMBINA TAMBAH ANGGOTA EKSKUL — 2026-10-06 (b)
@@ -4416,7 +4420,7 @@ grant execute on function ubah_anggota_ekskul(text, text, text[], boolean) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [45/85] upgrade_20261006c_kunci_absen_ekskul_pengurus.sql
+-- [45/87] upgrade_20261006c_kunci_absen_ekskul_pengurus.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENGURUS EKSKUL GANTI KUNCI ABSEN (CAPTCHA) — 2026-10-06 (c)
@@ -4501,7 +4505,7 @@ grant execute on function ganti_kunci_absen_ekskul(text, text, text, text) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [46/85] upgrade_20261007_akun_hp_ortu.sql
+-- [46/87] upgrade_20261007_akun_hp_ortu.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: NO HP ORANG TUA (AKUN MURID) — 2026-10-07
@@ -4627,7 +4631,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [47/85] upgrade_20261007_jadwal_guru_custom.sql
+-- [47/87] upgrade_20261007_jadwal_guru_custom.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: JADWAL PELAJARAN — GURU TANPA AKUN (CUSTOM) — 2026-10-07
@@ -4645,7 +4649,7 @@ alter table jadwal_pelajaran
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [48/85] upgrade_20261007_kalender_tipe_custom.sql
+-- [48/87] upgrade_20261007_kalender_tipe_custom.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KALENDER PENDIDIKAN — NAMA KATEGORI CUSTOM — 2026-10-07
@@ -4662,7 +4666,7 @@ alter table kalender_pendidikan
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [49/85] upgrade_20261008_ekskul_menu_lengkap.sql
+-- [49/87] upgrade_20261008_ekskul_menu_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-08: MENU EKSTRAKURIKULER LENGKAP
@@ -4949,7 +4953,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [50/85] upgrade_20261010_jadwal_piket_ekskul.sql
+-- [50/87] upgrade_20261010_jadwal_piket_ekskul.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-10: JADWAL PIKET EKSTRAKURIKULER
@@ -5007,7 +5011,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [51/85] upgrade_20261011_akun_murid_foto_medsos.sql
+-- [51/87] upgrade_20261011_akun_murid_foto_medsos.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: FOTO MURID (GOOGLE DRIVE), MEDIA SOSIAL & ALAMAT MAPS — 2026-10-11
@@ -5246,7 +5250,7 @@ grant execute on function simpan_foto_murid(text, text, text, text) to anon, aut
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [52/85] upgrade_20261013_akun_murid_keterangan_maps.sql
+-- [52/87] upgrade_20261013_akun_murid_keterangan_maps.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: DATA AKUN MURID — NO HP ORTU & KETERANGAN + PRATINJAU GOOGLE MAPS — 2026-10-13
@@ -5325,7 +5329,7 @@ grant execute on function ubah_profil_murid(text, jsonb) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [53/85] upgrade_20261014_wajah.sql
+-- [53/87] upgrade_20261014_wajah.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: PENDAFTARAN WAJAH (FACE RECOGNITION) — 2026-10-14
@@ -5438,7 +5442,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text) to a
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [54/85] upgrade_20261014b_fix_nilai_grant.sql
+-- [54/87] upgrade_20261014b_fix_nilai_grant.sql
 -- ============================================================
 -- ============================================================
 -- FIX: GRANT PRIVILEGE TABEL MODUL NILAI (42501 — MENU INPUT NILAI) — 2026-10-14 (b)
@@ -5481,7 +5485,7 @@ grant select, insert, update, delete on jurnal_sikap to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [55/85] upgrade_20261014c_absen_mandiri_rpc.sql
+-- [55/87] upgrade_20261014c_absen_mandiri_rpc.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RPC ABSEN MANDIRI (PERBAIKAN TIDAK TERSIMPAN) — 2026-10-14
@@ -5678,7 +5682,7 @@ grant execute on function absen_mandiri(text, text, text, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [56/85] upgrade_20261014d_absen_mandiri_integrasi.sql
+-- [56/87] upgrade_20261014d_absen_mandiri_integrasi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ABSEN MANDIRI v2 — INTEGRASI KE REKAP GURU
@@ -5953,7 +5957,7 @@ notify pgrst, 'reload schema';
 --    order by tanggal desc, nis;
 
 -- ============================================================
--- [57/85] upgrade_20261014e_wajah_multi.sql
+-- [57/87] upgrade_20261014e_wajah_multi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: WAJAH MULTI-SAMPEL (AKURASI FACE SCAN) — 2026-10-14e
@@ -6132,7 +6136,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [58/85] upgrade_20261015_edit_murid_akses_guru_wali.sql
+-- [58/87] upgrade_20261015_edit_murid_akses_guru_wali.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: IZINKAN GURU (WALI/PEMBINA) EDIT AKUN MURID — 2026-12-10
@@ -6358,7 +6362,7 @@ grant execute on function akun_guru_ampu_murid(text, text) to anon, authenticate
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [59/85] upgrade_20261016_wajah_akses_guru.sql
+-- [59/87] upgrade_20261016_wajah_akses_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: IZINKAN GURU (WALI KELAS/PEMBINA) SIMPAN WAJAH MURID — 2026-12-11
@@ -6553,7 +6557,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [60/85] upgrade_20261017_ubah_profil_guru.sql
+-- [60/87] upgrade_20261017_ubah_profil_guru.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: EDIT PROFIL GURU MANDIRI (Daftar Guru / Data Akun Guru) — 2026-10-17
@@ -6611,7 +6615,7 @@ grant execute on function ubah_profil_guru(text, jsonb) to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [61/85] upgrade_20261018_fix_nilai_grant_lengkap.sql
+-- [61/87] upgrade_20261018_fix_nilai_grant_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- FIX LENGKAP: GRANT PRIVILEGE TABEL MODUL NILAI
@@ -6661,7 +6665,7 @@ grant select, insert, update, delete on jurnal_sikap to authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [62/85] upgrade_kartu_id_card.sql
+-- [62/87] upgrade_kartu_id_card.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE KARTU ID (KARTU PELAJAR) — konfigurasi baris identitas
@@ -6686,7 +6690,7 @@ alter table master_data
   add column if not exists "Konten Belakang" text;
 
 -- ============================================================
--- [63/85] upgrade_20261018b_jurusan_lengkap.sql
+-- [63/87] upgrade_20261018b_jurusan_lengkap.sql
 -- ============================================================
 -- ============================================================
 -- upgrade_20261018b_jurusan_lengkap.sql
@@ -6712,7 +6716,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [64/85] upgrade_20261018c_nip_kepala_sekolah.sql
+-- [64/87] upgrade_20261018c_nip_kepala_sekolah.sql
 -- ============================================================
 -- ============================================================
 -- upgrade_20261018c_nip_kepala_sekolah.sql
@@ -6733,7 +6737,7 @@ alter table master_data
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [65/85] fix_20261019_ubah_anggota_ekskul_updated_at.sql
+-- [65/87] fix_20261019_ubah_anggota_ekskul_updated_at.sql
 -- ============================================================
 -- ============================================================
 -- FIX 2026-10-19: ubah_anggota_ekskul — kolom akun.updated_at TIDAK ADA
@@ -6861,7 +6865,7 @@ grant execute on function ubah_anggota_ekskul(text, text, text[], boolean) to an
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [66/85] upgrade_20261020_ekskul_riwayat_ta.sql
+-- [66/87] upgrade_20261020_ekskul_riwayat_ta.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: RIWAYAT KEANGGOTAAN EKSTRAKURIKULER PER TAHUN PELAJARAN — 2026-10-20
@@ -7099,7 +7103,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [67/85] upgrade_20261020b_piket_tabel_multi.sql
+-- [67/87] upgrade_20261020b_piket_tabel_multi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 2026-10-20(b): PIKET TABEL MULTI + MATRIK CEKLIS v2
@@ -7171,7 +7175,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [68/85] upgrade_20261021_ekskul_riwayat_semester.sql
+-- [68/87] upgrade_20261021_ekskul_riwayat_semester.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: DIMENSI SEMESTER PADA KEANGGOTAAN EKSTRAKURIKULER — 2026-10-21
@@ -7395,7 +7399,7 @@ notify pgrst, 'reload schema';
 
 
 -- ============================================================
--- [69/85] upgrade_20261022_edupresensi.sql
+-- [69/87] upgrade_20261022_edupresensi.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: EDUPRESENSI → GEOFENCE GPS ABSEN MANDIRI — 2026-10-22
@@ -7459,7 +7463,7 @@ grant select, insert, update, delete on absensi to anon, authenticated;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [70/85] upgrade_20261023_absen_mandiri_metode.sql
+-- [70/87] upgrade_20261023_absen_mandiri_metode.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ABSEN MANDIRI — DUA METODE: KODE CAPTCHA / FACE SCAN NIS
@@ -7735,7 +7739,7 @@ notify pgrst, 'reload schema';
 --                       select absen_mandiri('NIS','Naam','Kelas','TA','Oktober','Mapel','','lat,lng',false,null,'Mapel');
 
 -- ============================================================
--- [71/85] upgrade_20261023_wajah_motor_mediapipe.sql
+-- [71/87] upgrade_20261023_wajah_motor_mediapipe.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: WAJAH DIM 128/512 (RPC simpan_wajah_murid) — 2026-10-23
@@ -7938,7 +7942,7 @@ grant execute on function simpan_wajah_murid(text, jsonb, text, text, text, text
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [72/85] upgrade_20261024_absensi_gps.sql
+-- [72/87] upgrade_20261024_absensi_gps.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: KOLOM GPS PADA TABEL ABSENSI
@@ -7987,7 +7991,7 @@ notify pgrst, 'reload schema';
 --    order by tanggal desc limit 20;
 
 -- ============================================================
--- [73/85] upgrade_20261025_absensi_gps_setting.sql
+-- [73/87] upgrade_20261025_absensi_gps_setting.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: SETTING LOKASI GPS PER MAPEL / EKSKUL (HADIR TATAP MUKA)
@@ -8060,7 +8064,7 @@ notify pgrst, 'reload schema';
 --     from absensi_gps_setting order by kategori, nama;
 
 -- ============================================================
--- [74/85] fix_20261026_nilai_grant_authenticated.sql
+-- [74/87] fix_20261026_nilai_grant_authenticated.sql
 -- ============================================================
 -- ============================================================
 -- FIX: PULIHKAN GRANT TABEL MODUL NILAI UNTUK `authenticated` — 2026-10-26
@@ -8105,7 +8109,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [75/85] fix_20261026b_nilai_trigger_update.sql
+-- [75/87] fix_20261026b_nilai_trigger_update.sql
 -- ============================================================
 -- ============================================================
 -- FIX 2026-10-26b: UPDATE PADA TABEL `nilai` DITELAN DATABASE
@@ -8340,7 +8344,7 @@ select urutan, pemeriksaan, hasil from _laporan_fix_nilai order by urutan;
 
 
 -- ============================================================
--- [76/85] fix_20261026c_nilai_riwayat_trigger.sql
+-- [76/87] fix_20261026c_nilai_riwayat_trigger.sql
 -- ============================================================
 -- =====================================================================
 -- fix_20261026c_nilai_riwayat_trigger.sql
@@ -8442,7 +8446,7 @@ notify pgrst, 'reload schema';
 select urutan, pemeriksaan, hasil from _laporan_fix_riwayat order by urutan;
 
 -- ============================================================
--- [77/85] upgrade_20261027_role_hybrid_opsiC.sql
+-- [77/87] upgrade_20261027_role_hybrid_opsiC.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE: ROLE HYBRID "OPSI C" + PERAN TAMBAHAN — 2026-10-27
@@ -8699,7 +8703,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [78/85] upgrade_20261028a_sesi_lokal_murid.sql
+-- [78/87] upgrade_20261028a_sesi_lokal_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028a: SESI LOKAL MURID (TOKEN DARI SERVER) — 2026-10-28
@@ -9096,7 +9100,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [79/85] upgrade_20261028b_rpc_akun.sql
+-- [79/87] upgrade_20261028b_rpc_akun.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028b: RPC TABEL `akun` (FASE B1 — RLS `akun` MASIH OFF)
@@ -9981,7 +9985,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [80/85] upgrade_20261028b2_token_rpc_murid.sql
+-- [80/87] upgrade_20261028b2_token_rpc_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028b2: TOKEN SESI UNTUK RPC MURID YANG MENULIS `akun` — 2026-10-28
@@ -10680,7 +10684,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [81/85] upgrade_20261028c_rls_akun_ketat.sql
+-- [81/87] upgrade_20261028c_rls_akun_ketat.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261028c: RLS KETAT PADA `public.akun` — 2026-10-28
@@ -10792,7 +10796,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [82/85] fix_20261028d_sesi_wajib.sql
+-- [82/87] fix_20261028d_sesi_wajib.sql
 -- ============================================================
 -- ============================================================
 -- FIX 20261028d: SESI MURID WAJIB (matikan fallback klaim NIS) — 2026-10-28
@@ -10882,7 +10886,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [83/85] fix_20261029_murid_kanal_absen.sql
+-- [83/87] fix_20261029_murid_kanal_absen.sql
 -- ============================================================
 -- ============================================================
 -- FIX 20261029: KANAL ABSEN UNTUK MURID (menu "Absen Mandiri") — 2026-10-29
@@ -11002,7 +11006,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [84/85] upgrade_20261031_akses_admin_akun_murid.sql
+-- [84/87] upgrade_20261031_akses_admin_akun_murid.sql
 -- ============================================================
 -- ============================================================
 -- UPGRADE 20261031: AKSES ADMIN — "Registrasi Wajah Masal" & "Simpan Data" (Akun Murid) — 2026-10-31
@@ -11356,7 +11360,7 @@ end $$;
 notify pgrst, 'reload schema';
 
 -- ============================================================
--- [85/85] fix_20261031b_peta_wajah_murid.sql
+-- [85/87] fix_20261031b_peta_wajah_murid.sql
 -- ============================================================
 -- ============================================================
 -- FIX 20261031b: PETA WAJAH UNTUK MURID BER-JWT — 2026-10-31
@@ -11483,4 +11487,2122 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ============================================================
+-- [86/87] upgrade_20261115_kelas_normalisasi.sql
+-- ============================================================
+-- ============================================================
+-- UPGRADE: NORMALISASI KELAS — 2026-11-15
+-- tingkat / jurusan_kode / jurusan / rombel + tabel master_jurusan
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG
+--   Kelas disimpan sebagai SATU string gabungan "TINGKAT JURUSAN ROMBEL"
+--   (contoh "X LP 1" = tingkat X + jurusan LP + rombel 1) di:
+--     * master_data."Tingkat/Kelas"   (daftar induk kelas)
+--     * akun.tingkat_kelas            (kelas statis murid)
+--     * akun.riwayat_kelas[TA].kelas  (kelas efektif per tahun pelajaran)
+--     * jadwal_pelajaran."Tingkat/Kelas"
+--   Akibatnya filter/agregasi harus mengurai string di klien (split_part /
+--   regexp), rawan salah untuk singkatan jurusan ber-tanda hubung, dan
+--   data jurusan tidak bisa di-JOIN (nama jurusan hanya tersimpan sebagai
+--   pasangan baris master_data "Jurusan" + "Jurusan Lengkap").
+--
+-- ISI (semua idempotent — aman dijalankan berulang):
+--   1) Helper  : fn_normal_tingkat, fn_pecah_kelas, fn_label_kelas,
+--                fn_enrich_riwayat_kelas
+--   2) Tabel   : master_jurusan (kode → nama/jenjang/bidang) + RLS + backfill
+--   3) Kolom   : master_data.tingkat/jurusan_kode/jurusan/rombel + kelas_label
+--   4) Kolom   : akun.tingkat/jurusan_kode/jurusan/rombel + kelas_label
+--                + riwayat_kelas[TA] diperkaya komponen terstruktur
+--   5) Kolom   : jadwal_pelajaran.tingkat/jurusan_kode/jurusan/rombel
+--   6) Trigger : sinkron DUA ARAH label ↔ kolom terstruktur (3 tabel)
+--   7) RPC     : proses_kenaikan_kelas & simpan_riwayat_murid (tulis struktur),
+--                fn_akun_export & fn_akun_json (tambah field struktur)
+--   8) Verifikasi + reload cache skema PostgREST
+--
+-- KOMPATIBILITAS (penting)
+--   Kolom LAMA ("Tingkat/Kelas", tingkat_kelas, riwayat_kelas[TA].kelas,
+--   jadwal_pelajaran."Tingkat/Kelas") TIDAK dihapus dan TETAP ditulis.
+--   Trigger bagian 6 menjaga keduanya konsisten, sehingga SELURUH modul lama
+--   (absensi, nilai, ekskul, SPP, poin, absen mandiri, import/export) tetap
+--   benar tanpa perubahan klien. Frontend boleh mulai membaca kolom
+--   terstruktur kapan saja (bertahap) — lihat Tahap 3.
+--   Trigger sengaja TIDAK PERNAH mengisi kolom master_data "Jurusan" /
+--   "Jurusan Lengkap" pada baris kelas: klien lama memakai baris "kosong"
+--   sebagai slot isian jurusan (tambahMasterDaftarJurusan / simpanWizard*),
+--   jadi kolom itu tetap milik UI lama.
+--
+-- ROLLBACK
+--   drop trigger trg_sync_kelas_master_data on master_data;
+--   drop trigger trg_sync_kelas_akun on akun;
+--   drop trigger trg_sync_kelas_jadwal on jadwal_pelajaran;
+--   drop function if exists fn_sync_kelas_master_data();
+--   drop function if exists fn_sync_kelas_akun();
+--   drop function if exists fn_sync_kelas_jadwal();
+--   alter table akun drop column if exists tingkat, drop column if exists
+--     jurusan_kode, drop column if exists jurusan, drop column if exists
+--     rombel, drop column if exists kelas_label;
+--   alter table master_data drop column if exists tingkat, ... (idem);
+--   alter table jadwal_pelajaran drop column if exists tingkat, ... (idem);
+--   drop table if exists master_jurusan;
+--   drop function if exists fn_pecah_kelas(text);
+--   drop function if exists fn_normal_tingkat(text);
+--   drop function if exists fn_label_kelas(text, text, integer);
+--   drop function if exists fn_enrich_riwayat_kelas(jsonb);
+-- ============================================================
+
+-- ============================================================
+-- 1. HELPER PENGURAI & PERAKIT LABEL KELAS
+--    Format kanonik: "<TINGKAT> <JURUSAN_KODE> <ROMBEL>" → "X LP 1"
+--    Bentuk lain yang ditoleransi: "10 RPL 1", "x rpl 1", "X-RPL-1",
+--    "X LP" (tanpa rombel), "XII IPA 2".
+--    Label BUKAN kelas ("", "Semua Kelas", "Hadir", "Islam", …) →
+--    tingkat/jurusan_kode/rombel = NULL (tidak pernah salah tafsir).
+-- ============================================================
+
+-- 1a. Normalisasi tingkat: 10/11/12 → X/XI/XII; sisanya di-UPPER.
+create or replace function fn_normal_tingkat(p text)
+returns text
+language sql
+immutable
+as $$
+  select case upper(btrim(coalesce(p, '')))
+           when '10' then 'X'
+           when '11' then 'XI'
+           when '12' then 'XII'
+           else upper(btrim(coalesce(p, '')))
+         end
+$$;
+
+comment on function fn_normal_tingkat(text) is
+  'Normalisasi tingkat kelas: 10→X, 11→XI, 12→XII, sisanya di-UPPER.';
+
+-- 1b. Pecah label kelas gabungan → (tingkat, jurusan_kode, rombel).
+--     Token pertama = tingkat (romawi I/V/X atau angka 1-2 digit); angka di
+--     akhir = nomor rombel; sisanya = kode jurusan (UPPER, spasi dirapikan).
+create or replace function fn_pecah_kelas(p_label text)
+returns table (tingkat text, jurusan_kode text, rombel integer)
+language plpgsql
+immutable
+as $$
+declare
+  v    text;
+  v_tk text;
+  v_no integer;
+  v_kd text;
+begin
+  v := btrim(regexp_replace(coalesce(p_label, ''), '\s+', ' ', 'g'));
+  v := btrim(regexp_replace(v, '[-_]+', ' ', 'g'));
+
+  if v = '' or v ~* 'semua' then
+    return query select null::text, null::text, null::integer;
+    return;
+  end if;
+
+  -- Token pertama harus tingkat — kalau bukan, ini bukan label kelas.
+  v_tk := fn_normal_tingkat((regexp_match(v, '^(\S+)'))[1]);
+  if v_tk !~ '^([IVX]+|[0-9]{1,2})$' then
+    return query select null::text, null::text, null::integer;
+    return;
+  end if;
+
+  -- Angka di akhir = nomor rombel (bila ada).
+  v_no := nullif((regexp_match(v, '([0-9]{1,2})\s*$'))[1], '')::integer;
+
+  -- Sisa antara tingkat dan nomor rombel = kode jurusan.
+  v_kd := btrim(regexp_replace(regexp_replace(v, '^\S+\s*', ''), '\s*[0-9]{1,2}\s*$', ''));
+  v_kd := nullif(upper(v_kd), '');
+
+  return query select v_tk, v_kd, v_no;
+end $$;
+
+comment on function fn_pecah_kelas(text) is
+  'Pecah label kelas gabungan ("X LP 1") → tingkat/jurusan_kode/rombel. Label non-kelas → NULL semua.';
+
+-- 1c. Rakit kembali label kanonik dari komponen terstruktur.
+--     (fn_label_kelas(fn_pecah_kelas(x)) = x untuk label kanonik.)
+create or replace function fn_label_kelas(p_tingkat text, p_jurusan_kode text, p_rombel integer)
+returns text
+language sql
+immutable
+as $$
+  select btrim(
+    coalesce(btrim(coalesce(p_tingkat, '')), '')
+    || case when coalesce(btrim(coalesce(p_jurusan_kode, '')), '') = ''
+              then '' else ' ' || upper(btrim(p_jurusan_kode)) end
+    || case when p_rombel is null then '' else ' ' || p_rombel::text end)
+$$;
+
+comment on function fn_label_kelas(text, text, integer) is
+  'Rakit label kelas kanonik "<TINGKAT> <JURUSAN_KODE> <ROMBEL>" (kosong bila tingkat kosong).';
+
+-- ============================================================
+-- 2. TABEL REFERENSI master_jurusan
+--    Sumber kanonik "kode jurusan → nama lengkap + pengelompokan".
+--    Menggantikan pola lama pasangan baris master_data ("Jurusan" +
+--    "Jurusan Lengkap") yang hanya bisa dibaca sebagai daftar datar.
+-- ============================================================
+create table if not exists master_jurusan (
+  id uuid primary key default gen_random_uuid(),
+  kode text not null default '',
+  nama text not null default '',
+  jenjang text not null default '',
+  bidang text not null default '',
+  aktif boolean not null default true,
+  urutan integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- self-healing kolom (bila tabel sudah ada dari versi/percobaan sebelumnya)
+alter table master_jurusan
+  add column if not exists kode text not null default '',
+  add column if not exists nama text not null default '',
+  add column if not exists jenjang text not null default '',
+  add column if not exists bidang text not null default '',
+  add column if not exists aktif boolean not null default true,
+  add column if not exists urutan integer not null default 0,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists master_jurusan_kode_uniq on master_jurusan (upper(btrim(kode)));
+create index if not exists idx_master_jurusan_aktif on master_jurusan (aktif, urutan, kode);
+
+comment on table master_jurusan is
+  'Referensi jurusan: kode (singkatan, UPPER) → nama lengkap, jenjang (SMA/SMK) & bidang. Dipakai helper kelas & (Tahap 3) dropdown jurusan.';
+comment on column master_jurusan.kode is
+  'Singkatan jurusan, disimpan UPPER (mis. RPL, LP, TKJ). Dicocokkan dengan akun.jurusan_kode / master_data.jurusan_kode.';
+
+-- RLS & privilege (pola sama dengan master_data / jadwal_pelajaran)
+alter table master_jurusan enable row level security;
+
+drop policy if exists "master_jurusan_baca_semua" on master_jurusan;
+create policy "master_jurusan_baca_semua" on master_jurusan
+  for select using (true);
+
+drop policy if exists "master_jurusan_tulis_authenticated" on master_jurusan;
+create policy "master_jurusan_tulis_authenticated" on master_jurusan
+  for insert to authenticated with check (true);
+
+drop policy if exists "master_jurusan_ubah_authenticated" on master_jurusan;
+create policy "master_jurusan_ubah_authenticated" on master_jurusan
+  for update to authenticated using (true) with check (true);
+
+drop policy if exists "master_jurusan_hapus_authenticated" on master_jurusan;
+create policy "master_jurusan_hapus_authenticated" on master_jurusan
+  for delete to authenticated using (true);
+
+revoke all on table master_jurusan from anon, authenticated;
+grant select on master_jurusan to anon, authenticated;
+grant insert, update, delete on master_jurusan to authenticated;
+
+-- 2a. BACKFILL dari pasangan baris master_data ("Jurusan" + "Jurusan Lengkap").
+--     Satu kode bisa muncul di >1 baris → ambil nama lengkap yang terisi
+--     (DISTINCT ON agar tidak ada baris ganda pada satu perintah upsert).
+insert into master_jurusan (kode, nama)
+select distinct on (upper(btrim(m."Jurusan")))
+       upper(btrim(m."Jurusan")),
+       coalesce(nullif(btrim(m."Jurusan Lengkap"), ''), '')
+  from master_data m
+ where coalesce(btrim(m."Jurusan"), '') <> ''
+ order by upper(btrim(m."Jurusan")),
+          (coalesce(nullif(btrim(m."Jurusan Lengkap"), ''), '') <> '') desc,
+          btrim(m."Jurusan Lengkap")
+on conflict (upper(btrim(kode))) do update
+   set nama = case when coalesce(btrim(excluded.nama), '') <> ''
+                     then excluded.nama else master_jurusan.nama end,
+       updated_at = now();
+
+-- 2b. PRESET pengelompokan jurusan (sumber: WIZARD_JURUSAN_GRUP di
+--     web/js/app.js) — mengisi jenjang/bidang/urutan. Nama lengkap yang
+--     SUDAH ada (dari backfill 2a atau input admin) tidak ditimpa.
+insert into master_jurusan (kode, nama, jenjang, bidang, urutan)
+select upper(p.kode), p.nama, p.jenjang, p.bidang, p.urutan
+  from (values
+    ('MIPA','Matematika dan Ilmu Pengetahuan Alam','SMA','SMA',10),
+    ('IPS','Ilmu Pengetahuan Sosial','SMA','SMA',11),
+    ('BB','Bahasa dan Budaya','SMA','SMA',12),
+    ('SO','Seni dan Olahraga','SMA','SMA',13),
+    ('TKJ','Teknik Komputer dan Jaringan','SMK','SMK - Teknologi',20),
+    ('RPL','Rekayasa Perangkat Lunak','SMK','SMK - Teknologi',21),
+    ('TKRO','Teknik Kendaraan Ringan Otomotif','SMK','SMK - Teknologi',22),
+    ('TBSM','Teknik dan Bisnis Sepeda Motor','SMK','SMK - Teknologi',23),
+    ('TITL','Teknik Instalasi Tenaga Listrik','SMK','SMK - Teknologi',24),
+    ('TP','Teknik Pemesinan','SMK','SMK - Teknologi',25),
+    ('TEI','Teknik Elektronika Industri','SMK','SMK - Teknologi',26),
+    ('BKP','Bisnis Konstruksi dan Properti','SMK','SMK - Teknologi',27),
+    ('DPIB','Desain Pemodelan dan Informasi Bangunan','SMK','SMK - Teknologi',28),
+    ('TKR','Teknik Kendaraan Ringan','SMK','SMK - Teknologi',29),
+    ('AKL','Akuntansi dan Keuangan Lembaga','SMK','SMK - Bisnis & Manajemen',30),
+    ('LP','Layanan Perbankan','SMK','SMK - Bisnis & Manajemen',31),
+    ('MPLB','Manajemen Perkantoran dan Layanan Bisnis','SMK','SMK - Bisnis & Manajemen',32),
+    ('PM','Pemasaran','SMK','SMK - Bisnis & Manajemen',33),
+    ('MLOG','Manajemen Logistik','SMK','SMK - Bisnis & Manajemen',34),
+    ('PH','Perhotelan','SMK','SMK - Pariwisata',40),
+    ('KL','Kuliner','SMK','SMK - Pariwisata',41),
+    ('TB','Tata Busana','SMK','SMK - Pariwisata',42),
+    ('ULW','Usaha Layanan Wisata','SMK','SMK - Pariwisata',43),
+    ('FKK','Farmasi Klinis dan Komunitas','SMK','SMK - Kesehatan',50),
+    ('TLM','Teknologi Laboratorium Medik','SMK','SMK - Kesehatan',51),
+    ('KPR','Keperawatan','SMK','SMK - Kesehatan',52),
+    ('ATPH','Agribisnis Tanaman Pangan dan Hortikultura','SMK','SMK - Agribisnis',60),
+    ('ATBK','Agribisnis Ternak','SMK','SMK - Agribisnis',61),
+    ('API','Agribisnis Perikanan','SMK','SMK - Agribisnis',62),
+    ('AGRI','Agriteknologi Pengolahan Hasil Pertanian','SMK','SMK - Agribisnis',63),
+    ('DKV','Desain Komunikasi Visual','SMK','SMK - Seni & Industri Kreatif',70),
+    ('MM','Multimedia','SMK','SMK - Seni & Industri Kreatif',71),
+    ('BC','Broadcasting dan Perfilman','SMK','SMK - Seni & Industri Kreatif',72)
+  ) as p(kode, nama, jenjang, bidang, urutan)
+on conflict (upper(btrim(kode))) do update
+   set jenjang = excluded.jenjang,
+       bidang = excluded.bidang,
+       urutan = excluded.urutan,
+       updated_at = now(),
+       nama = case when coalesce(btrim(master_jurusan.nama), '') <> ''
+                     then master_jurusan.nama else excluded.nama end;
+
+-- 2c. Kode jurusan yang muncul di label kelas tetapi belum ada di referensi
+--     (mis. kelas uji "X UJI 1") — didaftarkan dengan nama kosong supaya
+--     admin bisa melengkapinya di menu Master Data → Jurusan.
+insert into master_jurusan (kode, nama, urutan)
+select distinct k.kode, '', 900
+  from (
+    select (fn_pecah_kelas(coalesce(m."Tingkat/Kelas", ''))).jurusan_kode as kode
+      from master_data m
+     where coalesce(btrim(m."Tingkat/Kelas"), '') <> ''
+    union all
+    select (fn_pecah_kelas(coalesce(a.tingkat_kelas, ''))).jurusan_kode
+      from akun a
+     where a.tipe = 'murid' and coalesce(btrim(a.tingkat_kelas), '') <> ''
+    union all
+    select (fn_pecah_kelas(coalesce(j."Tingkat/Kelas", ''))).jurusan_kode
+      from jadwal_pelajaran j
+     where coalesce(btrim(j."Tingkat/Kelas"), '') <> ''
+  ) k
+ where coalesce(k.kode, '') <> ''
+on conflict (upper(btrim(kode))) do nothing;
+
+-- 2d. Helper: perkaya tiap entri akun.riwayat_kelas[TA] dengan komponen
+--     terstruktur. Diletakkan SETELAH master_jurusan karena fungsi bahasa SQL
+--     memvalidasi rujukan tabel saat dibuat. Entri yang sudah punya 'tingkat'
+--     (atau label kelasnya kosong) dibiarkan apa adanya — idempotent.
+create or replace function fn_enrich_riwayat_kelas(p_riwayat jsonb)
+returns jsonb
+language sql
+stable
+as $$
+  select case
+    when p_riwayat is null or jsonb_typeof(p_riwayat) <> 'object'
+      then coalesce(p_riwayat, '{}'::jsonb)
+    else coalesce((
+      select jsonb_object_agg(
+               e.k,
+               case
+                 when jsonb_typeof(e.v) <> 'object' then e.v
+                 when coalesce(btrim(coalesce(e.v ->> 'kelas', '')), '') = '' then e.v
+                 when e.v ? 'tingkat' then e.v
+                 else e.v || jsonb_strip_nulls(jsonb_build_object(
+                        'tingkat',      pp.tingkat,
+                        'jurusan_kode', pp.jurusan_kode,
+                        'jurusan',      (select nullif(btrim(mj.nama), '')
+                                           from master_jurusan mj
+                                          where mj.kode = pp.jurusan_kode),
+                        'rombel',       pp.rombel))
+               end)
+        from jsonb_each(p_riwayat) as e(k, v)
+        cross join lateral fn_pecah_kelas(coalesce(e.v ->> 'kelas', '')) as pp
+      ), '{}'::jsonb)
+  end
+$$;
+
+comment on function fn_enrich_riwayat_kelas(jsonb) is
+  'Tambah tingkat/jurusan_kode/jurusan/rombel ke tiap entri riwayat_kelas[TA] yang punya kelas tetapi belum punya tingkat (idempotent).';
+
+-- ============================================================
+-- 3. master_data — kolom terstruktur + label turunan
+--    "Tingkat/Kelas" (lama, tetap ditulis klien) ⇄ tingkat/jurusan_kode/rombel
+--    "Jurusan"/"Jurusan Lengkap" (lama) → jurusan_kode/jurusan
+-- ============================================================
+alter table master_data
+  add column if not exists tingkat text,
+  add column if not exists jurusan_kode text,
+  add column if not exists jurusan text,
+  add column if not exists rombel integer;
+
+-- Label kanonik turunan (di-generate dari kolom terstruktur).
+-- PENTING: memakai fn_label_kelas (IMMUTABLE) — concat_ws tidak boleh
+-- dipakai di generated column (STABLE, bukan IMMUTABLE).
+alter table master_data
+  add column if not exists kelas_label text
+  generated always as (fn_label_kelas(tingkat, jurusan_kode, rombel)) stored;
+
+create index if not exists idx_master_data_kelas_struktur on master_data (tingkat, jurusan_kode, rombel);
+create index if not exists idx_master_data_kelas_label on master_data (kelas_label);
+
+comment on column master_data.tingkat is 'Tingkat kelas hasil urai "Tingkat/Kelas" (X/XI/XII). NULL = baris bukan kelas.';
+comment on column master_data.jurusan_kode is 'Kode jurusan (UPPER, mis. LP) — dari label kelas atau kolom "Jurusan".';
+comment on column master_data.jurusan is 'Nama jurusan lengkap (dari "Jurusan Lengkap" atau master_jurusan.nama).';
+comment on column master_data.rombel is 'Nomor rombel (angka di akhir label kelas). NULL bila label tanpa nomor.';
+comment on column master_data.kelas_label is 'Label kelas kanonik turunan dari tingkat/jurusan_kode/rombel (mis. "X LP 1").';
+
+-- 3a. Backfill baris JURUSAN (baris yang mengisi kolom "Jurusan"):
+--     cermin ke kolom terstruktur. Kolom lama tidak disentuh.
+update master_data m
+   set jurusan_kode = coalesce(m.jurusan_kode, nullif(upper(btrim(m."Jurusan")), '')),
+       jurusan      = coalesce(m.jurusan, nullif(btrim(m."Jurusan Lengkap"), ''))
+ where coalesce(btrim(m."Jurusan"), '') <> ''
+   and (m.jurusan_kode is null or m.jurusan is null);
+
+-- 3b. Backfill baris KELAS (baris yang mengisi "Tingkat/Kelas"):
+--     urai label → tingkat/jurusan_kode/rombel, lalu lengkapi nama jurusan.
+update master_data m
+   set tingkat      = p.tingkat,
+       jurusan_kode = coalesce(p.jurusan_kode, nullif(upper(btrim(m."Jurusan")), '')),
+       rombel       = p.rombel,
+       jurusan      = coalesce(
+                        nullif(btrim(m."Jurusan Lengkap"), ''),
+                        (select nullif(btrim(mj.nama), '') from master_jurusan mj
+                          where mj.kode = coalesce(p.jurusan_kode, nullif(upper(btrim(m."Jurusan")), ''))),
+                        m.jurusan)
+  from (
+    select mm.id,
+           (fn_pecah_kelas(coalesce(mm."Tingkat/Kelas", ''))).tingkat      as tingkat,
+           (fn_pecah_kelas(coalesce(mm."Tingkat/Kelas", ''))).jurusan_kode as jurusan_kode,
+           (fn_pecah_kelas(coalesce(mm."Tingkat/Kelas", ''))).rombel       as rombel
+      from master_data mm
+     where coalesce(btrim(mm."Tingkat/Kelas"), '') <> ''
+  ) p
+ where m.id = p.id
+   and (m.tingkat is null or m.jurusan_kode is null or m.rombel is null);
+
+-- ============================================================
+-- 4. akun — kolom terstruktur + label turunan + riwayat_kelas diperkaya
+--    tingkat_kelas (lama, tetap ditulis RPC & klien) ⇄ tingkat/jurusan_kode/rombel
+--    riwayat_kelas[TA].kelas (lama) → riwayat_kelas[TA].{tingkat,…}
+-- ============================================================
+alter table akun
+  add column if not exists tingkat text,
+  add column if not exists jurusan_kode text,
+  add column if not exists jurusan text,
+  add column if not exists rombel integer;
+
+alter table akun
+  add column if not exists kelas_label text
+  generated always as (fn_label_kelas(tingkat, jurusan_kode, rombel)) stored;
+
+create index if not exists idx_akun_kelas_struktur on akun (tingkat, jurusan_kode, rombel);
+create index if not exists idx_akun_kelas_label on akun (kelas_label);
+
+comment on column akun.tingkat is 'Tingkat kelas statis murid (X/XI/XII) hasil urai tingkat_kelas.';
+comment on column akun.jurusan_kode is 'Kode jurusan (UPPER, mis. LP) hasil urai tingkat_kelas.';
+comment on column akun.jurusan is 'Nama jurusan lengkap (master_jurusan.nama) — untuk dokumen/kartu.';
+comment on column akun.rombel is 'Nomor rombel murid (angka di akhir tingkat_kelas).';
+comment on column akun.kelas_label is 'Label kelas kanonik turunan dari tingkat/jurusan_kode/rombel (mis. "X LP 1").';
+
+-- 4a. Backfill dari tingkat_kelas (kelas statis = kelas TA aktif).
+update akun a
+   set tingkat      = p.tingkat,
+       jurusan_kode = p.jurusan_kode,
+       rombel       = p.rombel,
+       jurusan      = coalesce(a.jurusan,
+                        (select nullif(btrim(mj.nama), '') from master_jurusan mj
+                          where mj.kode = p.jurusan_kode))
+  from (
+    select aa.id,
+           (fn_pecah_kelas(coalesce(aa.tingkat_kelas, ''))).tingkat      as tingkat,
+           (fn_pecah_kelas(coalesce(aa.tingkat_kelas, ''))).jurusan_kode as jurusan_kode,
+           (fn_pecah_kelas(coalesce(aa.tingkat_kelas, ''))).rombel       as rombel
+      from akun aa
+     where aa.tipe = 'murid'
+       and coalesce(btrim(aa.tingkat_kelas), '') <> ''
+  ) p
+ where a.id = p.id
+   and (a.tingkat is null or a.jurusan_kode is null or a.rombel is null);
+
+-- 4b. Perkaya tiap entri riwayat_kelas[TA] (kelas efektif per tahun pelajaran).
+update akun a
+   set riwayat_kelas = fn_enrich_riwayat_kelas(a.riwayat_kelas)
+ where a.tipe = 'murid'
+   and jsonb_typeof(a.riwayat_kelas) = 'object'
+   and a.riwayat_kelas <> fn_enrich_riwayat_kelas(a.riwayat_kelas);
+
+-- ============================================================
+-- 5. jadwal_pelajaran — kolom terstruktur
+--    "Tingkat/Kelas" (lama, tetap ditulis klien) ⇄ tingkat/jurusan_kode/rombel
+-- ============================================================
+alter table jadwal_pelajaran
+  add column if not exists tingkat text,
+  add column if not exists jurusan_kode text,
+  add column if not exists jurusan text,
+  add column if not exists rombel integer;
+
+create index if not exists idx_jadwal_kelas_struktur on jadwal_pelajaran (tingkat, jurusan_kode, rombel);
+
+comment on column jadwal_pelajaran.tingkat is 'Tingkat kelas hasil urai "Tingkat/Kelas" (X/XI/XII).';
+comment on column jadwal_pelajaran.jurusan_kode is 'Kode jurusan (UPPER, mis. LP) hasil urai "Tingkat/Kelas".';
+comment on column jadwal_pelajaran.jurusan is 'Nama jurusan lengkap (master_jurusan.nama).';
+comment on column jadwal_pelajaran.rombel is 'Nomor rombel (angka di akhir "Tingkat/Kelas").';
+
+update jadwal_pelajaran j
+   set tingkat      = p.tingkat,
+       jurusan_kode = p.jurusan_kode,
+       rombel       = p.rombel,
+       jurusan      = coalesce(j.jurusan,
+                        (select nullif(btrim(mj.nama), '') from master_jurusan mj
+                          where mj.kode = p.jurusan_kode))
+  from (
+    select jj.id,
+           (fn_pecah_kelas(coalesce(jj."Tingkat/Kelas", ''))).tingkat      as tingkat,
+           (fn_pecah_kelas(coalesce(jj."Tingkat/Kelas", ''))).jurusan_kode as jurusan_kode,
+           (fn_pecah_kelas(coalesce(jj."Tingkat/Kelas", ''))).rombel       as rombel
+      from jadwal_pelajaran jj
+     where coalesce(btrim(jj."Tingkat/Kelas"), '') <> ''
+  ) p
+ where j.id = p.id
+   and (j.tingkat is null or j.jurusan_kode is null or j.rombel is null);
+
+-- ============================================================
+-- 6. SINKRONISASI DUA ARAH (label lama ⇄ kolom terstruktur)
+--    Urutan keputusan (berlaku untuk ketiga tabel) — prinsip utama:
+--    LABEL YANG SUDAH TERISI TIDAK PERNAH DIUBAH OLEH TRIGGER, sehingga
+--    string lama (mis. "10 RPL 1") tidak diam-diam berubah dan tetap cocok
+--    dengan penapis modul lama (absensi/nilai/jadwal).
+--      1) Klien menulis LABEL kelas → kolom terstruktur mengikuti label
+--         (klien lama tetap benar tanpa perubahan; klien baru pun boleh
+--         mengirim label kanonik bersama struktur).
+--      2) Label masih KOSONG & klien menulis kolom TERSTRUKTUR
+--         → label kanonik diturunkan dari struktur (Tahap 3: menulis
+--         struktur saja sudah cukup untuk baris baru).
+--      3) Label diubah menjadi KOSONG → struktur ikut dikosongkan.
+--      4) Tidak ada perubahan kelas → hanya mengisi yang masih kosong
+--         (menyembuhkan baris lama tanpa mengubah nilai yang sudah benar).
+--    master_data TIDAK PERNAH menulis "Jurusan"/"Jurusan Lengkap" (kolom itu
+--    milik UI lama — lihat catatan KOMPATIBILITAS di header berkas).
+-- ============================================================
+
+-- 6a. master_data
+create or replace function fn_sync_kelas_master_data()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_label    text;
+  v_lama     text := '';
+  v_lbl_ubah boolean;
+  v_str_ubah boolean;
+  v_p        record;
+  v_kode     text;
+  v_nama     text;
+begin
+  v_label := coalesce(btrim(new."Tingkat/Kelas"), '');
+
+  if tg_op = 'INSERT' then
+    v_lbl_ubah := (v_label <> '');
+    v_str_ubah := (new.tingkat is not null or new.jurusan_kode is not null or new.rombel is not null);
+  else
+    v_lama     := coalesce(btrim(old."Tingkat/Kelas"), '');
+    v_lbl_ubah := (v_label is distinct from v_lama);
+    v_str_ubah := (new.tingkat is distinct from old.tingkat)
+               or (new.jurusan_kode is distinct from old.jurusan_kode)
+               or (new.rombel is distinct from old.rombel);
+  end if;
+
+  if v_lbl_ubah and v_label <> '' then
+    -- (1) klien menulis LABEL kelas → kolom terstruktur mengikuti label
+    select * into v_p from fn_pecah_kelas(v_label);
+    new.tingkat      := v_p.tingkat;
+    new.jurusan_kode := v_p.jurusan_kode;
+    new.rombel       := v_p.rombel;
+  elsif v_str_ubah and v_label = '' and coalesce(new.tingkat, '') <> '' then
+    -- (2) klien menulis kolom TERSTRUKTUR pada baris tanpa label → label diturunkan
+    new."Tingkat/Kelas" := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+  elsif v_lbl_ubah then
+    -- (3) label diubah menjadi kosong → struktur dikosongkan
+    new.tingkat      := null;
+    new.jurusan_kode := null;
+    new.rombel       := null;
+  else
+    -- (4) tidak ada perubahan kelas → hanya mengisi yang masih kosong
+    if v_label <> '' then
+      select * into v_p from fn_pecah_kelas(v_label);
+      new.tingkat      := coalesce(new.tingkat, v_p.tingkat);
+      new.jurusan_kode := coalesce(new.jurusan_kode, v_p.jurusan_kode);
+      new.rombel       := coalesce(new.rombel, v_p.rombel);
+    elsif coalesce(new.tingkat, '') <> '' then
+      new."Tingkat/Kelas" := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+    end if;
+  end if;
+
+  -- baris JURUSAN: kolom lama "Jurusan"/"Jurusan Lengkap" → kolom terstruktur.
+  -- Arah sebaliknya SENGAJA tidak dilakukan (kolom itu milik UI lama).
+  v_kode := nullif(upper(btrim(coalesce(new."Jurusan", ''))), '');
+  v_nama := nullif(btrim(coalesce(new."Jurusan Lengkap", '')), '');
+
+  if tg_op = 'INSERT' then
+    if coalesce(new.jurusan_kode, '') = '' then
+      new.jurusan_kode := v_kode;
+    end if;
+    if coalesce(new.jurusan, '') = '' then
+      new.jurusan := v_nama;
+    end if;
+  else
+    if v_kode is not null
+       and v_kode is distinct from nullif(upper(btrim(coalesce(old."Jurusan", ''))), '') then
+      new.jurusan_kode := v_kode;     -- kolom lama diubah eksplisit → ikut
+    elsif coalesce(new.jurusan_kode, '') = '' then
+      new.jurusan_kode := v_kode;
+    end if;
+
+    if v_nama is not null
+       and v_nama is distinct from nullif(btrim(coalesce(old."Jurusan Lengkap", '')), '') then
+      new.jurusan := v_nama;          -- kolom lama diubah eksplisit → ikut
+    elsif coalesce(new.jurusan, '') = '' then
+      new.jurusan := v_nama;
+    end if;
+  end if;
+
+  -- nama jurusan dari referensi (bila masih kosong)
+  if coalesce(new.jurusan, '') = '' and coalesce(new.jurusan_kode, '') <> '' then
+    select nullif(btrim(mj.nama), '') into v_nama
+      from master_jurusan mj where mj.kode = new.jurusan_kode;
+    if v_nama is not null then
+      new.jurusan := v_nama;
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists trg_sync_kelas_master_data on master_data;
+create trigger trg_sync_kelas_master_data
+  before insert or update on master_data
+  for each row execute function fn_sync_kelas_master_data();
+
+-- 6b. akun (label lama = tingkat_kelas)
+create or replace function fn_sync_kelas_akun()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_label    text;
+  v_lama     text := '';
+  v_lbl_ubah boolean;
+  v_str_ubah boolean;
+  v_p        record;
+  v_nama     text;
+begin
+  v_label := coalesce(btrim(new.tingkat_kelas), '');
+
+  if tg_op = 'INSERT' then
+    v_lbl_ubah := (v_label <> '');
+    v_str_ubah := (new.tingkat is not null or new.jurusan_kode is not null or new.rombel is not null);
+  else
+    v_lama     := coalesce(btrim(old.tingkat_kelas), '');
+    v_lbl_ubah := (v_label is distinct from v_lama);
+    v_str_ubah := (new.tingkat is distinct from old.tingkat)
+               or (new.jurusan_kode is distinct from old.jurusan_kode)
+               or (new.rombel is distinct from old.rombel);
+  end if;
+
+  if v_lbl_ubah and v_label <> '' then
+    -- (1) klien menulis LABEL kelas → kolom terstruktur mengikuti label
+    select * into v_p from fn_pecah_kelas(v_label);
+    new.tingkat      := v_p.tingkat;
+    new.jurusan_kode := v_p.jurusan_kode;
+    new.rombel       := v_p.rombel;
+  elsif v_str_ubah and v_label = '' and coalesce(new.tingkat, '') <> '' then
+    -- (2) klien menulis kolom TERSTRUKTUR pada baris tanpa label → label diturunkan
+    new.tingkat_kelas := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+  elsif v_lbl_ubah then
+    -- (3) label diubah menjadi kosong → struktur dikosongkan
+    new.tingkat      := null;
+    new.jurusan_kode := null;
+    new.rombel       := null;
+  else
+    -- (4) tidak ada perubahan kelas → hanya mengisi yang masih kosong
+    if v_label <> '' then
+      select * into v_p from fn_pecah_kelas(v_label);
+      new.tingkat      := coalesce(new.tingkat, v_p.tingkat);
+      new.jurusan_kode := coalesce(new.jurusan_kode, v_p.jurusan_kode);
+      new.rombel       := coalesce(new.rombel, v_p.rombel);
+    elsif coalesce(new.tingkat, '') <> '' then
+      new.tingkat_kelas := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+    end if;
+  end if;
+
+  -- nama jurusan lengkap (untuk dokumen/kartu) — diambil dari referensi
+  if coalesce(new.jurusan_kode, '') <> '' then
+    if tg_op = 'INSERT' then
+      if coalesce(new.jurusan, '') = '' then
+        select nullif(btrim(mj.nama), '') into v_nama
+          from master_jurusan mj where mj.kode = new.jurusan_kode;
+        if v_nama is not null then
+          new.jurusan := v_nama;
+        end if;
+      end if;
+    elsif new.jurusan_kode is distinct from old.jurusan_kode
+          or coalesce(new.jurusan, '') = '' then
+      select nullif(btrim(mj.nama), '') into v_nama
+        from master_jurusan mj where mj.kode = new.jurusan_kode;
+      if v_nama is not null then
+        new.jurusan := v_nama;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists trg_sync_kelas_akun on akun;
+create trigger trg_sync_kelas_akun
+  before insert or update on akun
+  for each row execute function fn_sync_kelas_akun();
+
+-- 6c. jadwal_pelajaran (label lama = "Tingkat/Kelas")
+create or replace function fn_sync_kelas_jadwal()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_label    text;
+  v_lama     text := '';
+  v_lbl_ubah boolean;
+  v_str_ubah boolean;
+  v_p        record;
+  v_nama     text;
+begin
+  v_label := coalesce(btrim(new."Tingkat/Kelas"), '');
+
+  if tg_op = 'INSERT' then
+    v_lbl_ubah := (v_label <> '');
+    v_str_ubah := (new.tingkat is not null or new.jurusan_kode is not null or new.rombel is not null);
+  else
+    v_lama     := coalesce(btrim(old."Tingkat/Kelas"), '');
+    v_lbl_ubah := (v_label is distinct from v_lama);
+    v_str_ubah := (new.tingkat is distinct from old.tingkat)
+               or (new.jurusan_kode is distinct from old.jurusan_kode)
+               or (new.rombel is distinct from old.rombel);
+  end if;
+
+  if v_lbl_ubah and v_label <> '' then
+    -- (1) klien menulis LABEL kelas → kolom terstruktur mengikuti label
+    select * into v_p from fn_pecah_kelas(v_label);
+    new.tingkat      := v_p.tingkat;
+    new.jurusan_kode := v_p.jurusan_kode;
+    new.rombel       := v_p.rombel;
+  elsif v_str_ubah and v_label = '' and coalesce(new.tingkat, '') <> '' then
+    -- (2) klien menulis kolom TERSTRUKTUR pada baris tanpa label → label diturunkan
+    new."Tingkat/Kelas" := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+  elsif v_lbl_ubah then
+    -- (3) label diubah menjadi kosong → struktur dikosongkan
+    new.tingkat      := null;
+    new.jurusan_kode := null;
+    new.rombel       := null;
+  else
+    -- (4) tidak ada perubahan kelas → hanya mengisi yang masih kosong
+    if v_label <> '' then
+      select * into v_p from fn_pecah_kelas(v_label);
+      new.tingkat      := coalesce(new.tingkat, v_p.tingkat);
+      new.jurusan_kode := coalesce(new.jurusan_kode, v_p.jurusan_kode);
+      new.rombel       := coalesce(new.rombel, v_p.rombel);
+    elsif coalesce(new.tingkat, '') <> '' then
+      new."Tingkat/Kelas" := fn_label_kelas(new.tingkat, new.jurusan_kode, new.rombel);
+    end if;
+  end if;
+
+  if coalesce(new.jurusan_kode, '') <> '' then
+    if tg_op = 'INSERT' then
+      if coalesce(new.jurusan, '') = '' then
+        select nullif(btrim(mj.nama), '') into v_nama
+          from master_jurusan mj where mj.kode = new.jurusan_kode;
+        if v_nama is not null then
+          new.jurusan := v_nama;
+        end if;
+      end if;
+    elsif new.jurusan_kode is distinct from old.jurusan_kode
+          or coalesce(new.jurusan, '') = '' then
+      select nullif(btrim(mj.nama), '') into v_nama
+        from master_jurusan mj where mj.kode = new.jurusan_kode;
+      if v_nama is not null then
+        new.jurusan := v_nama;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists trg_sync_kelas_jadwal on jadwal_pelajaran;
+create trigger trg_sync_kelas_jadwal
+  before insert or update on jadwal_pelajaran
+  for each row execute function fn_sync_kelas_jadwal();
+
+-- ============================================================
+-- 7. RPC — PENULIS KELAS IKUT MENGISI KOLOM TERSTRUKTUR
+--    Signature, pesan, dan aturan otorisasi TIDAK berubah
+--    (hanya daftar kolom yang ditulis bertambah).
+-- ============================================================
+
+-- 7a. proses_kenaikan_kelas(p_ta_tujuan, p_siswa) — versi 20260915 +
+--     tingkat/jurusan_kode/jurusan/rombel & riwayat_kelas[TA] terstruktur.
+create or replace function proses_kenaikan_kelas(p_ta_tujuan text, p_siswa jsonb)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_tipe text;
+  v_diperbarui int := 0;
+begin
+  if coalesce((select tipe from akun where user_id = auth.uid()), '') <> 'admin' then
+    return json_build_object('status', 'error', 'message', 'Hanya admin yang boleh memproses kenaikan kelas.');
+  end if;
+
+  if coalesce(trim(p_ta_tujuan), '') = '' then
+    return json_build_object('status', 'error', 'message', 'Tahun pelajaran tujuan tidak valid.');
+  end if;
+  if p_siswa is null or jsonb_typeof(p_siswa) <> 'array' or jsonb_array_length(p_siswa) = 0 then
+    return json_build_object('status', 'error', 'message', 'Data siswa tidak valid.');
+  end if;
+
+  begin
+    update akun a
+    set tingkat_kelas = s.kelas,
+        tingkat      = p.tingkat,
+        jurusan_kode = p.jurusan_kode,
+        rombel       = p.rombel,
+        jurusan      = coalesce(
+                         (select nullif(btrim(mj.nama), '') from master_jurusan mj
+                           where mj.kode = p.jurusan_kode),
+                         a.jurusan),
+        riwayat_kelas = coalesce(a.riwayat_kelas, '{}'::jsonb) || jsonb_build_object(
+          p_ta_tujuan,
+          jsonb_build_object('kelas', s.kelas, 'status', s.status, 'ket', s.ket)
+            || jsonb_strip_nulls(jsonb_build_object(
+                 'tingkat',      p.tingkat,
+                 'jurusan_kode', p.jurusan_kode,
+                 'rombel',       p.rombel))
+        )
+    from jsonb_to_recordset(p_siswa) as s(id uuid, kelas text, status text, ket text)
+    cross join lateral fn_pecah_kelas(coalesce(s.kelas, '')) as p
+    where a.id = s.id
+      and a.tipe = 'murid'
+      and coalesce(trim(s.kelas), '') <> '';
+
+    get diagnostics v_diperbarui = row_count;
+  exception when others then
+    return json_build_object('status', 'error', 'message', 'Gagal memperbarui data: ' || SQLERRM);
+  end;
+
+  return json_build_object('status', 'success', 'diperbarui', v_diperbarui);
+end $$;
+
+-- 7b. simpan_riwayat_murid(nis, riwayat_kelas, tingkat_kelas, riwayat_ekskul,
+--     token, klaim_nis) — versi 20261028b + riwayat_kelas diperkaya komponen
+--     terstruktur. Kolom tingkat/jurusan_kode/rombel diisi otomatis oleh
+--     trigger akun ketika tingkat_kelas berubah (label = sumber kebenaran).
+create or replace function simpan_riwayat_murid(
+  p_nis            text,
+  p_riwayat_kelas  jsonb default null,
+  p_tingkat_kelas  text default '',
+  p_riwayat_ekskul jsonb default null,
+  p_token          text default '',
+  p_klaim_nis      text default ''
+)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_nis  text := trim(coalesce(p_nis, ''));
+  v_staf boolean := (fn_is_admin() or fn_is_guru());
+  v_sesi text;
+  v_n    integer;
+begin
+  if v_nis = '' then
+    return json_build_object('status', 'error', 'message', 'NIS wajib diisi.');
+  end if;
+
+  v_sesi := fn_akses_murid(p_token, p_klaim_nis);
+  if not v_staf and (v_sesi is null or v_sesi <> v_nis) then
+    return json_build_object('status', 'error', 'message', 'Akses ditolak.');
+  end if;
+
+  if not exists (select 1 from akun where nis_nip = v_nis and tipe = 'murid') then
+    return json_build_object('status', 'error', 'message', 'NIS murid tidak ditemukan.');
+  end if;
+
+  update akun a
+     set riwayat_kelas  = fn_enrich_riwayat_kelas(fn_jsonb_atau(p_riwayat_kelas, a.riwayat_kelas)),
+         tingkat_kelas  = coalesce(nullif(trim(coalesce(p_tingkat_kelas, '')), ''), a.tingkat_kelas),
+         riwayat_ekskul = fn_jsonb_atau(p_riwayat_ekskul, a.riwayat_ekskul)
+   where a.nis_nip = v_nis and a.tipe = 'murid';
+
+  get diagnostics v_n = row_count;
+  return json_build_object('status', 'success', 'baris', v_n);
+end $$;
+
+-- 7c. fn_akun_export(p_id) — versi 20261028b + 4 kolom kelas terstruktur
+--     (Tahap 3: export/cetak memakai komponen, bukan mengurai label lagi).
+create or replace function fn_akun_export(p_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', a.id, 'user_id', a.user_id, 'nis_nip', a.nis_nip, 'nisn', a.nisn,
+    'nama_lengkap', a.nama_lengkap, 'tingkat_kelas', a.tingkat_kelas,
+    'riwayat_kelas', a.riwayat_kelas, 'jenis_kelamin', a.jenis_kelamin,
+    'tgl_lahir', a.tgl_lahir, 'agama', a.agama, 'golongan_darah', a.golongan_darah,
+    'ekstrakurikuler', a.ekstrakurikuler, 'jabatan', a.jabatan,
+    'jabatan_ekskul', a.jabatan_ekskul, 'nama_ayah', a.nama_ayah,
+    'pekerjaan_ayah', a.pekerjaan_ayah, 'nama_ibu', a.nama_ibu,
+    'pekerjaan_ibu', a.pekerjaan_ibu, 'nama_wali', a.nama_wali, 'alamat', a.alamat,
+    'no_telepon', a.no_telepon, 'email', a.email, 'catatan_khusus', a.catatan_khusus,
+    'tahun_pelajaran', a.tahun_pelajaran, 'semester', a.semester,
+    'url_foto', a.url_foto, 'alamat_maps', a.alamat_maps, 'media_sosial', a.media_sosial,
+    'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+    'rombel', a.rombel, 'kelas_label', a.kelas_label)
+  from akun a
+  where a.id = p_id
+$$;
+
+-- 7d. fn_akun_json(p_id, p_mode) — versi 20261028b + 4 kolom kelas terstruktur
+--     pada mode 'list' dan 'ringkas_murid' (dua mode yang dipakai daftar murid,
+--     absensi, nilai, poin, SPP, perpustakaan, dan Data Akun Murid).
+--     Mode lain tidak berubah; 'penuh' otomatis ikut (to_jsonb seluruh kolom).
+create or replace function fn_akun_json(p_id uuid, p_mode text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case coalesce(nullif(trim(p_mode), ''), 'ringkas_murid')
+
+    when 'penuh' then to_jsonb(a)
+
+    -- ---------- profil staf/murid (whitelist 17 kolom; app.js bukaProfilAkun) ----------
+    when 'profil_akun' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang,
+      'email', a.email, 'tingkat_kelas', a.tingkat_kelas, 'jabatan', a.jabatan,
+      'wali_kelas', a.wali_kelas, 'mapel', a.mapel, 'ekstrakurikuler', a.ekstrakurikuler,
+      'penugasan', a.penugasan, 'no_telepon', a.no_telepon,
+      'jenis_kelamin', a.jenis_kelamin, 'agama', a.agama, 'nisn', a.nisn,
+      'tipe', a.tipe, 'url_foto', a.url_foto)
+
+    -- ---------- potongan kecil ----------
+    when 'foto' then jsonb_build_object('url_foto', a.url_foto)
+    when 'nis'  then jsonb_build_object('nis_nip', a.nis_nip)
+    when 'jabatan_map' then jsonb_build_object(
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'identitas' then jsonb_build_object(
+      'id', a.id, 'tipe', a.tipe, 'nis_nip', a.nis_nip, 'user_id', a.user_id,
+      'email', a.email, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'url_foto', a.url_foto)
+
+    when 'wajah' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'url_foto', a.url_foto,
+      'wajah_descriptor', a.wajah_descriptor, 'wajah_status', a.wajah_status)
+
+    when 'peta_wajah' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'wajah_descriptor', a.wajah_descriptor,
+      'wajah_status', a.wajah_status)
+
+    -- ---------- guru/admin ----------
+    when 'guru_ringkas' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang)
+
+    when 'guru_wali' then jsonb_build_object(
+      'nama_lengkap', a.nama_lengkap, 'gelar_depan', a.gelar_depan,
+      'gelar_belakang', a.gelar_belakang, 'wali_kelas', a.wali_kelas)
+
+    when 'guru_kanal_absen' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap, 'mapel', a.mapel,
+      'ekstrakurikuler', a.ekstrakurikuler, 'kunci_absen', a.kunci_absen)
+
+    when 'guru_pembina' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang,
+      'no_telepon', a.no_telepon, 'ekstrakurikuler', a.ekstrakurikuler)
+
+    when 'guru_penugasan' then jsonb_build_object(
+      'id', a.id, 'nis_nip', a.nis_nip, 'penugasan', a.penugasan)
+
+    when 'guru_penugasan_ringkas' then jsonb_build_object(
+      'id', a.id, 'penugasan', a.penugasan)
+
+    when 'guru_dashboard' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap, 'mapel', a.mapel,
+      'ekstrakurikuler', a.ekstrakurikuler, 'wali_kelas', a.wali_kelas,
+      'penugasan', a.penugasan, 'tingkat_kelas', a.tingkat_kelas,
+      'captcha', a.captcha, 'kunci_absen', a.kunci_absen,
+      'no_telepon', a.no_telepon, 'gelar_depan', a.gelar_depan,
+      'gelar_belakang', a.gelar_belakang)
+
+    -- ---------- murid: daftar (+ kelas terstruktur) ----------
+    when 'list' then jsonb_build_object(
+      'id', a.id, 'user_id', a.user_id, 'nis_nip', a.nis_nip, 'nisn', a.nisn,
+      'nama_lengkap', a.nama_lengkap, 'tingkat_kelas', a.tingkat_kelas,
+      'jabatan', a.jabatan, 'jabatan_ekskul', a.jabatan_ekskul, 'email', a.email,
+      'ekstrakurikuler', a.ekstrakurikuler, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester, 'riwayat_kelas', a.riwayat_kelas, 'url_foto', a.url_foto,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'export' then fn_akun_export(a.id)
+    when 'cetak'  then fn_akun_export(a.id)
+                        || jsonb_build_object('jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'ringkas_murid' then jsonb_build_object(
+      'id', a.id, 'nis_nip', a.nis_nip, 'nisn', a.nisn, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'ekstrakurikuler', a.ekstrakurikuler,
+      'riwayat_kelas', a.riwayat_kelas, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'ekskul_map' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'ekstrakurikuler', a.ekstrakurikuler,
+      'riwayat_ekskul', a.riwayat_ekskul,
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'dashboard_murid' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nisn', a.nisn, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'riwayat_kelas', a.riwayat_kelas,
+      'jenis_kelamin', a.jenis_kelamin, 'agama', a.agama,
+      'catatan_khusus', a.catatan_khusus, 'ekstrakurikuler', a.ekstrakurikuler,
+      'jabatan', a.jabatan, 'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb),
+      'riwayat_ekskul', a.riwayat_ekskul, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester, 'no_telepon', a.no_telepon)
+
+    when 'anggota_ekskul' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'jabatan', a.jabatan,
+      'no_telepon', a.no_telepon, 'tgl_lahir', a.tgl_lahir,
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb),
+      'riwayat_ekskul', a.riwayat_ekskul, 'tahun_pelajaran', a.tahun_pelajaran,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'pemilih' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'tahun_pelajaran', a.tahun_pelajaran,
+      'ekstrakurikuler', a.ekstrakurikuler, 'jabatan', a.jabatan,
+      'no_telepon', a.no_telepon)
+
+    when 'pemilih_ringkas' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tahun_pelajaran', a.tahun_pelajaran, 'tingkat_kelas', a.tingkat_kelas,
+      'ekstrakurikuler', a.ekstrakurikuler)
+
+    else to_jsonb(a)
+  end
+  from akun a
+  where a.id = p_id
+$$;
+
+-- ============================================================
+-- 8. VERIFIKASI & RELOAD CACHE SKEMA POSTGREST
+-- ============================================================
+do $$
+declare
+  v_ada int;
+  v_trg int;
+  v_kls int;
+  v_jur int;
+  v_rk  int;
+  v_mj  int;
+begin
+  -- (a) 14 kolom terstruktur/generated wajib ada
+  select count(*) into v_ada
+    from information_schema.columns
+   where table_schema = 'public'
+     and (table_name, column_name) in (
+       ('master_data','tingkat'), ('master_data','jurusan_kode'), ('master_data','jurusan'),
+       ('master_data','rombel'), ('master_data','kelas_label'),
+       ('akun','tingkat'), ('akun','jurusan_kode'), ('akun','jurusan'),
+       ('akun','rombel'), ('akun','kelas_label'),
+       ('jadwal_pelajaran','tingkat'), ('jadwal_pelajaran','jurusan_kode'),
+       ('jadwal_pelajaran','jurusan'), ('jadwal_pelajaran','rombel'));
+
+  if v_ada <> 14 then
+    raise exception 'NORMALISASI KELAS GAGAL: kolom terstruktur hanya % dari 14.', v_ada;
+  end if;
+
+  -- (b) tiga trigger sinkronisasi terpasang
+  select count(*) into v_trg
+    from pg_trigger
+   where not tgisinternal
+     and tgname in ('trg_sync_kelas_master_data', 'trg_sync_kelas_akun', 'trg_sync_kelas_jadwal');
+
+  if v_trg <> 3 then
+    raise exception 'NORMALISASI KELAS GAGAL: trigger sinkronisasi hanya % dari 3.', v_trg;
+  end if;
+
+  -- (c) empat helper fungsi tersedia
+  select count(*) into v_ada
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('fn_normal_tingkat', 'fn_pecah_kelas', 'fn_label_kelas',
+                       'fn_enrich_riwayat_kelas');
+
+  if v_ada <> 4 then
+    raise exception 'NORMALISASI KELAS GAGAL: helper fungsi hanya % dari 4.', v_ada;
+  end if;
+
+  -- (d) laporan backfill
+  select count(*) filter (where coalesce(tingkat, '') <> ''),
+         count(*) filter (where coalesce(jurusan_kode, '') <> '')
+    into v_kls, v_jur
+    from master_data;
+
+  select count(*) into v_rk
+    from akun where tipe = 'murid' and coalesce(tingkat, '') <> '';
+
+  select count(*) into v_mj from master_jurusan;
+
+  raise notice 'Normalisasi kelas OK — master_data: % baris kelas / % baris jurusan; akun murid berkelas terstruktur: %; master_jurusan: % kode.',
+    v_kls, v_jur, v_rk, v_mj;
+
+  if v_mj = 0 then
+    raise warning 'master_jurusan KOSONG — lengkapi menu Master Data → Jurusan agar nama jurusan tampil di dokumen/kartu.';
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+-- ============================================================
+-- CARA PAKAI
+--   1) Jalankan SELURUH berkas ini sekali di Supabase SQL Editor.
+--   2) Aman dijalankan kapan saja: kolom lama tetap ditulis klien lama
+--      (trigger menjaga keduanya konsisten) — jadi TIDAK ada frontend
+--      yang perlu di-deploy bersamaan.
+--   3) Setelah ini, kolom terstruktur boleh dibaca/ditulis klien baru
+--      (tingkat, jurusan_kode, jurusan, rombel, kelas_label) tanpa
+--      mengubah kolom lama.
+-- ============================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- ============================================================
+-- [87/87] upgrade_20261116_wali_kelas_multi.sql
+-- ============================================================
+-- ============================================================
+-- UPGRADE: WALI KELAS MULTI (TAHAP 4A) — 2026-11-16
+-- Tabel relasi wali_kelas_penugasan + sinkron otomatis dari data lama
+-- Jalankan SELURUH file ini di Supabase Dashboard → SQL Editor → Run
+--
+-- LATAR BELAKANG
+--   Satu guru bisa menjadi wali kelas LEBIH DARI SATU kelas, dan untuk
+--   beberapa tahun pelajaran sekaligus. Model lama tidak bisa menyimpan itu:
+--     * akun.wali_kelas            → SATU teks gabungan (mis. "X LP 1")
+--     * akun.penugasan[TA].wali    → SATU string kelas (bukan daftar)
+--   Frontend Tahap 4A mulai menulis penugasan[TA].wali sebagai ARRAY
+--   (mis. ["X LP 1","X LP 2"]), tetapi SQL juga butuh sumber kebenaran
+--   RELASIONAL agar kuasa akses (wali kelas / pembina), dokumen, dan
+--   kueri lintas tabel tetap benar tanpa mengurai string.
+--
+-- ISI (semua idempotent — aman dijalankan berulang):
+--   1) Helper  : fn_kelas_sama, fn_wali_list, fn_ta_berjalan
+--   2) Tabel   : wali_kelas_penugasan (nis_nip, tahun_pelajaran, tingkat,
+--                jurusan_kode, rombel, kelas_label GENERATED) + RLS + grant
+--   3) Helper  : fn_wali_kelas_list, fn_wali_kelas_map, fn_kelas_murid,
+--                fn_guru_wali_ada
+--   4) Backfill dari penugasan[TA].wali dan akun.wali_kelas
+--   5) Trigger : trg_sync_wali_penugasan (AFTER INSERT/UPDATE ON akun) →
+--                tabel selalu sinkron, termasuk untuk jalur tulis LAMA
+--                (Edge Function buat-akun, RPC, import massal, edit manual)
+--   6) Fungsi  : fn_is_wali_kelas, akun_guru_ampu_murid, ubah_anggota_ekskul,
+--                fn_akun_json (+ field wali_kelas_list & wali_kelas_map)
+--   7) Verifikasi + reload cache skema PostgREST
+--
+-- KOMPATIBILITAS (penting)
+--   Kolom LAMA (akun.wali_kelas, penugasan[TA].wali string) TIDAK dihapus dan
+--   TETAP ditulis klien/Edge Function lama. Trigger bagian 5 menjaga tabel
+--   baru selalu lengkap, jadi frontend boleh di-deploy terpisah (migrasi ini
+--   aman dijalankan SEBELUM frontend baru dipasang).
+--
+-- ROLLBACK
+--   drop trigger if exists trg_sync_wali_penugasan on akun;
+--   drop function if exists fn_sync_wali_penugasan();
+--   drop table if exists wali_kelas_penugasan;
+--   drop function if exists fn_guru_wali_ada(text, text);
+--   drop function if exists fn_kelas_murid(text);
+--   drop function if exists fn_wali_kelas_map(text);
+--   drop function if exists fn_wali_kelas_list(text, text);
+--   drop function if exists fn_ta_berjalan();
+--   drop function if exists fn_wali_list(jsonb);
+--   drop function if exists fn_kelas_sama(text, text);
+--   (fn_is_wali_kelas / akun_guru_ampu_murid / ubah_anggota_ekskul /
+--    fn_akun_json kembali ke versi sebelumnya dengan menjalankan ulang berkas
+--    20261027_role_hybrid_opsiC, 20261023_wajah_motor_mediapipe,
+--    20261028b2_token_rpc_murid, dan 20261115_kelas_normalisasi.)
+-- ============================================================
+
+-- ============================================================
+-- 1. HELPER DASAR
+-- ============================================================
+-- 1a. Dua kelas setara? ("10 RPL 1" ≡ "X RPL 1" ≡ "x rpl 1")
+--     Dibandingkan sebagai komponen kanonik (fn_pecah_kelas); teks yang
+--     jelas BUKAN kelas ("Semua Kelas", "Hadir", …) dibanding apa adanya.
+create or replace function fn_kelas_sama(p_a text, p_b text)
+returns boolean
+language sql
+immutable
+as $$
+  select case
+    when coalesce(btrim(coalesce(p_a, '')), '') = '' then false
+    when coalesce(btrim(coalesce(p_b, '')), '') = '' then false
+    -- salah satu bukan kelas (tingkat/jurusan/rombel kosong) → banding teks
+    when coalesce(ka.tingkat, '') = '' and coalesce(ka.jurusan_kode, '') = ''
+         and ka.rombel is null then lower(btrim(p_a)) = lower(btrim(p_b))
+    when coalesce(kb.tingkat, '') = '' and coalesce(kb.jurusan_kode, '') = ''
+         and kb.rombel is null then lower(btrim(p_a)) = lower(btrim(p_b))
+    else lower(fn_label_kelas(ka.tingkat, ka.jurusan_kode, ka.rombel))
+       = lower(fn_label_kelas(kb.tingkat, kb.jurusan_kode, kb.rombel))
+  end
+  from fn_pecah_kelas(p_a) ka
+  cross join fn_pecah_kelas(p_b) kb
+$$;
+
+comment on function fn_kelas_sama(text, text) is
+  'Dua label kelas setara (kanonik: "10 RPL 1" = "X RPL 1"). Teks non-kelas dibanding apa adanya.';
+
+-- 1b. Nilai penugasan[TA].wali apa pun (string LAMA, array BARU, null) → text[]
+--     berisi label kelas yang bersih & unik (label kosong dibuang).
+create or replace function fn_wali_list(p_wali jsonb)
+returns text[]
+language sql
+immutable
+as $$
+  select coalesce((
+    select array_agg(distinct btrim(x))
+      from unnest(case
+             when jsonb_typeof(p_wali) = 'array'
+               then coalesce((select array_agg(e)
+                                from jsonb_array_elements_text(p_wali) as t(e)),
+                             array[]::text[])
+             when jsonb_typeof(p_wali) = 'string'
+               then array[p_wali #>> '{}']
+             else array[]::text[]
+           end) as u(x)
+     where coalesce(btrim(x), '') <> ''
+  ), array[]::text[])
+$$;
+
+comment on function fn_wali_list(jsonb) is
+  'Normalisasi nilai penugasan[TA].wali (string|array|null) → text[] label kelas bersih & unik.';
+
+-- 1c. Tahun pelajaran berjalan (sumber: Master Data; cadangan: tahun kalender).
+--     Sama dengan pola fallback RPC murid (20261028b2) & frontend app.js
+--     (opsi "Pilih Tahun" terurut A-Z → pilihan pertama = TA terkecil).
+create or replace function fn_ta_berjalan()
+returns text
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(btrim(coalesce((
+      select min(m."Tahun Pelajaran")::text
+        from master_data m
+       where m."Tahun Pelajaran" is not null
+         and btrim(coalesce(m."Tahun Pelajaran"::text, '')) <> ''
+    ), '')), ''),
+    to_char(now() at time zone 'Asia/Jakarta', 'YYYY') || '/' ||
+    to_char((now() at time zone 'Asia/Jakarta') + interval '1 year', 'YYYY'))
+$$;
+
+comment on function fn_ta_berjalan() is
+  'Tahun pelajaran berjalan (min Master Data, cadangan tahun kalender Asia/Jakarta).';
+
+-- ============================================================
+-- 2. TABEL RELASI wali_kelas_penugasan
+--    Sumber kanonik "guru → kelas yang diwalikan (per tahun pelajaran)".
+--    Satu baris = satu (nis_nip guru) × (tahun pelajaran) × (kelas).
+-- ============================================================
+create table if not exists wali_kelas_penugasan (
+  id uuid primary key default gen_random_uuid(),
+  nis_nip text not null default '',
+  tahun_pelajaran text not null default '',
+  tingkat text,
+  jurusan_kode text,
+  rombel integer,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- self-healing kolom (bila tabel sudah ada dari versi/percobaan sebelumnya)
+alter table wali_kelas_penugasan
+  add column if not exists nis_nip text not null default '',
+  add column if not exists tahun_pelajaran text not null default '',
+  add column if not exists tingkat text,
+  add column if not exists jurusan_kode text,
+  add column if not exists rombel integer,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+-- label kanonik (mis. "X LP 1") — turunan, tidak pernah diisi manual
+alter table wali_kelas_penugasan
+  add column if not exists kelas_label text
+  generated always as (fn_label_kelas(tingkat, jurusan_kode, rombel)) stored;
+
+create unique index if not exists wali_penugasan_uniq
+  on wali_kelas_penugasan (btrim(nis_nip), upper(btrim(tahun_pelajaran)), kelas_label);
+create index if not exists idx_wali_penugasan_nis
+  on wali_kelas_penugasan (btrim(nis_nip), tahun_pelajaran);
+create index if not exists idx_wali_penugasan_kelas
+  on wali_kelas_penugasan (kelas_label);
+create index if not exists idx_wali_penugasan_ta
+  on wali_kelas_penugasan (tahun_pelajaran, tingkat, jurusan_kode, rombel);
+
+comment on table wali_kelas_penugasan is
+  'Relasi wali kelas (Tahap 4A): satu baris = satu (guru, tahun pelajaran, kelas). Sumber kebenaran wali kelas multi-kelas; disinkronkan trigger dari akun.penugasan[TA].wali & akun.wali_kelas.';
+comment on column wali_kelas_penugasan.nis_nip is
+  'NIS/NIP guru (akun.nis_nip, tipe guru/admin).';
+comment on column wali_kelas_penugasan.jurusan_kode is
+  'Kode jurusan (UPPER, mis. LP) — dipakai merakit kelas_label.';
+comment on column wali_kelas_penugasan.kelas_label is
+  'Label kelas kanonik turunan tingkat/jurusan_kode/rombel (mis. "X LP 1").';
+
+-- RLS & privilege (pola sama dengan master_jurusan)
+alter table wali_kelas_penugasan enable row level security;
+
+drop policy if exists "wali_penugasan_baca_semua" on wali_kelas_penugasan;
+create policy "wali_penugasan_baca_semua" on wali_kelas_penugasan
+  for select using (true);
+
+drop policy if exists "wali_penugasan_tulis_authenticated" on wali_kelas_penugasan;
+create policy "wali_penugasan_tulis_authenticated" on wali_kelas_penugasan
+  for all to authenticated using (true) with check (true);
+
+revoke all on table wali_kelas_penugasan from anon, authenticated;
+grant select on wali_kelas_penugasan to anon, authenticated;
+grant insert, update, delete on wali_kelas_penugasan to authenticated;
+
+-- ============================================================
+-- 3. HELPER BACA (dipakai fungsi & RPC di bawah)
+-- ============================================================
+-- 3a. Daftar kelas wali seorang guru (label kanonik, urut A-Z).
+--     Sumber: tabel wali_kelas_penugasan. Kolom lama akun.wali_kelas dipakai
+--     sebagai cadangan HANYA bila tanpa filter TA (p_ta kosong), karena kolom
+--     itu tidak menyimpan tahun pelajaran.
+--     p_ta kosong ('') → semua tahun pelajaran.
+create or replace function fn_wali_kelas_list(p_nis text, p_ta text default '')
+returns text[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((
+    select array_agg(distinct c order by c)
+      from (
+        select w.kelas_label as c
+          from wali_kelas_penugasan w
+         where btrim(coalesce(w.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+           and (btrim(coalesce(p_ta, '')) = '' or btrim(w.tahun_pelajaran) = btrim(p_ta))
+        union
+        select btrim(x) as c
+          from akun a
+          cross join unnest(string_to_array(coalesce(a.wali_kelas, ''), ',')) as t(x)
+         where btrim(coalesce(a.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+           and btrim(coalesce(p_ta, '')) = ''
+      ) s
+     where coalesce(btrim(c), '') <> ''
+  ), array[]::text[])
+$$;
+
+comment on function fn_wali_kelas_list(text, text) is
+  'Daftar kelas wali guru (label kanonik). p_ta kosong = semua tahun pelajaran.';
+
+-- 3b. Peta kelas wali per tahun pelajaran: {"2026/2027": ["X LP 1","X LP 2"]}
+--     (dipakai frontend untuk memilih daftar kelas pada TA yang sedang aktif)
+create or replace function fn_wali_kelas_map(p_nis text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_object_agg(ta, kelas), '{}'::jsonb)
+    from (
+      select btrim(w.tahun_pelajaran) as ta,
+             coalesce(jsonb_agg(distinct w.kelas_label order by w.kelas_label),
+                      '[]'::jsonb) as kelas
+        from wali_kelas_penugasan w
+       where btrim(coalesce(w.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+         and coalesce(btrim(w.kelas_label), '') <> ''
+       group by btrim(w.tahun_pelajaran)
+    ) s
+   where coalesce(btrim(ta), '') <> ''
+$$;
+
+comment on function fn_wali_kelas_map(text) is
+  'Peta {tahun pelajaran → daftar kelas wali} seorang guru (label kanonik).';
+
+-- 3c. Daftar kelas EFEKTIF murid: riwayat_kelas[TA].kelas (kelas per tahun
+--     pelajaran) ∪ tingkat_kelas (kelas statis / TA aktif).
+create or replace function fn_kelas_murid(p_nis text)
+returns text[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((
+    select array_agg(distinct btrim(c) order by btrim(c))
+      from akun m
+      cross join lateral (
+        select (e.value->>'kelas') as c
+          from jsonb_each(
+                 case when jsonb_typeof(coalesce(m.riwayat_kelas, '{}'::jsonb)) = 'object'
+                      then m.riwayat_kelas else '{}'::jsonb end
+               ) as e(ta, value)
+        union all
+        select m.tingkat_kelas
+      ) x
+     where btrim(coalesce(m.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+       and m.tipe = 'murid'
+       and coalesce(btrim(c), '') <> ''
+  ), array[]::text[])
+$$;
+
+comment on function fn_kelas_murid(text) is
+  'Daftar kelas efektif murid (riwayat_kelas[*].kelas ∪ tingkat_kelas).';
+
+-- 3d. Guru ini wali kelas mana pun? (gerbang akses ekskul & RLS)
+--     p_ta kosong → semua tahun pelajaran. Bila p_ta diisi, kolom lama
+--     akun.wali_kelas diabaikan (tidak menyimpan tahun pelajaran).
+create or replace function fn_guru_wali_ada(p_nis text, p_ta text default '')
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+           select 1
+             from wali_kelas_penugasan w
+            where btrim(coalesce(w.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+              and (btrim(coalesce(p_ta, '')) = '' or btrim(w.tahun_pelajaran) = btrim(p_ta))
+         )
+      or exists (
+           -- cadangan data lama (Tahap 4B belum dijalankan)
+           select 1
+             from akun a
+            where btrim(coalesce(a.nis_nip, '')) = btrim(coalesce(p_nis, ''))
+              and (
+                (btrim(coalesce(p_ta, '')) = ''
+                 and coalesce(btrim(coalesce(a.wali_kelas, '')), '') <> '')
+                or exists (
+                     select 1
+                       from jsonb_each(
+                              case when jsonb_typeof(coalesce(a.penugasan, '{}'::jsonb)) = 'object'
+                                   then a.penugasan else '{}'::jsonb end
+                            ) as p(ta, v)
+                      where coalesce(btrim(p.v->>'wali'), '') <> ''
+                        and (btrim(coalesce(p_ta, '')) = '' or btrim(p.ta) = btrim(p_ta))
+                   )
+              )
+         )
+$$;
+
+comment on function fn_guru_wali_ada(text, text) is
+  'True bila guru terdaftar sebagai wali kelas (tabel relasi / data lama). p_ta kosong = semua TA.';
+
+grant execute on function fn_kelas_sama(text, text) to anon, authenticated;
+grant execute on function fn_wali_list(jsonb) to anon, authenticated;
+grant execute on function fn_ta_berjalan() to anon, authenticated;
+grant execute on function fn_wali_kelas_list(text, text) to anon, authenticated;
+grant execute on function fn_wali_kelas_map(text) to anon, authenticated;
+grant execute on function fn_kelas_murid(text) to anon, authenticated;
+grant execute on function fn_guru_wali_ada(text, text) to anon, authenticated;
+
+-- ============================================================
+-- 4. BACKFILL dari data lama (idempotent: ON CONFLICT DO NOTHING)
+-- ============================================================
+-- 4a. Dari penugasan[TA].wali — string LAMA maupun array BARU.
+insert into wali_kelas_penugasan (nis_nip, tahun_pelajaran, tingkat, jurusan_kode, rombel)
+select distinct x.nis, x.ta, x.tingkat, x.jurusan_kode, x.rombel
+  from (
+    select btrim(a.nis_nip) as nis,
+           btrim(p.ta) as ta,
+           (fn_pecah_kelas(v.kelas)).tingkat      as tingkat,
+           (fn_pecah_kelas(v.kelas)).jurusan_kode as jurusan_kode,
+           (fn_pecah_kelas(v.kelas)).rombel       as rombel
+      from akun a
+      cross join jsonb_each(
+             case when jsonb_typeof(coalesce(a.penugasan, '{}'::jsonb)) = 'object'
+                  then a.penugasan else '{}'::jsonb end
+           ) as p(ta, v)
+      cross join unnest(fn_wali_list(p.v->'wali')) as v(kelas)
+     where btrim(coalesce(a.nis_nip, '')) <> ''
+       and coalesce(a.tipe, '') in ('guru', 'admin')
+       and btrim(coalesce(p.ta, '')) <> ''
+  ) x
+ where coalesce(btrim(x.tingkat), '') <> ''
+on conflict do nothing;
+
+-- 4b. Dari kolom lama akun.wali_kelas — hanya untuk kelas yang belum
+--     terwakili sama sekali pada guru tsb (agar tidak mengarang TA baru).
+insert into wali_kelas_penugasan (nis_nip, tahun_pelajaran, tingkat, jurusan_kode, rombel)
+select distinct x.nis, fn_ta_berjalan(), x.tingkat, x.jurusan_kode, x.rombel
+  from (
+    select btrim(a.nis_nip) as nis,
+           fn_label_kelas((fn_pecah_kelas(btrim(v.kelas))).tingkat,
+                          (fn_pecah_kelas(btrim(v.kelas))).jurusan_kode,
+                          (fn_pecah_kelas(btrim(v.kelas))).rombel) as label,
+           (fn_pecah_kelas(btrim(v.kelas))).tingkat      as tingkat,
+           (fn_pecah_kelas(btrim(v.kelas))).jurusan_kode as jurusan_kode,
+           (fn_pecah_kelas(btrim(v.kelas))).rombel       as rombel
+      from akun a
+      cross join unnest(string_to_array(coalesce(a.wali_kelas, ''), ',')) as v(kelas)
+     where btrim(coalesce(a.nis_nip, '')) <> ''
+       and coalesce(a.tipe, '') in ('guru', 'admin')
+  ) x
+ where coalesce(btrim(x.tingkat), '') <> ''
+   and not exists (
+         select 1
+           from wali_kelas_penugasan w2
+          where btrim(coalesce(w2.nis_nip, '')) = x.nis
+            and w2.kelas_label = x.label
+       )
+on conflict do nothing;
+
+-- ============================================================
+-- 5. TRIGGER SINKRON: akun → wali_kelas_penugasan
+--    Menangkap SELURUH jalur tulis lama (Edge Function buat-akun, RPC
+--    simpan_penugasan_guru, import massal, edit manual) tanpa perlu
+--    mengubah klien/EF. Relasi selalu dibangun ulang dari kolom akun
+--    (state final), jadi urutan operasi apa pun tetap konsisten.
+-- ============================================================
+create or replace function fn_sync_wali_penugasan()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_ta text;
+begin
+  if coalesce(btrim(new.nis_nip), '') = '' then
+    return new;
+  end if;
+
+  -- hanya guru/admin yang punya relasi wali; akun murid → bersihkan sisa baris
+  if coalesce(new.tipe, '') not in ('guru', 'admin') then
+    delete from wali_kelas_penugasan
+     where btrim(coalesce(nis_nip, '')) = btrim(new.nis_nip);
+    return new;
+  end if;
+
+  -- UPDATE yang tidak menyentuh data wali → tidak perlu apa-apa
+  if tg_op = 'UPDATE'
+     and coalesce(new.nis_nip, '') = coalesce(old.nis_nip, '')
+     and coalesce(new.penugasan::text, '') = coalesce(old.penugasan::text, '')
+     and coalesce(new.wali_kelas, '') = coalesce(old.wali_kelas, '') then
+    return new;
+  end if;
+
+  -- Bangun ulang relasi guru ini (sumber: kolom akun → selalu state final).
+  delete from wali_kelas_penugasan
+   where btrim(coalesce(nis_nip, '')) = btrim(new.nis_nip);
+
+  -- (a) penugasan[TA].wali → baris per (TA, kelas)
+  insert into wali_kelas_penugasan (nis_nip, tahun_pelajaran, tingkat, jurusan_kode, rombel)
+  select distinct x.nis, x.ta, x.tingkat, x.jurusan_kode, x.rombel
+    from (
+      select btrim(new.nis_nip) as nis,
+             btrim(p.ta) as ta,
+             (fn_pecah_kelas(v.kelas)).tingkat      as tingkat,
+             (fn_pecah_kelas(v.kelas)).jurusan_kode as jurusan_kode,
+             (fn_pecah_kelas(v.kelas)).rombel       as rombel
+        from jsonb_each(
+               case when jsonb_typeof(coalesce(new.penugasan, '{}'::jsonb)) = 'object'
+                    then new.penugasan else '{}'::jsonb end
+             ) as p(ta, v)
+        cross join unnest(fn_wali_list(p.v->'wali')) as v(kelas)
+       where btrim(coalesce(p.ta, '')) <> ''
+    ) x
+   where coalesce(btrim(x.tingkat), '') <> ''
+  on conflict do nothing;
+
+  -- (b) kolom lama wali_kelas → hanya kelas yang belum terwakili sama sekali
+  v_ta := fn_ta_berjalan();
+  insert into wali_kelas_penugasan (nis_nip, tahun_pelajaran, tingkat, jurusan_kode, rombel)
+  select distinct x.nis, v_ta, x.tingkat, x.jurusan_kode, x.rombel
+    from (
+      select btrim(new.nis_nip) as nis,
+             fn_label_kelas((fn_pecah_kelas(btrim(v.kelas))).tingkat,
+                            (fn_pecah_kelas(btrim(v.kelas))).jurusan_kode,
+                            (fn_pecah_kelas(btrim(v.kelas))).rombel) as label,
+             (fn_pecah_kelas(btrim(v.kelas))).tingkat      as tingkat,
+             (fn_pecah_kelas(btrim(v.kelas))).jurusan_kode as jurusan_kode,
+             (fn_pecah_kelas(btrim(v.kelas))).rombel       as rombel
+        from unnest(string_to_array(coalesce(new.wali_kelas, ''), ',')) as v(kelas)
+    ) x
+   where coalesce(btrim(x.tingkat), '') <> ''
+     and not exists (
+           select 1
+             from wali_kelas_penugasan w2
+            where btrim(coalesce(w2.nis_nip, '')) = x.nis
+              and w2.kelas_label = x.label
+         )
+  on conflict do nothing;
+
+  return new;
+end $$;
+
+comment on function fn_sync_wali_penugasan() is
+  'Menjaga wali_kelas_penugasan sinkron dengan akun.penugasan[TA].wali & akun.wali_kelas (Tahap 4A).';
+
+drop trigger if exists trg_sync_wali_penugasan on akun;
+create trigger trg_sync_wali_penugasan
+  after insert or update on akun
+  for each row execute function fn_sync_wali_penugasan();
+
+-- ============================================================
+-- 6. FUNGSI AKSES & BACAAN (disesuaikan untuk wali kelas multi-kelas)
+-- ============================================================
+-- 6a. fn_is_wali_kelas — versi 20261027 + tabel relasi.
+--     True bila akun pemanggil (by user_id ATAU NIS dari sesi) punya
+--     minimal satu penugasan wali kelas (TA apa pun).
+create or replace function fn_is_wali_kelas()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+      from akun a
+     where (
+             a.user_id = auth.uid()
+             or (btrim(coalesce(fn_nis(), '')) <> ''
+                 and btrim(coalesce(a.nis_nip, '')) = btrim(fn_nis()))
+           )
+       and fn_guru_wali_ada(a.nis_nip)
+  );
+$$;
+
+-- 6b. akun_guru_ampu_murid — versi 20261023 + wali kelas MULTI & kelas
+--     efektif per tahun pelajaran (riwayat_kelas ∪ tingkat_kelas).
+--     Dipakai otorisasi Absen Mandiri, data wajah, ubah murid, dsb.
+--     (1) pembina ekskul murid  → aturan lama, tidak berubah;
+--     (2) wali kelas murid      → irisan {kelas wali guru} ∩ {kelas efektif murid}
+--                                 dengan pembanding kanonik fn_kelas_sama
+--                                 (sehingga "10 RPL 1" ≡ "X RPL 1").
+create or replace function akun_guru_ampu_murid(p_guru_nis text, p_murid_nis text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if btrim(coalesce(p_guru_nis, '')) = '' or btrim(coalesce(p_murid_nis, '')) = '' then
+    return false;
+  end if;
+
+  -- (1) Pembina ekskul murid (aturan lama).
+  if exists (
+    select 1
+      from akun g
+      join akun m
+        on btrim(coalesce(m.nis_nip, '')) = btrim(coalesce(p_murid_nis, ''))
+       and m.tipe = 'murid'
+     where btrim(coalesce(g.nis_nip, '')) = btrim(coalesce(p_guru_nis, ''))
+       and g.tipe = 'guru'
+       and exists (
+             select 1
+               from unnest(string_to_array(coalesce(g.ekstrakurikuler, ''), ',')) as ge(x)
+               cross join unnest(string_to_array(coalesce(m.ekstrakurikuler, ''), ',')) as me(x)
+              where btrim(ge.x) <> ''
+                and lower(btrim(ge.x)) = lower(btrim(me.x))
+           )
+  ) then
+    return true;
+  end if;
+
+  -- (2) Wali kelas: satu kelas wali guru ≡ satu kelas efektif murid.
+  return exists (
+    select 1
+      from unnest(fn_wali_kelas_list(p_guru_nis)) as wk(kelas)
+      cross join unnest(fn_kelas_murid(p_murid_nis)) as mk(kelas)
+     where fn_kelas_sama(wk.kelas, mk.kelas)
+  );
+end $$;
+
+-- 6c. fn_akun_json — versi 20261115 + field wali_kelas_list/wali_kelas_map
+--     pada mode 'guru_wali' & 'guru_dashboard' (dipakai peta wali kelas,
+--     dropdown kelas absensi, dan dashboard guru).
+create or replace function fn_akun_json(p_id uuid, p_mode text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case coalesce(nullif(trim(p_mode), ''), 'ringkas_murid')
+
+    when 'penuh' then to_jsonb(a)
+
+    -- ---------- profil staf/murid (whitelist 17 kolom; app.js bukaProfilAkun) ----------
+    when 'profil_akun' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang,
+      'email', a.email, 'tingkat_kelas', a.tingkat_kelas, 'jabatan', a.jabatan,
+      'wali_kelas', a.wali_kelas, 'mapel', a.mapel, 'ekstrakurikuler', a.ekstrakurikuler,
+      'penugasan', a.penugasan, 'no_telepon', a.no_telepon,
+      'jenis_kelamin', a.jenis_kelamin, 'agama', a.agama, 'nisn', a.nisn,
+      'tipe', a.tipe, 'url_foto', a.url_foto)
+
+    -- ---------- potongan kecil ----------
+    when 'foto' then jsonb_build_object('url_foto', a.url_foto)
+    when 'nis'  then jsonb_build_object('nis_nip', a.nis_nip)
+    when 'jabatan_map' then jsonb_build_object(
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'identitas' then jsonb_build_object(
+      'id', a.id, 'tipe', a.tipe, 'nis_nip', a.nis_nip, 'user_id', a.user_id,
+      'email', a.email, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'url_foto', a.url_foto)
+
+    when 'wajah' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'url_foto', a.url_foto,
+      'wajah_descriptor', a.wajah_descriptor, 'wajah_status', a.wajah_status)
+
+    when 'peta_wajah' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'wajah_descriptor', a.wajah_descriptor,
+      'wajah_status', a.wajah_status)
+
+    -- ---------- guru/admin ----------
+    when 'guru_ringkas' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang)
+
+    when 'guru_wali' then jsonb_build_object(
+      'nama_lengkap', a.nama_lengkap, 'gelar_depan', a.gelar_depan,
+      'gelar_belakang', a.gelar_belakang, 'wali_kelas', a.wali_kelas,
+      'wali_kelas_list', to_jsonb(fn_wali_kelas_list(a.nis_nip)),
+      'wali_kelas_map', fn_wali_kelas_map(a.nis_nip))
+
+    when 'guru_kanal_absen' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap, 'mapel', a.mapel,
+      'ekstrakurikuler', a.ekstrakurikuler, 'kunci_absen', a.kunci_absen)
+
+    when 'guru_pembina' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'gelar_depan', a.gelar_depan, 'gelar_belakang', a.gelar_belakang,
+      'no_telepon', a.no_telepon, 'ekstrakurikuler', a.ekstrakurikuler)
+
+    when 'guru_penugasan' then jsonb_build_object(
+      'id', a.id, 'nis_nip', a.nis_nip, 'penugasan', a.penugasan)
+
+    when 'guru_penugasan_ringkas' then jsonb_build_object(
+      'id', a.id, 'penugasan', a.penugasan)
+
+    when 'guru_dashboard' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap, 'mapel', a.mapel,
+      'ekstrakurikuler', a.ekstrakurikuler, 'wali_kelas', a.wali_kelas,
+      'wali_kelas_list', to_jsonb(fn_wali_kelas_list(a.nis_nip)),
+      'wali_kelas_map', fn_wali_kelas_map(a.nis_nip),
+      'penugasan', a.penugasan, 'tingkat_kelas', a.tingkat_kelas,
+      'captcha', a.captcha, 'kunci_absen', a.kunci_absen,
+      'no_telepon', a.no_telepon, 'gelar_depan', a.gelar_depan,
+      'gelar_belakang', a.gelar_belakang)
+
+    -- ---------- murid: daftar (+ kelas terstruktur) ----------
+    when 'list' then jsonb_build_object(
+      'id', a.id, 'user_id', a.user_id, 'nis_nip', a.nis_nip, 'nisn', a.nisn,
+      'nama_lengkap', a.nama_lengkap, 'tingkat_kelas', a.tingkat_kelas,
+      'jabatan', a.jabatan, 'jabatan_ekskul', a.jabatan_ekskul, 'email', a.email,
+      'ekstrakurikuler', a.ekstrakurikuler, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester, 'riwayat_kelas', a.riwayat_kelas, 'url_foto', a.url_foto,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'export' then fn_akun_export(a.id)
+    when 'cetak'  then fn_akun_export(a.id)
+                        || jsonb_build_object('jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'ringkas_murid' then jsonb_build_object(
+      'id', a.id, 'nis_nip', a.nis_nip, 'nisn', a.nisn, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'ekstrakurikuler', a.ekstrakurikuler,
+      'riwayat_kelas', a.riwayat_kelas, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'ekskul_map' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'ekstrakurikuler', a.ekstrakurikuler,
+      'riwayat_ekskul', a.riwayat_ekskul,
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb))
+
+    when 'dashboard_murid' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nisn', a.nisn, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'riwayat_kelas', a.riwayat_kelas,
+      'jenis_kelamin', a.jenis_kelamin, 'agama', a.agama,
+      'catatan_khusus', a.catatan_khusus, 'ekstrakurikuler', a.ekstrakurikuler,
+      'jabatan', a.jabatan, 'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb),
+      'riwayat_ekskul', a.riwayat_ekskul, 'tahun_pelajaran', a.tahun_pelajaran,
+      'semester', a.semester, 'no_telepon', a.no_telepon)
+
+    when 'anggota_ekskul' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'jabatan', a.jabatan,
+      'no_telepon', a.no_telepon, 'tgl_lahir', a.tgl_lahir,
+      'jabatan_ekskul_map', coalesce(a.jabatan_ekskul_map, '{}'::jsonb),
+      'riwayat_ekskul', a.riwayat_ekskul, 'tahun_pelajaran', a.tahun_pelajaran,
+      'tingkat', a.tingkat, 'jurusan_kode', a.jurusan_kode, 'jurusan', a.jurusan,
+      'rombel', a.rombel, 'kelas_label', a.kelas_label)
+
+    when 'pemilih' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tingkat_kelas', a.tingkat_kelas, 'tahun_pelajaran', a.tahun_pelajaran,
+      'ekstrakurikuler', a.ekstrakurikuler, 'jabatan', a.jabatan,
+      'no_telepon', a.no_telepon)
+
+    when 'pemilih_ringkas' then jsonb_build_object(
+      'nis_nip', a.nis_nip, 'nama_lengkap', a.nama_lengkap,
+      'tahun_pelajaran', a.tahun_pelajaran, 'tingkat_kelas', a.tingkat_kelas,
+      'ekstrakurikuler', a.ekstrakurikuler)
+
+    else to_jsonb(a)
+  end
+  from akun a
+  where a.id = p_id
+$$;
+
+-- 6d. ubah_anggota_ekskul — versi 20261028b2 dengan gerbang "wali kelas
+--     ATAU pembina ekskul" memakai fn_guru_wali_ada() (multi-kelas).
+create or replace function ubah_anggota_ekskul(
+  p_pemanggil text,
+  p_ekskul text,
+  p_nis_list text[],
+  p_tambah boolean,
+  p_ta text default null,
+  p_smt text[] default null,
+  p_token text default ''
+)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_pemanggil text;
+  v_tipe text;
+  v_jabatan_map jsonb;
+  v_wali_kelas text;
+  v_ekstra text;
+  v_nis text;
+  v_ekstra_siswa text;
+  v_baru text;
+  v_ta text;
+  v_total int := 0;
+  v_riwayat jsonb;
+  v_entri jsonb;
+  v_eks_riwayat text;
+  v_baru_riwayat text;
+  v_jmap jsonb;
+  v_smt jsonb;
+  v_teks_smt text;
+  v_smt_bersih text[] := array[]::text[];
+  v_smt_entri text[];
+begin
+
+  -- 0) TA berjalan: parameter eksplisit, atau turunkan dari Master Data
+  v_ta := coalesce(nullif(trim(coalesce(p_ta, '')), ''), (
+    select min(m."Tahun Pelajaran")::text from master_data m
+    where m."Tahun Pelajaran" is not null and trim(m."Tahun Pelajaran"::text) <> ''
+  ), to_char(now() at time zone 'Asia/Jakarta', 'YYYY') || '/' ||
+       to_char((now() at time zone 'Asia/Jakarta') + interval '1 year', 'YYYY'));
+
+  -- 0a) Semester yang akan ditandai (hanya Ganjil/Genap; abaikan lainnya)
+  if p_smt is not null then
+    select array_agg(x) into v_smt_bersih
+    from unnest(p_smt) as x
+    where trim(coalesce(x, '')) in ('Ganjil', 'Genap');
+  end if;
+  v_smt_bersih := coalesce(v_smt_bersih, array[]::text[]);
+
+  -- 1) Identitas pemanggil — DARI SESI, bukan dari parameter.
+  if fn_role() in ('admin', 'guru') then
+    v_pemanggil := fn_nis();
+  else
+    -- Fallback klaim NIS dikosongkan (parameter `p_pemanggil` hanya untuk
+    -- kompatibilitas signature) → identitas HANYA dari sesi.
+    v_pemanggil := fn_akses_murid(p_token, '');
+    if coalesce(trim(coalesce(v_pemanggil, '')), '') = '' then
+      return json_build_object('status', 'error', 'message', 'Sesi tidak valid. Silakan login ulang.');
+    end if;
+  end if;
+
+  select tipe, jabatan_ekskul_map, wali_kelas, ekstrakurikuler
+  into v_tipe, v_jabatan_map, v_wali_kelas, v_ekstra
+  from akun
+  where nis_nip = v_pemanggil;
+
+  if not found then
+    return json_build_object('status', 'error', 'message', 'Akun pemanggil tidak ditemukan.');
+  end if;
+
+  -- 2) Verifikasi hak akses per tipe
+  if v_tipe = 'admin' then
+    null;
+  elsif v_tipe = 'guru' then
+    if not fn_guru_wali_ada(v_pemanggil)
+       and not (lower(trim(p_ekskul)) = any (
+            select lower(trim(x))
+            from unnest(string_to_array(coalesce(v_ekstra, ''), ',')) as t(x)
+            where trim(x) <> ''
+          ))
+    then
+      return json_build_object('status', 'error', 'message',
+        'Hanya wali kelas atau pembina ' || p_ekskul || ' yang dapat mengubah anggota.');
+    end if;
+  elsif v_tipe = 'murid' then
+    if v_jabatan_map is null or coalesce(trim(coalesce(v_jabatan_map->>p_ekskul, '')), '') = '' then
+      return json_build_object('status', 'error', 'message', 'Hanya pengurus (menjabat) ' || p_ekskul || ' yang dapat mengubah anggota.');
+    end if;
+  else
+    return json_build_object('status', 'error', 'message', 'Tipe akun pemanggil tidak dikenal.');
+  end if;
+
+  -- 3) Terapkan per NIS (gabung/buang nama ekskul, anti-duplikat) → kolom live + riwayat_ekskul[TA]
+  if p_nis_list is null then
+    p_nis_list := array[]::text[];
+  end if;
+
+  foreach v_nis in array p_nis_list loop
+    if trim(coalesce(v_nis, '')) = '' then continue; end if;
+
+    select ekstrakurikuler, coalesce(riwayat_ekskul, '{}'::jsonb)
+    into v_ekstra_siswa, v_riwayat
+    from akun
+    where nis_nip = v_nis and tipe = 'murid'
+    for update;
+
+    if not found then continue; end if;
+
+    -- a) Kolom live akun.ekstrakurikuler
+    if p_tambah then
+      if lower(trim(p_ekskul)) = any (
+        select lower(trim(x)) from unnest(string_to_array(coalesce(v_ekstra_siswa, ''), ',')) as x where trim(x) <> ''
+      ) then
+        v_baru := v_ekstra_siswa;
+      else
+        v_baru := case
+          when coalesce(trim(v_ekstra_siswa), '') = '' then trim(p_ekskul)
+          else trim(v_ekstra_siswa) || ',' || trim(p_ekskul)
+        end;
+      end if;
+    else
+      select string_agg(x, ',') into v_baru
+      from (
+        select trim(x) as x
+        from unnest(string_to_array(coalesce(v_ekstra_siswa, ''), ',')) as t(x)
+        where trim(x) <> '' and lower(trim(x)) <> lower(trim(p_ekskul))
+      ) s;
+      v_baru := coalesce(v_baru, '');
+    end if;
+
+    -- b) Entri riwayat_ekskul[TA]
+    v_entri := coalesce(v_riwayat->v_ta, '{}'::jsonb);
+    v_eks_riwayat := coalesce(nullif(trim(coalesce(v_entri->>'ekskul', '')), ''), v_ekstra_siswa);
+    if p_tambah then
+      if lower(trim(p_ekskul)) = any (
+        select lower(trim(x)) from unnest(string_to_array(v_eks_riwayat, ',')) as x where trim(x) <> ''
+      ) then
+        v_baru_riwayat := v_eks_riwayat;
+      else
+        v_baru_riwayat := case
+          when coalesce(trim(v_eks_riwayat), '') = '' then trim(p_ekskul)
+          else trim(v_eks_riwayat) || ',' || trim(p_ekskul)
+        end;
+      end if;
+    else
+      select string_agg(x, ',') into v_baru_riwayat
+      from (
+        select trim(x) as x
+        from unnest(string_to_array(v_eks_riwayat, ',')) as t(x)
+        where trim(x) <> '' and lower(trim(x)) <> lower(trim(p_ekskul))
+      ) s;
+      v_baru_riwayat := coalesce(v_baru_riwayat, '');
+    end if;
+
+    v_jmap := coalesce((v_entri->>'jabatan_map')::jsonb, coalesce(v_jabatan_map, '{}'::jsonb));
+    v_jmap := coalesce(v_jmap, '{}'::jsonb);
+
+    -- SEMESTER: gabungkan (union) semester yang sudah ada + yang baru untuk p_ekskul.
+    --   smt[ekskul] = [Ganjil, Genap] → siswa ikut di kedua semester (skenario B).
+    --   Menambah anggota tanpa p_smt → smt[ekskul] dibiarkan polos (kedua semester).
+    v_smt := coalesce((v_entri->>'smt')::jsonb, '{}'::jsonb);
+    if v_smt = 'null'::jsonb then v_smt := '{}'::jsonb; end if;
+    v_teks_smt := coalesce(v_smt->>p_ekskul, '');
+    v_smt_entri := array(
+      select trim(x) from unnest(string_to_array(v_teks_smt, ',')) as t(x)
+      where trim(x) in ('Ganjil', 'Genap')
+    );
+    if array_length(v_smt_bersih, 1) > 0 then
+      select array_agg(distinct y) into v_smt_entri
+      from (
+        select unnest(v_smt_entri) as y
+        union
+        select unnest(v_smt_bersih)
+      ) s;
+    end if;
+
+    update akun
+       set ekstrakurikuler = v_baru,
+           riwayat_ekskul = jsonb_set(
+              coalesce(v_riwayat, '{}'::jsonb),
+              array[v_ta],
+              jsonb_build_object(
+                'ekskul', v_baru_riwayat,
+                'jabatan_map', v_jmap,
+                'status', 'Aktif',
+                'smt', case
+                  when array_length(v_smt_entri, 1) > 0
+                    then jsonb_set(coalesce(v_smt, '{}'::jsonb), array[p_ekskul], to_jsonb(v_smt_entri))
+                  else v_smt
+                end
+              )
+           )
+     where nis_nip = v_nis;
+
+    v_total := v_total + 1;
+  end loop;
+
+  return json_build_object('status', 'success', 'total', v_total);
+end $$;
+
+-- Izin eksekusi (idempotent — `create or replace` di atas tidak menghapus grant)
+grant execute on function fn_is_wali_kelas() to authenticated, anon;
+grant execute on function akun_guru_ampu_murid(text, text) to anon, authenticated;
+grant execute on function ubah_anggota_ekskul(text, text, text[], boolean, text, text[], text) to anon, authenticated;
+grant execute on function fn_akun_json(uuid, text) to anon, authenticated;
+
+-- ============================================================
+-- 7. VERIFIKASI & RELOAD CACHE SKEMA POSTGREST
+-- ============================================================
+do $$
+declare
+  v_tbl int;
+  v_kol int;
+  v_trg int;
+  v_fn  int;
+  v_isi int;
+  v_guru int;
+begin
+  -- (a) tabel relasi ada
+  select count(*) into v_tbl
+    from information_schema.tables
+   where table_schema = 'public' and table_name = 'wali_kelas_penugasan';
+
+  if v_tbl <> 1 then
+    raise exception 'WALI KELAS MULTI GAGAL: tabel wali_kelas_penugasan tidak ada.';
+  end if;
+
+  -- (b) 6 kolom kunci tersedia (termasuk kelas_label generated)
+  select count(*) into v_kol
+    from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'wali_kelas_penugasan'
+     and column_name in ('nis_nip', 'tahun_pelajaran', 'tingkat',
+                         'jurusan_kode', 'rombel', 'kelas_label');
+
+  if v_kol <> 6 then
+    raise exception 'WALI KELAS MULTI GAGAL: kolom tabel hanya % dari 6.', v_kol;
+  end if;
+
+  -- (c) trigger sinkron terpasang
+  select count(*) into v_trg
+    from pg_trigger
+   where not tgisinternal and tgname = 'trg_sync_wali_penugasan';
+
+  if v_trg <> 1 then
+    raise exception 'WALI KELAS MULTI GAGAL: trigger trg_sync_wali_penugasan tidak terpasang.';
+  end if;
+
+  -- (d) 12 fungsi wajib tersedia
+  select count(*) into v_fn
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('fn_kelas_sama', 'fn_wali_list', 'fn_ta_berjalan',
+                       'fn_wali_kelas_list', 'fn_wali_kelas_map', 'fn_kelas_murid',
+                       'fn_guru_wali_ada', 'fn_sync_wali_penugasan',
+                       'fn_is_wali_kelas', 'akun_guru_ampu_murid',
+                       'ubah_anggota_ekskul', 'fn_akun_json');
+
+  if v_fn <> 12 then
+    raise exception 'WALI KELAS MULTI GAGAL: fungsi hanya % dari 12 terpasang.', v_fn;
+  end if;
+
+  -- (e) laporan backfill
+  select count(*), count(distinct btrim(nis_nip)) into v_isi, v_guru
+    from wali_kelas_penugasan;
+
+  raise notice 'Wali kelas multi OK — wali_kelas_penugasan: % baris untuk % guru; kelas_label contoh: %.',
+    v_isi, v_guru, coalesce((select string_agg(distinct kelas_label, ', ' order by kelas_label)
+                               from (select kelas_label from wali_kelas_penugasan
+                                      where coalesce(btrim(kelas_label), '') <> '' limit 5) t), '-');
+
+  if v_isi = 0 then
+    raise warning 'wali_kelas_penugasan masih KOSONG — relasi akan terisi otomatis saat penugasan/wali kelas guru disimpan (atau jalankan ulang backfill setelah data penugasan lengkap).';
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+-- ============================================================
+-- CARA PAKAI
+--   1) Jalankan SELURUH berkas ini sekali di Supabase SQL Editor.
+--   2) Aman dijalankan SEBELUM frontend baru di-deploy: kolom & jalur tulis
+--      lama (penugasan[TA].wali string, akun.wali_kelas) tetap dipakai, dan
+--      trigger bagian 5 menjaga tabel relasi tetap sinkron.
+--   3) Setelah frontend Tahap 4A dipasang, penugasan[TA].wali boleh berisi
+--      ARRAY (["X LP 1","X LP 2"]) — trigger menuliskannya ke tabel relasi.
+--   4) Verifikasi cepat:
+--      select * from wali_kelas_penugasan order by nis_nip, tahun_pelajaran, kelas_label;
+--      select fn_wali_kelas_list('<NIP>'), fn_wali_kelas_map('<NIP>');
+--      select fn_guru_wali_ada('<NIP>'), fn_is_wali_kelas();
+-- ============================================================
+
+
+
 

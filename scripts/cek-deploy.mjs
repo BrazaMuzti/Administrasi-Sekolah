@@ -17,8 +17,8 @@
 //   2. `js/install.js` → `const BUILD` harus = build lokal (stempel device;
 //      beda stempel memicu pembersihan cache `sisip-*` + reload sekali).
 //   3. `sw.js`       → `const VERSION` harus = versi lokal, dan daftar PRECACHE
-//      harus memuat `css/style.css?v=`, `js/utils.js?v=`, `js/app.js?v=` dengan
-//      tag versi = build lokal.
+//      harus memuat `css/style.css?v=`, `js/utils.js?v=`, `js/app.js?v=`, dan
+//      `js/kelas.js?v=` dengan tag versi = build lokal.
 //   4. `js/utils.js` → wajib memuat simbol Absen Mandiri murid
 //      (`akunSesiAbsenMurid`, `ambil_sesi_absen_murid`) dan TIDAK boleh memuat
 //      penanda template (`ISI SUPABASE URL INI`) — penanda ini tanda deploy
@@ -26,6 +26,10 @@
 //   5. `js/app.js`   → wajib memuat penanda panel murid build terbaru
 //      (`sebabSesiKosong`, `diLuarJam`) supaya sesi BUKA tidak lagi terkunci
 //      di luar jam pelajaran.
+//   6. `js/kelas.js` → wajib memuat modul normalisasi kelas Tahap 3
+//      (`root.KELAS`, `pecah`, `fn_pecah_kelas`). Modul ini dipakai app.js
+//      sebagai satu sumber kebenaran format kelas; host yang tertinggal akan
+//      menyajikan modul lama (atau 404) sehingga label kelas tak terurai benar.
 //
 // HOST OPSIONAL (mis. mirror uji coba pribadi)
 //   Host di `deploy-urls.json` boleh ditandai `"opsional": true` (atau sekali jalan
@@ -76,10 +80,13 @@ const SW_LOKAL = baca(path.join(WEB, 'sw.js'));
 const SW_VERSION = ambil(SW_LOKAL, /const\s+VERSION\s*=\s*'([^']+)'/);
 const APP_LOKAL = baca(path.join(WEB, 'js', 'app.js'));
 const SHA_APP = sha12(APP_LOKAL);
+const KELAS_LOKAL = baca(path.join(WEB, 'js', 'kelas.js'));
 
 /** Penanda yang WAJIB ada di berkas host (fitur Absen Mandiri murid). */
 const WAJIB_UTILS = ['akunSesiAbsenMurid', 'ambil_sesi_absen_murid'];
 const WAJIB_APP = ['sebabSesiKosong', 'diLuarJam'];
+/** Penanda yang WAJIB ada di `js/kelas.js` host (modul normalisasi kelas, Tahap 3). */
+const WAJIB_KELAS = ['root.KELAS', 'pecah', 'fn_pecah_kelas'];
 /** Penanda yang TIDAK boleh ada (template / build lama). */
 const TERLARANG_UTILS = ['ISI SUPABASE URL INI'];
 
@@ -144,16 +151,20 @@ else {
   if (BUILD_INSTALL !== BUILD) galatLokal.push(`web/js/install.js BUILD='${BUILD_INSTALL}' ≠ index.html '${BUILD}'`);
   if (!idxLokal.includes(`js/app.js?v=${BUILD}`)) galatLokal.push(`web/index.html belum memuat js/app.js?v=${BUILD}`);
   if (!SW_LOKAL.includes(`js/app.js?v=${BUILD}`)) galatLokal.push(`web/sw.js PRECACHE belum memuat js/app.js?v=${BUILD}`);
+  // [TAHAP 3] modul kelas wajib ada di halaman & di PRECACHE dengan stempel yang sama
+  if (!idxLokal.includes(`js/kelas.js?v=${BUILD}`)) galatLokal.push(`web/index.html belum memuat js/kelas.js?v=${BUILD} (modul normalisasi kelas)`);
+  if (!SW_LOKAL.includes(`js/kelas.js?v=${BUILD}`)) galatLokal.push(`web/sw.js PRECACHE belum memuat js/kelas.js?v=${BUILD}`);
 }
 if (!SW_VERSION) galatLokal.push('web/sw.js tidak memuat `const VERSION`');
 for (const s of WAJIB_APP) if (!APP_LOKAL.includes(s)) galatLokal.push(`web/js/app.js lokal tidak memuat penanda '${s}'`);
+for (const s of WAJIB_KELAS) if (!KELAS_LOKAL.includes(s)) galatLokal.push(`web/js/kelas.js lokal tidak memuat penanda '${s}'`);
 
 // ============================================================
 // 5. PERIKSA SETIAP HOST
 // ============================================================
-const DIPERIKSA = ['index.html', 'sw.js', 'js/install.js', 'js/app.js', 'js/utils.js'];
+const DIPERIKSA = ['index.html', 'sw.js', 'js/install.js', 'js/app.js', 'js/utils.js', 'js/kelas.js'];
 /** Berkas PRECACHE yang tag versinya HARUS ikut naik bersama build. */
-const PRECACHE_WAJIB = ['css/style.css', 'js/utils.js', 'js/app.js'];
+const PRECACHE_WAJIB = ['css/style.css', 'js/utils.js', 'js/app.js', 'js/kelas.js'];
 
 async function periksaHost(h) {
   const masalah = [];
@@ -194,6 +205,10 @@ async function periksaHost(h) {
   // e) js/app.js: penanda panel murid terbaru
   const kurangApp = WAJIB_APP.filter((s) => berkas['js/app.js'] && !berkas['js/app.js'].includes(s));
   for (const s of kurangApp) masalah.push(`js/app.js tidak memuat penanda '${s}' (panel Absen Mandiri build lama)`);
+
+  // f) js/kelas.js: penanda modul normalisasi kelas (Tahap 3)
+  const kurangKelas = WAJIB_KELAS.filter((s) => berkas['js/kelas.js'] && !berkas['js/kelas.js'].includes(s));
+  for (const s of kurangKelas) masalah.push(`js/kelas.js tidak memuat penanda '${s}' (modul kelas build lama)`);
 
   const appIdentik = !!berkas['js/app.js'] && sha12(berkas['js/app.js']) === SHA_APP;
   if (berkas['js/app.js'] && !appIdentik && !kurangApp.length) {

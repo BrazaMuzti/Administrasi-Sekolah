@@ -149,6 +149,10 @@ function bangunResponsSesi(prof, emailFallback, token) {
     "Jabatan": (prof && prof.jabatan) || "",
     "Jabatan Kelas": tipe === 'murid' ? ((prof && prof.jabatan) || "") : "",
     "Wali Kelas": (prof && prof.wali_kelas) || "",
+    // [TAHAP 4A] Daftar kelas wali (multi-kelas) dari kolom baru fn_akun_json;
+    // "Wali Kelas" di atas tetap ada sebagai cerminan teks (kompatibilitas).
+    "Wali Kelas List": (prof && Array.isArray(prof.wali_kelas_list)) ? prof.wali_kelas_list : [],
+    "Wali Kelas Map": (prof && prof.wali_kelas_map && typeof prof.wali_kelas_map === 'object') ? prof.wali_kelas_map : {},
     "Custom Teks Mata Pelajaran": tipe === 'guru' ? ((prof && prof.mapel) || "") : "",
     "Ekstrakurikuler": (prof && prof.ekstrakurikuler) || "",
     "Jabatan Ekstrakurikuler": (prof && prof.jabatan_ekskul) || "",
@@ -827,6 +831,9 @@ async function supabaseFetch(action, payload = {}) {
                   "Ekskul": g.ekstrakurikuler || "",
                   "Ekstrakurikuler": g.ekstrakurikuler || "",
                   "Wali Kelas": g.wali_kelas || "",
+                  // [TAHAP 4A] Satu guru bisa wali >1 kelas: daftar kelas + peta per TA.
+                  "Wali Kelas List": Array.isArray(g.wali_kelas_list) ? g.wali_kelas_list : [],
+                  "Wali Kelas Map": (g.wali_kelas_map && typeof g.wali_kelas_map === 'object') ? g.wali_kelas_map : {},
                   "Penugasan": g.penugasan || {},
                   "Tingkat/Kelas": g.tingkat_kelas || "",
                   "No HP": g.no_telepon || "",

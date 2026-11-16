@@ -698,6 +698,27 @@ cek('transform registrasi diperbarui saat kamera diganti',
   /mulaiKameraKe\(videoEl, deviceId, true\);[\s\S]{0,120}?setTransformReg\(\);/.test(SUMBER));
 
 // ---------------------------------------------------------------------------
+// 8. ABSEN MANDIRI — kamera benar-benar terlihat & dapat digulir (perbaikan 2026-11-16)
+// ---------------------------------------------------------------------------
+// Regresi mahal: kamera hidup tetapi tidak terlihat (blok Metode 2 masih `hidden`,
+// video kolaps, atau wadahnya di bawah lipatan layar HP) → siswa mengira fitur mati.
+const SUMBER_CSS = readFileSync(path.join(AKAR, 'web', 'css', 'input.css'), 'utf8');
+cek('CSS: tinggi layar dinamis 100dvh untuk #view-dashboard',
+  /@supports \(height: 100dvh\) \{[\s\S]{0,140}?#view-dashboard \{ height: 100dvh; \}/.test(SUMBER_CSS));
+cek('CSS: wadah kamera mandiri punya scroll-margin',
+  /#wajah-mandiri-wrap \{ scroll-margin-top: 4rem/.test(SUMBER_CSS));
+cek('CSS: video kamera mandiri tidak boleh kolaps (min-height)',
+  /#wajah-mandiri-wrap video \{[\s\S]{0,140}?min-height: 12rem/.test(SUMBER_CSS));
+cek('face.js: pratinjau kamera mandiri punya min-height',
+  /id="wajah-mandiri-video"[\s\S]{0,140}?min-height:14rem/.test(SUMBER));
+cek('app.js: blok Metode 2 dibuka sebelum pemindaian wajah',
+  /if \(metodaAbsenMandiri !== 'wajah'\) gantiMetodaAbsen\('wajah'\)/.test(SUMBER_APP));
+cek('app.js: wadah kamera digulirkan otomatis setelah video terpasang',
+  /gulirKeWadahKameraMandiri\(wrap\);\s*\n\s*await janjiScan;/.test(SUMBER_APP));
+cek('app.js: helper gulir memantau <video> (batas percobaan)',
+  /function gulirKeWadahKameraMandiri\(wrap, sisaCoba = 20\) \{[\s\S]{0,520}?setTimeout\(\(\) => gulirKeWadahKameraMandiri\(wrap, sisaCoba - 1\), 150\)/.test(SUMBER_APP));
+
+// ---------------------------------------------------------------------------
 console.log(lulus + ' lulus, ' + gagal + ' gagal.');
 if (gagal) process.exitCode = 1;
 

@@ -322,6 +322,137 @@ Uji di **minimal 2 merek ponsel berbeda** (mis. Xiaomi/Realme/Oppo + Samsung/iPh
 
 ---
 
+### S14o — Normalisasi Kelas: Tingkat · Jurusan · Rombel (build `20261116a`, README §9)
+
+Prasyarat: migrasi **Tahap 2** sudah dijalankan (`supabase/sql/upgrade_20261115_kelas_normalisasi.sql`
+pada project berjalan, atau `gabungan.sql` pada project baru). Lakukan **tanpa** mengubah data
+yang sudah ada (uji baca sampai butir 4).
+
+- [ ] **Kolom terstruktur terisi**: SQL Editor →
+      `select "Tingkat/Kelas", tingkat, jurusan_kode, jurusan, rombel, kelas_label from master_data where coalesce("Tingkat/Kelas",'') <> '' order by 1;`
+      → setiap baris kelas punya `tingkat` (`X`/`XI`/`XII`) + `rombel`, dan baris lama
+      berlabel angka (`"10 RPL 1"`) menghasilkan `tingkat='X'` (bukan kosong).
+- [ ] **Label lama TIDAK berubah**: bandingkan dengan daftar sebelum migrasi → isi kolom
+      `"Tingkat/Kelas"` tetap apa adanya (`"10 RPL 1"` **tidak** menjadi `"X RPL 1"`), sehingga
+      filter/penjadwalan lama tetap menemukan datanya.
+- [ ] **`master_jurusan` terisi**: `select kode, nama, jenjang, bidang, urutan from master_jurusan order by urutan, kode;`
+      → hasil backfill dari pasangan `master_data` (`Jurusan`+`Jurusan Lengkap`) + preset
+      (RPL, TKJ, AKL, …) dengan `jenjang` SMA/SMK.
+- [ ] **Murid & riwayat**: Data Akun Murid → Edit satu murid → kolom Kelas tampil benar
+      (termasuk murid berlabel angka); simpan tanpa perubahan → `select nis_nip, tingkat_kelas, tingkat, jurusan_kode, rombel, kelas_label from akun where nis_nip = '<nis>';`
+      → `tingkat_kelas` **tidak** berubah, kolom terstruktur konsisten.
+- [ ] **Kartu/dokumen**: Data Akun Murid → Cetak Kartu (filter kelas yang berisi murid
+      berlabel angka) → bagian jurusan kartu menampilkan **singkatan + nomor rombel**
+      (mis. `RPL 1`) — bukan kosong, bukan label mentah.
+- [ ] **Kenaikan/Turunkan Kelas**: Wizard Kenaikan (S2) untuk kelas berlabel angka
+      (`"10 RPL 1"`) → hasil `"11 RPL 1"` (gaya angka dipertahankan); kelas romawi
+      (`"X RPL 1"`) → `"XI RPL 1"`; kelas `XII` → status **Lulus**. Koreksi **Turunkan**
+      mengembalikan ke tingkat sebelumnya.
+- [ ] **Jadwal Master (kelompok jurusan)**: Menu Jadwal → Lihat Jadwal Master → kelas
+      berlabel angka ikut terkelompok pada jurusan yang benar (bukan `Lainnya`), dan legenda
+      guru per jurusan tidak kosong.
+- [ ] **Wizard Jurusan → tabel referensi**: Master Data → Wizard Jurusan → centang satu
+      jurusan yang belum ada → setelah tersimpan, jalankan
+      `select kode, nama from master_jurusan where kode = '<KODE>';` → baris muncul
+      (sinkron `master_data` → `master_jurusan`).
+- [ ] **Tanpa Tahap 2 (opsional, hanya bila menguji project lama)**: pada project yang
+      **belum** dimigrasi, aplikasi tetap jalan (tidak ada error di console; hanya
+      `[kelas] …`/`[master_jurusan] …` bila ada) dan seluruh fitur kelas memakai perilaku lama.
+- [ ] **Aset & versi**: Sources → `js/kelas.js?v=20261116a` termuat **sebelum**
+      `js/app.js?v=20261116a`; console tidak memuat `[kelas] web/js/kelas.js tidak termuat`;
+      Application → Cache Storage hanya menyisakan `sisip-static-v13`.
+- [ ] **Otomatis**: `npm run test:kelas` lulus (150 pemeriksaan) — juga berjalan di CI
+      job **Validasi repo**. Setelah deploy: `npm run check:deploy` (semua host ✅).
+
+---
+
+### S14p — Wali Kelas Multi-kelas / Tahap 4A (build `20261116b`, README §9f)
+
+Prasyarat: migrasi `supabase/sql/upgrade_20261116_wali_kelas_multi.sql` sudah dijalankan
+(pada project berjalan; pada project baru cukup `gabungan.sql` versi terbaru — blok terakhir),
+lalu **deploy ulang** frontend build `20261116b` (SW `v14`).
+
+- [ ] **Uji SQL tanpa efek samping**: SQL Editor → tempel seluruh isi
+      `supabase/sql/uji_wali_kelas_multi.sql` → Run → semua baris `✔ …` muncul dan
+      berakhir `UJI WALI MULTI LULUS`; tidak ada baris ERROR. (Seluruh uji di dalam satu
+      transaksi yang di-`rollback`.)
+- [ ] **Tabel relasi ada**: `select * from wali_kelas_penugasan order by nis_nip, tahun_pelajaran, kelas_label;`
+      → satu baris per (guru × TA × kelas); guru yang sudah punya `wali_kelas`/`penugasan`
+      lama otomatis muncul (hasil backfill); `kelas_label` terisi kanonik (mis. `X LP 1`).
+- [ ] **Helper**: `select fn_wali_kelas_list('<NIP>'), fn_wali_kelas_map('<NIP>'), fn_guru_wali_ada('<NIP>');`
+      → daftar kelas wali guru tsb (array + peta per TA).
+- [ ] **Isi 2 kelas dari admin**: Data Akun Guru → Edit guru → *Penugasan per Tahun Pelajaran*
+      → **centang 2 kelas** pada bagian **Wali Kelas** (label “boleh lebih dari satu”) →
+      bagian “Wali Kelas Ganda Terdeteksi” hanya muncul bila kelas itu memang dipegang guru
+      lain → Simpan.
+- [ ] **Kolom lama tetap cermin**: `select nis_nip, wali_kelas from akun where nis_nip = '<NIP>';`
+      → terisi gabungan koma (`X LP 1, X LP 2`); `select * from wali_kelas_penugasan where nis_nip='<NIP>';`
+      → 2 baris pada TA aktif.
+- [ ] **Daftar Wali Kelas**: Data Akun Guru → tab **Daftar Wali Kelas** → guru muncul pada
+      **kedua** kelas (satu baris per kelas), kelompok jurusan benar.
+- [ ] **Akses guru wali**: login sebagai guru tsb → menu Hadir Tatap Muka/Input Nilai →
+      kelas yang diampu mengikuti kedua kelas; Info Kelas → tombol WA Wali Kelas aktif untuk
+      kedua kelas; tombol **Import Data Murid** tetap tersedia.
+- [ ] **Akses murid**: Edit data / input nilai murid pada **kelas ke-2** juga boleh
+      (server memakai `akun_guru_ampu_murid` yang kini membandingkan kelas kanonik) —
+      uji dengan kelas bergaya beda (`10 LP 1` vs `X LP 1`) bila ada.
+- [ ] **Absen Mandiri murid kelas ke-2**: guru wali kelas tersebut bisa membuka/menutup
+      kunci absen muridnya (face scan opsional tetap berjalan).
+- [ ] **Perubahan menyusut**: hapus centang satu kelas → Simpan → `wali_kelas_penugasan`
+      hanya menyisakan 1 baris dan `akun.wali_kelas` ikut berubah.
+- [ ] **Ganti TA**: ubah penugasan pada TA lain (mis. `2027/2028`) → `fn_wali_kelas_map('<NIP>')`
+      menampilkan kelas per TA; guru dengan `wali_kelas` kosong **tidak** terbaca wali pada
+      TA yang tidak terdaftar.
+- [ ] **Kompatibilitas host lama**: pada satu browser buka build lama (`?v=20261116a`) →
+      aplikasi tetap jalan (dropdown wali tunggal masih bisa menyimpan satu kelas; kolom
+      `wali_kelas` tetap terisi) — bukti kolom lama tidak ditinggalkan.
+- [ ] **Aset & versi**: Sources → `js/kelas.js?v=20261116b` sebelum `js/app.js?v=20261116b`;
+      Application → Cache Storage hanya menyisakan `sisip-static-v14`.
+- [ ] **Otomatis**: `npm run test:kelas` lulus (222 pemeriksaan), `npm run check:sql`,
+      `npm run test:rpc-args`, `npm run test:face` lulus; setelah deploy `npm run check:deploy`
+      (semua host ✅).
+
+---
+
+### S14q — Perbaikan UI Absen/Ekskul/Nilai (build `20261116c`, SW `v15`, README §9g)
+
+Tanpa migrasi SQL — cukup **deploy ulang** frontend build `20261116c` (SW `v15`).
+
+- [ ] **Ekskul — sub-ekskul tidak keluar dari alur**: Ekstrakurikuler → tab Anggota →
+      **Tambah Anggota** → atur filter (ID Tahun/Kelas/Sub + Cari Nama) → klik tombol
+      **Sub-Ekskul** pada satu baris → popup checklist muncul → **Simpan** →
+      **modal Tambah Anggota kembali** dengan centang pilihan & filter yang sama
+      (uji juga tombol **Batal**).
+- [ ] **Ekskul — "Atur Sub" di kartu Profil Anggota**: popup Sub tersimpan langsung ke
+      database (tidak lagi diam / error di console) dan baris Sub di kartu ikut berubah.
+- [ ] **Cari Nama di modal absen masal**: Hadir Tatap Muka → klik tanggal → kotak
+      **Cari Nama / NIS siswa...** → ketik sebagian nama → baris cocok tersorot kuning
+      (baris lain diredupkan), penghitung `1/n` tampil, **Enter/↓** & **Shift+Enter/↑**
+      berpindah hasil **dan menggulir** daftar, tombol **✕** membersihkan sorotan;
+      tombol **Urutkan** tetap bekerja (hasil dihitung ulang).
+- [ ] **Kamera Absen Mandiri terlihat di HP**: login murid → **Absen Mandiri** → pilih
+      Mapel/Ekskul → tombol **Pindai Wajah Saya** → blok *Face Scan* otomatis terbuka &
+      halaman **menggulir sendiri** ke kamera; video tampil (tidak kolaps) dan tombol
+      **Berhenti** terjangkau. Uji juga di browser HP (bilah alamat menyusut) → bagian
+      bawah `#main-content` tetap bisa digulir.
+- [ ] **Dashboard murid — Absensi Hari Ini**: setelah murid absen (captcha/face), kartu
+      **Absensi Hari Ini** menampilkan chip status (**H/S/I/A/D** + mapel/ekskul) walau
+      TA/semester di header berbeda dari TA baris absensi; baris statistik semester
+      memuat **H, S, I, A, D**.
+- [ ] **Laporan Nilai murid**: menu **Laporan Nilai** → kartu identitas **NIS, NISN,
+      Kelas, Wali Kelas** di atas; kartu mapel hanya memuat komponen nilai (tanpa baris
+      "ID Akun Guru"/"No"/"NISN"/"L/P"/"Wali Kelas"/"Mata Pelajaran"); kartu
+      **Ekstrakurikuler** menampilkan baris **Pembimbing** (nama bila terbaca, jika
+      tidak → NIP pembina).
+- [ ] **Aset & versi**: Sources → `js/app.js?v=20261116c`, `js/face.js?v=20261116c`,
+      `css/style.css?v=20261116c`; Application → Cache Storage hanya menyisakan
+      `sisip-static-v15`.
+- [ ] **Otomatis**: `npm run test:kelas` lulus (247 pemeriksaan), `npm run test:face`
+      lulus (194 pemeriksaan), `npm run check:sql` & `npm run test:rpc-args` lulus;
+      setelah deploy `npm run check:deploy` (semua host ✅).
+
+---
+
 ## D. SELESAI UJI
 
 ### S15 — Bersih-bersih

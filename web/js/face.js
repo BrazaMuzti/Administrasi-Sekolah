@@ -3830,6 +3830,9 @@
         }
       };
 
+      // [FIX 3] min-height 14rem: pada layar kecil (HP) tinggi `h-56` pernah
+      // tertekan oleh layout flex sehingga video kolaps/hampir tak terlihat —
+      // nilai min-height menjaga area kamera selalu punya tinggi yang bisa dilihat.
       wrap.innerHTML = `
         <div class="rounded-lg overflow-hidden border border-cyan-500 bg-black">
           <div class="flex items-center gap-2 bg-slate-900/85 px-2 py-1">
@@ -3839,8 +3842,8 @@
             <button type="button" id="btn-mandiri-zoom-in" class="shrink-0 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold leading-none px-1.5 py-0.5 rounded transition" title="Perbesar (zoom masuk)">+</button>
             <span id="wajah-mandiri-zoom-label" class="shrink-0 text-[8px] text-slate-400 tabular-nums w-7 text-center">100%</span>
           </div>
-          <div class="relative h-56 overflow-hidden">
-            <video id="wajah-mandiri-video" autoplay playsinline muted class="w-full h-full object-contain"></video>
+          <div class="relative h-56 overflow-hidden" style="min-height:14rem;">
+            <video id="wajah-mandiri-video" autoplay playsinline muted class="w-full h-full object-contain" style="min-height:14rem;"></video>
             <canvas id="wajah-mandiri-overlay" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
             <div id="wajah-mandiri-live-status" class="absolute top-1.5 left-1.5 right-1.5 text-center text-[10px] font-bold text-white drop-shadow-lg bg-black/40 rounded px-2 py-0.5">Menyiapkan kamera...</div>
             <button id="btn-wajah-mandiri-stop" class="absolute bottom-1.5 right-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">Berhenti</button>
