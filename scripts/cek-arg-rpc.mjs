@@ -4,7 +4,7 @@
 // Membandingkan argumen setiap panggilan RPC di frontend
 // (`web/js/app.js`, `utils.js`, `face.js`, `utils.example.js`)
 // dengan daftar parameter `create [or replace] function` di
-// `supabase/sql/*.sql`.
+// `supabase/sql/gabungan.sql` (sumber kebenaran tunggal).
 //
 // LATAR BELAKANG
 //   PostgREST mencocokkan NAMA setiap argumen dengan nama parameter
@@ -57,9 +57,10 @@ const HELPER_PARAMS = {
 const IDENT = /[A-Za-z_$][\w$]*/;
 
 // ============================================================
-// 1. DAFTAR PARAMETER FUNGSI DARI supabase/sql/*.sql
-//    Definisi "terakhir menang" (berkas diurutkan naik, jadi migrasi
-//    bertanggal lebih baru menimpa `gabungan.sql`/berkas lama).
+// 1. DAFTAR PARAMETER FUNGSI DARI supabase/sql/gabungan.sql
+//    Definisi "terakhir menang" mengikuti URUTAN BLOK di gabungan.sql
+//    (= urutan EKSEKUSI), bukan sort nama berkas. Berkas migrasi
+//    satu-per-satu sudah dihapus saat konsolidasi.
 // ============================================================
 function pisahParam(isi) {
   const bagian = [];
@@ -103,10 +104,25 @@ function paramDariSignatur(src, openIdx) {
   return null;
 }
 
+/** Pisahkan `gabungan.sql` menjadi blok berurutan (= urutan EKSEKUSI). */
+function blokGabungan() {
+  const isi = fs.readFileSync(path.join(SQL_DIR, 'gabungan.sql'), 'utf8');
+  const pola = /^-- \[\d+\/\d+\] (.+\.sql)\s*$/gm;
+  const posisi = [];
+  let m;
+  while ((m = pola.exec(isi))) posisi.push({ nama: m[1], start: m.index });
+  return posisi.map((p, i) => ({
+    nama: p.nama,
+    isi: isi.slice(p.start, i + 1 < posisi.length ? posisi[i + 1].start : isi.length)
+  }));
+}
+
 function daftarFungsiSql() {
   const peta = new Map();
-  for (const namaBerkas of fs.readdirSync(SQL_DIR).filter((f) => f.endsWith('.sql')).sort()) {
-    const src = fs.readFileSync(path.join(SQL_DIR, namaBerkas), 'utf8');
+  // Iterasi blok gabungan.sql SESUAI URUTANNYA agar definisi "terakhir menang"
+  // persis mencerminkan apa yang benar-benar dijalankan di Supabase.
+  for (const b of blokGabungan()) {
+    const src = b.isi;
     const re = /create\s+(?:or\s+replace\s+)?function\s+([a-z_][a-z0-9_]*)\s*\(/gi;
     let m;
     while ((m = re.exec(src))) {
@@ -115,7 +131,7 @@ function daftarFungsiSql() {
       peta.set(m[1].toLowerCase(), {
         params: param.map((p) => p.nama),
         wajib: param.filter((p) => !p.adaDefault).map((p) => p.nama),
-        file: namaBerkas
+        file: b.nama
       });
     }
   }

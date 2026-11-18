@@ -177,6 +177,14 @@
   let bisuStatusLoop = false;       // bungkam pesan loop setelah wajah diambil (hindari menimpa pesan sukses)
 
   // ------------------------------------------------------------------
+  // 0b. Deteksi Brave Shields (canvas farbling)
+  // ------------------------------------------------------------------
+  let braveWarnShown = false;
+  function isBraveBrowser() {
+    try { return !!(navigator.brave && navigator.brave.isBrave); } catch (e) { return false; }
+  }
+
+  // ------------------------------------------------------------------
   // 1. Helper kecil (fallback bila globals app.js belum tersedia)
   // ------------------------------------------------------------------
   function fxEscape(s) {
@@ -2065,7 +2073,7 @@
     const elW = videoEl.clientWidth || oW;
     const elH = videoEl.clientHeight || oH;
     if (!elW || !elH) return;
-    const s = Math.max(elW / vw, elH / vh);   // skala object-cover
+    const s = Math.min(elW / vw, elH / vh);   // skala object-contain (sama dengan loop deteksi pindai)
     const offX = (elW - vw * s) / 2;
     const offY = (elH - vh * s) / 2;
     const b = hasilDeteksi.detection && hasilDeteksi.detection.box;
@@ -3499,6 +3507,11 @@
           }
         }
       } catch (e) {
+        // Periksa apakah Brave Shields (canvas farbling) mengganggu deteksi wajah
+        if (!braveWarnShown && isBraveBrowser()) {
+          o.setStatus('<i class="fa-solid fa-exclamation-triangle mr-1"></i>Deteksi wajah terhalang oleh Brave Shields. Nonaktifkan "Shields" atau izinkan "Fingerprinting" untuk situs ini.', 'text-amber-200');
+          braveWarnShown = true;
+        }
         if (scanAktif && !scanAktif.hentikan) o.setStatus('<i class="fa-solid fa-triangle-exclamation mr-1"></i>' + fxEscape(e && e.message ? e.message : 'Gagal memproses frame.'), 'text-amber-200');
         await new Promise(r => setTimeout(r, DETECT_INTERVAL_MS));
         continue;

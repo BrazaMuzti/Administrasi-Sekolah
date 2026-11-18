@@ -324,7 +324,7 @@ Uji di **minimal 2 merek ponsel berbeda** (mis. Xiaomi/Realme/Oppo + Samsung/iPh
 
 ### S14o — Normalisasi Kelas: Tingkat · Jurusan · Rombel (build `20261116a`, README §9)
 
-Prasyarat: migrasi **Tahap 2** sudah dijalankan (`supabase/sql/upgrade_20261115_kelas_normalisasi.sql`
+Prasyarat: migrasi **Tahap 2** sudah dijalankan (blok `upgrade_20261115_kelas_normalisasi.sql` di `supabase/sql/gabungan.sql`
 pada project berjalan, atau `gabungan.sql` pada project baru). Lakukan **tanpa** mengubah data
 yang sudah ada (uji baca sampai butir 4).
 
@@ -368,7 +368,7 @@ yang sudah ada (uji baca sampai butir 4).
 
 ### S14p — Wali Kelas Multi-kelas / Tahap 4A (build `20261116b`, README §9f)
 
-Prasyarat: migrasi `supabase/sql/upgrade_20261116_wali_kelas_multi.sql` sudah dijalankan
+Prasyarat: migrasi (blok `upgrade_20261116_wali_kelas_multi.sql` di `supabase/sql/gabungan.sql`) sudah dijalankan
 (pada project berjalan; pada project baru cukup `gabungan.sql` versi terbaru — blok terakhir),
 lalu **deploy ulang** frontend build `20261116b` (SW `v14`).
 

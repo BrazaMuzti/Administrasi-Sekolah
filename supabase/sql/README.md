@@ -6,32 +6,38 @@ Folder ini berisi skema database **versi terkini** untuk SIAKAD/SISIP.
 
 | File | Keterangan |
 |---|---|
-| `gabungan.sql` | **Gabungan seluruh 86 berkas migrasi** (2026-09-03 s.d. 2026-11-15) dalam satu file, urut **eksekusi** pengembangan, **tanpa data uji**. Dirakit otomatis oleh `npm run build:sql` — **jangan diedit manual** (`npm run check:sql` akan gagal bila basi). |
-| `upgrade_*.sql` / `fix_*.sql` | Salinan file satu-persatu (nama & isi sama dengan `../`), urut tanggal. |
+| `gabungan.sql` | **SUMBER KEBENARAN TUNGGAL** skema database: seluruh **87 migrasi** (2026-09-03 s.d. 2026-11-16) dalam satu file, urut **eksekusi** pengembangan, **tanpa data uji**. Berkas migrasi satu-per-satu (`upgrade_*.sql` / `fix_*.sql`) sudah **dihapus** — semua perubahan skema diedit langsung di sini. Validasi struktur: `npm run check:sql`. |
 | `uji_*.sql` / `diag_*.sql` | Berkas bantu pengujian E2E (`uji_data`, `uji_bersih`, `uji_bersih_penugasan`, `uji_data_penugasan`) & diagnosa (`diag_20261019_nis_ta_lain`) — **tidak ikut** ke `gabungan.sql` dan **jangan dijalankan di produksi**. |
 
 ## Kapan pakai yang mana?
 
 - **Project Supabase BARU** (kosong) → jalankan **`gabungan.sql`** sekali jalan di SQL Editor. Selesai.
-- **Project yang SUDAH berjalan** dan hanya tertinggal beberapa upgrade → jalankan **file satu-persatu** yang belum ada di database, **urut tanggal** (jangan acak, jangan ulang gabungan).
+- **Project yang SUDAH berjalan** dan tertinggal beberapa upgrade → jalankan **hanya blok** `gabungan.sql` yang belum ada di database, **urut blok 1 → 87** (jangan diacak, jangan ulang semuanya).
 
-Semua file idempotent (aman dijalankan berulang), tapi untuk project hidup tetap jalankan hanya yang dibutuhkan.
+Semua blok idempotent (aman dijalankan berulang), tapi untuk project hidup tetap jalankan hanya yang dibutuhkan.
 
-## Merakit ulang `gabungan.sql` (menambah migrasi baru)
+## Mengubah `gabungan.sql` (menambah migrasi baru)
 
-`gabungan.sql` **dihasilkan otomatis** — jangan diedit manual:
+`gabungan.sql` adalah **sumber kebenaran tunggal** — semua perubahan skema diedit langsung di sini:
+
+1. Tambahkan blok baru di **akhir** berkas (atau di posisi yang benar bila urutan eksekusi menuntut), dengan pemisah dan marker:
+
+   ```sql
+   -- ============================================================
+   -- [88/88] upgrade_20261201_nama_migrasi.sql
+   -- ============================================================
+   ... isi migrasi (idempotent) ...
+   ```
+
+2. Naikkan penyebut **SEMUA** marker (`n/87` → `n/88`) dan perbarui header berkas (baris `… s.d. … (87 berkas)`).
+3. Jalankan `npm run check:sql` untuk memvalidasi struktur.
 
 ```bash
-npm run build:sql                       # rakit ulang setelah menambah/mengubah berkas migrasi
-npm run check:sql                       # periksa saja (exit 1 bila basi / manifest tidak konsisten)
-node scripts/build-gabungan.mjs --list  # lihat urutan 86 blok
+npm run check:sql                        # validasi struktur (exit 1 bila ada masalah)
+node scripts/check-gabungan.mjs --list   # lihat urutan 87 blok
 ```
 
-`scripts/build-gabungan.mjs` menyimpan daftar urut **eksplisit** (`const URUTAN`).
-Menambah berkas `upgrade_*.sql` baru **wajib** mendaftarkan namanya di sana — skrip
-menolak jalan (dan `check:sql` gagal) selama ada berkas baru yang belum terdaftar.
-Penjaga lain: isi blok lama tidak boleh menyimpang dari berkas sumbernya, dan jumlah
-`$$` (dollar-quote) tiap blok harus genap.
+`scripts/check-gabungan.mjs` memverifikasi: marker berurutan `1..M` dengan penyebut seragam, nama berkas tiap blok unik, jumlah `$$` tiap blok genap, tidak ada marker palsu di dalam badan blok, dan header berkas cocok dengan isi blok.
 
 > Dua blok `jadwal_pelajaran` — `upgrade_20260920_fix_kolom_jadwal_pelajaran.sql` dan
 > `upgrade_20260920b_lepas_notnull_legacy_jadwal_pelajaran.sql` — berada di **blok 35–36,
@@ -40,7 +46,10 @@ Penjaga lain: isi blok lama tidak boleh menyimpang dari berkas sumbernya, dan ju
 > jadwal_pelajaran` **tanpa** guard `if not exists`). Jadi urutan `gabungan.sql` **bukan**
 > hasil sort nama berkas — jangan diacak.
 
-## Urutan file satu-persatu (87 berkas)
+## Urutan blok di `gabungan.sql` (87 blok)
+
+> Blok di bawah kini hidup **di dalam `gabungan.sql`** (berkas `upgrade_*.sql` / `fix_*.sql`
+> satu-per-satu sudah dihapus). Nama blok dipertahankan sebagai penanda asal migrasi.
 
 1. `upgrade_20260903.sql` — kolom profil akun + tabel master_data (13 kolom gaya Sheets) + RLS
 2. `fix_20260903_kredensial.sql` — kredensial murid & RPC (pengganti bagian 20260903)

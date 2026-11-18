@@ -6,8 +6,7 @@
   "scripts": {
     "build:css": "tailwindcss -i web/css/input.css -o web/css/style.css --minify",
     "dev:css": "tailwindcss -i web/css/input.css -o web/css/style.css --watch",
-    "build:sql": "node scripts/build-gabungan.mjs",
-    "check:sql": "node scripts/build-gabungan.mjs --check",
+    "check:sql": "node scripts/check-gabungan.mjs",
     "build:icons": "node scripts/build-icons.mjs",
     "check:icons": "node scripts/build-icons.mjs --check",
     "check:deploy": "node scripts/cek-deploy.mjs",

@@ -10,7 +10,7 @@ via **Google Drive API v3**, lalu menyimpan URL hasilnya ke `akun.url_foto`.
 > dengan akses token OAuth2, lalu upload via Drive API — tanpa consent screen dan tanpa
 > batasan pemanggil anonim.)
 
-> **Prasyarat database:** jalankan `supabase/sql/upgrade_20261011_akun_murid_foto_medsos.sql`
+> **Prasyarat database:** jalankan blok `upgrade_20261011_akun_murid_foto_medsos.sql` dari `supabase/sql/gabungan.sql`
 > (membuat kolom `url_foto`, `alamat_maps`, `media_sosial` + RPC `simpan_foto_murid`).
 
 ## Siapkan Service Account (sekali saja, ±5 menit)

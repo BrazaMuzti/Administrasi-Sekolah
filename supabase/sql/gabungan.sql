@@ -26,8 +26,8 @@
 --     dijalankan SEBELUM frontend apa pun di-deploy: kolom kelas lama tetap
 --     ditulis klien lama, sedangkan kolom terstruktur baru dijaga trigger
 --     dua arah (label lama ⇄ tingkat/jurusan_kode/rombel).
---   - Dihasilkan ulang oleh: npm run build:sql
---     (periksa tanpa menulis: npm run check:sql)
+--   - Berkas ini SUMBER KEBENARAN TUNGGAL; berkas migrasi satu-per-satu
+--     sudah dihapus. Validasi struktur: npm run check:sql
 -- ============================================================================
 -- ============================================================
 -- [1/87] upgrade_20260903.sql

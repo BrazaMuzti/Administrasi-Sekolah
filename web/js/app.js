@@ -1,12 +1,24 @@
 let html5QrcodeScanner = null;
 let clockInterval = null;
 
+/** Kode versi aplikasi: diambil dari pembuatan update terakhir (format tahun, bulan, tanggal, kode unik — contoh: 20261116c / 20261028b2).
+ *  Membaca tag <meta name="sisip-build"> / <meta name="version"> dari index.html secara dinamis dengan fallback build rilis terakhir. */
+function ambilVersiAplikasi() {
+  if (typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="sisip-build"]') || document.querySelector('meta[name="version"]');
+    if (meta && meta.content && meta.content.trim()) return meta.content.trim();
+  }
+  return '20261116c';
+}
+
+const VERSI_APLIKASI = ambilVersiAplikasi();
+
 /** ===== INFO APLIKASI (popup "Tentang" + Donasi) =====
  *  Edit nilai di bawah ini sesuai kebutuhan — tampil di tombol ⓘ pada header. */
 const INFO_APLIKASI = {
   nama: 'SISIP',
   namaPanjang: 'Sistem Informasi Sekolah Indonesia Pintar',
-  versi: '1.0.0',
+  versi: VERSI_APLIKASI,
   deskripsi: 'Aplikasi administrasi sekolah: absensi, penilaian, jadwal, kalender pendidikan & laporan — berbasis web, multi-peran (admin, guru, murid).',
   pengembang: 'Tim Pengembang SISIP : Indra Nur Muhammad, S.Pd., M.Pd., Yusman, S.Ip.',
   kontak: {
@@ -574,7 +586,7 @@ let userName = namaDenganGelar(
            
            <!-- KANAN: Tentang + Profil User -->
            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-               <button onclick="bukaTentangAplikasi()" title="Tentang Aplikasi & Donasi" class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/60 border border-white/10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-blue-600/60 transition shadow-inner shrink-0"><i class="fa-solid fa-circle-info text-xs sm:text-sm"></i></button>
+               <button onclick="bukaTentangAplikasi()" title="Tentang Aplikasi & Donasi — ${escapeHtml(INFO_APLIKASI.nama)} (${escapeHtml(INFO_APLIKASI.versi)})" class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/60 border border-white/10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-blue-600/60 transition shadow-inner shrink-0"><i class="fa-solid fa-circle-info text-xs sm:text-sm"></i></button>
                <button onclick="bukaProfilAkun()" title="Profil User" class="flex items-center gap-2 sm:gap-3 bg-slate-900/60 py-1 px-2 rounded-full border border-white/10 shadow-inner cursor-pointer hover:bg-slate-800/80 hover:ring-2 hover:ring-blue-500/50 transition text-left shrink-0">
                    <div class="text-right hidden sm:block">
                       <div class="text-[10px] font-bold text-white leading-tight truncate max-w-[120px] sm:max-w-[150px]">${userName}</div>
@@ -766,7 +778,7 @@ async function bukaProfilAkun() {
       <div class="flex items-center justify-center gap-1.5 text-[9px] text-slate-400">
         <i class="fa-regular fa-calendar text-blue-400"></i> Sesi aktif: <b class="text-slate-200">${escapeHtml(tahunSesi)}</b> · Semester <b class="text-slate-200">${escapeHtml(smtSesi || '-')}</b>
       </div>
-      ${INFO_APLIKASI.versi ? `<div class="text-[8px] text-slate-500 mt-1">${escapeHtml(INFO_APLIKASI.nama)} v${escapeHtml(INFO_APLIKASI.versi)}</div>` : ''}
+      ${INFO_APLIKASI.versi ? `<div class="text-[8px] text-slate-500 mt-1">${escapeHtml(INFO_APLIKASI.nama)} (${escapeHtml(INFO_APLIKASI.versi)})</div>` : ''}
     `,
     background: '#1e293b', color: '#fff', showCancelButton: true,
     confirmButtonText: '<i class="fa-solid fa-right-from-bracket"></i> Keluar (Logout)',
@@ -813,7 +825,7 @@ function bukaTentangAplikasi() {
     html: `
       <div class="flex flex-col items-center -mt-1 mb-3">
         ${logo ? `<img src="${escapeHtml(logo)}" class="w-14 h-14 object-contain rounded-xl bg-white/10 p-1 border border-white/20 mb-2" onerror="this.style.display='none'">` : ''}
-        <div class="text-base font-extrabold text-white">${escapeHtml(inf.nama)} <span class="text-[9px] text-slate-400 font-normal">v${escapeHtml(inf.versi)}</span></div>
+        <div class="text-base font-extrabold text-white">${escapeHtml(inf.nama)} <span class="text-[9px] text-slate-400 font-normal">(${escapeHtml(inf.versi)})</span></div>
         <div class="text-[10px] text-blue-300">${escapeHtml(inf.namaPanjang)}</div>
       </div>
       <p class="text-[10px] text-slate-300 text-left bg-black/30 border border-white/10 rounded-lg p-2.5 leading-relaxed mb-3">${escapeHtml(inf.deskripsi)}</p>

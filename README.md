@@ -9,7 +9,7 @@ PostgREST & fungsi RPC.
 | Bagian | Lokasi | Keterangan |
 |---|---|---|
 | Frontend | `web/` | HTML + JS murni + Tailwind v4, `@supabase/supabase-js` via CDN |
-| Database | `supabase/sql/` | Skema SQL + seluruh berkas upgrade; skema lengkap untuk project baru = `supabase/sql/gabungan.sql` (84 blok, dirakit otomatis oleh `npm run build:sql`) |
+| Database | `supabase/sql/` | Skema SQL; `gabungan.sql` = **sumber kebenaran tunggal** (87 blok migrasi urut eksekusi, tanpa data uji), divalidasi `npm run check:sql` |
 | Deploy | GitHub Pages (default) / Vercel (alternatif) | GitHub Pages: otomatis saat push ke `main` (workflow `.github/workflows/static.yml`, folder `web/`). Vercel: lihat [bagian 5](#5-deploy--vercel-alternatif) |
 
 ## Menjalankan Lokal
@@ -81,17 +81,18 @@ Setelah push ke `main`, **GitHub Pages otomatis ter-deploy** (lihat bagian
 
 | Kondisi | File yang dijalankan |
 |---|---|
-| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **84 berkas upgrade** (2026-09-03 s.d. 2026-10-31), sekali jalan |
-| **Project sudah berjalan**, tertinggal beberapa upgrade | file satu-persatu di `supabase/sql/`, **urut tanggal**, hanya yang belum ada di database |
+| **Project baru / kosong** | `supabase/sql/gabungan.sql` — gabungan seluruh **87 migrasi** (2026-09-03 s.d. 2026-11-16), sekali jalan |
+| **Project sudah berjalan**, tertinggal beberapa upgrade | **blok** di `supabase/sql/gabungan.sql`, **urut blok 1 → 87**, hanya yang belum ada di database |
 
 3. Salin seluruh isi file ke SQL Editor (atau pakai tombol **upload** file `.sql`)
    → klik **Run** (`Ctrl+Enter`).
 4. Verifikasi: buka **Table Editor** — semua tabel & kolom harus sudah muncul
    (`akun`, `master_data`, `absensi`, `nilai`, `ekstrakurikuler`, dst.).
 
-> Semua file SQL **idempotent** (aman dijalankan berulang). Daftar lengkap isi &
-> urutan 84 berkas ada di `supabase/sql/README.md`. `gabungan.sql` **dirakit otomatis**
-> (`npm run build:sql`) — jangan diedit manual; `npm run check:sql` akan gagal bila basi.
+> Semua blok SQL **idempotent** (aman dijalankan berulang). Daftar lengkap isi &
+> urutan 87 blok ada di `supabase/sql/README.md`. `gabungan.sql` adalah **sumber
+> kebenaran tunggal** (berkas migrasi satu-persatu sudah dihapus) — edit langsung di
+> sini; `npm run check:sql` memvalidasi strukturnya.
 > File `uji_data.sql` / `uji_bersih.sql` khusus pengujian E2E — jangan dijalankan di produksi.
 
 ---
@@ -197,7 +198,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   Klien memakai helper bernama `aksesRegistrasiWajahMasal()` &
   `aksesSimpanDataAkunMurid(data, isNew)` (sembunyi-tombol + penjaga lapis kedua),
   sedangkan server dirapikan oleh
-  `supabase/sql/upgrade_20261031_akses_admin_akun_murid.sql`: `fn_role()`/`fn_nis()`
+  blok `upgrade_20261031_akses_admin_akun_murid.sql` di `supabase/sql/gabungan.sql`: `fn_role()`/`fn_nis()`
   jadi deterministik **admin-first**, `fn_is_admin()` berbasis `exists`, plus
   backfill `akun.user_id` untuk baris admin/guru yang belum tertaut ke akun login.
   ⚠ **Jalankan SQL itu sebelum frontend build `20261031b` ter-deploy** — tanpa itu
@@ -205,7 +206,7 @@ Sejak upgrade `20261028a`–`fix_20261029` (lihat `supabase/sql/README.md` entri
   `20261031a` (`VERSION` SW `v6`); build `20261031b` menaikkan `VERSION` ke `v7`
   dan `BUILD` di `web/js/install.js` ke `20261031b` (lihat §7b). Build
   `20261031c` (`VERSION` SW `v8`) menambah akurasi Absen Mandiri (§7c) dan
-  mewajibkan `supabase/sql/fix_20261031b_peta_wajah_murid.sql` agar murid
+  mewajibkan blok `fix_20261031b_peta_wajah_murid.sql` di `supabase/sql/gabungan.sql` agar murid
   ber-JWT Auth bisa membaca descriptor wajahnya sendiri. Build `20261031d`
   (`VERSION` SW `v9`) menambahkan **lapisan kamera universal** (§7d): pemilih
   kamera (depan/belakang/semua perangkat), ingatan kamera terakhir, dan fallback
@@ -289,7 +290,7 @@ agama** pada profil murid, **tampilan jabatan ekstrakurikuler**, dan **cetak lem
 
 Klien memakai helper bernama `aksesRegistrasiWajahMasal()` & `aksesSimpanDataAkunMurid(data, isNew)`
 di `web/js/app.js` untuk menyembunyikan tombol **dan** menolak aksi di lapis kedua. Server
-menjaminnya lewat `supabase/sql/upgrade_20261031_akses_admin_akun_murid.sql`
+menjaminnya lewat blok `upgrade_20261031_akses_admin_akun_murid.sql` di `supabase/sql/gabungan.sql`
 (`fn_role`/`fn_nis` deterministik admin-first, `fn_is_admin` berbasis `exists`, backfill
 `akun.user_id`). Bila admin masih ditolak: cek `select nis_nip, tipe, user_id, email from akun
 where tipe = 'admin';` — baris admin harus `user_id` terisi (login sekali di aplikasi, atau
@@ -297,7 +298,7 @@ jalankan file SQL di atas dan baca pesan `raise notice`/`raise warning`-nya).
 
 ### Persyaratan (sekali saja)
 
-1. **Database** — jalankan `supabase/sql/upgrade_20261011_akun_murid_foto_medsos.sql`
+1. **Database** — jalankan blok `upgrade_20261011_akun_murid_foto_medsos.sql` dari `supabase/sql/gabungan.sql`
    di Supabase SQL Editor (kolom `url_foto`, `alamat_maps`, `media_sosial` + RPC
    `simpan_foto_murid`).
 2. **Service Account Google** — ikuti panduan `supabase/functions/unggah-foto-murid/README.md`:
@@ -342,8 +343,7 @@ jalankan file SQL di atas dan baca pesan `raise notice`/`raise warning`-nya).
 ```bash
 npm run build:css      # build CSS produksi (minify)
 npm run dev:css        # watch mode CSS
-npm run build:sql      # rakit ulang supabase/sql/gabungan.sql (84 blok)
-npm run check:sql      # periksa gabungan.sql sudah sinkron/terdaftar semua
+npm run check:sql      # validasi struktur supabase/sql/gabungan.sql (87 blok)
 npm run build:icons    # buat ulang ikon PWA (PNG 192/512/maskable + apple-touch)
 npm run test:rpc-args  # penjaga PGRST202: argumen RPC frontend vs signature SQL
 npm run test:face      # regresi face.js tanpa browser (overlay landmark + ambang, §7b)
@@ -368,8 +368,8 @@ Supabase** (bukan Google Sheets / Apps Script seperti repo aslinya).
   - Fitur GPS geofencing — bukan kebutuhan aplikasi sekolah saat ini (bisa ditambah belakangan).
 - **Implementasi di proyek ini**: `web/js/face.js` (face-api.js + model lokal `web/models/`,
   offline-friendly); penyimpanan descriptor di kolom `akun.wajah_descriptor` lewat RPC
-  `simpan_wajah_murid` (lihat `supabase/sql/upgrade_20261014_wajah.sql`).
-- **Migrasi multi-sampel & tuning startup**: `supabase/sql/upgrade_20261014e_wajah_multi.sql`
+  `simpan_wajah_murid` (lihat blok `upgrade_20261014_wajah.sql` di `supabase/sql/gabungan.sql`).
+- **Migrasi multi-sampel & tuning startup**: blok `upgrade_20261014e_wajah_multi.sql` di `supabase/sql/gabungan.sql`
   — `wajah_descriptor` flat `[128 angka]` → array-of-arrays (maks 6 sampel/murid), RPC
   `simpan_wajah_murid` + `p_mode 'ganti'/'tambah'`; frontend: registrasi multi-pose + min-distance
   matching + kamera fallback & pre-warm model.
@@ -418,7 +418,7 @@ localStorage.setItem('sbg_wajah_motor', 'mediapipe'); // ATAU 'faceapi' (baku)
   keduanya dari dimensi saja: setelah pindah antar keduanya, daftarkan ulang (atau
   samakan motor di semua perangkat) — kolom penanda mesin per baris direncanakan di
   tahap berikutnya.
-- **Syarat deploy**: jalankan sekali `supabase/sql/upgrade_20261023_wajah_motor_mediapipe.sql` di Supabase SQL Editor (tanpa migrasi data; RPC menerima 128 & 512). Lihat juga `CHECKLIST_E2E.md` → **S14h**.
+- **Syarat deploy**: jalankan sekali blok `upgrade_20261023_wajah_motor_mediapipe.sql` di `supabase/sql/gabungan.sql` (project berjalan) via Supabase SQL Editor (tanpa migrasi data; RPC menerima 128 & 512). Lihat juga `CHECKLIST_E2E.md` → **S14h**.
 - **Kualitas (validasi offline model ini)**: wajah sama cos≈0.85 (d≈0.54), antar-orang cos 0.11–0.19 (d 1.27–1.33) → ambang `JARAK_COCOK_MP=0.80` / `JARAK_KENAL_MP=0.95`; pemisahannya lebar, tetapi E2E di perangkat sekolah terlemah tetap wajib (ukur latensi pemindaian pertama).
 - **Perbaikan bug crop `mediapipe` (build `20261102a`)** — dampak besar: jalur deskriptor
   mediapipe dulu memanggil `drawImage` dengan argumen sumber/tujuan **tertukar**
@@ -764,11 +764,11 @@ label kelas diuraikan **sekali** di satu sumber, lalu dipakai semua fitur.
 
 | Tahap | Berkas | Isi |
 |---|---|---|
-| **2 (SQL)** | `supabase/sql/upgrade_20261115_kelas_normalisasi.sql` | kolom terstruktur `tingkat`/`jurusan_kode`/`jurusan`/`rombel` + generated `kelas_label` pada `master_data`, `akun`, `jadwal_pelajaran`; tabel referensi `master_jurusan` (+RLS); helper `fn_normal_tingkat`/`fn_pecah_kelas`/`fn_label_kelas`/`fn_enrich_riwayat_kelas`; **trigger sinkron dua arah** label ⇄ kolom terstruktur; RPC `proses_kenaikan_kelas`, `simpan_riwayat_murid`, `fn_akun_export`, `fn_akun_json` dibuat ulang (aditif) |
+| **2 (SQL)** | blok `upgrade_20261115_kelas_normalisasi.sql` di `supabase/sql/gabungan.sql` | kolom terstruktur `tingkat`/`jurusan_kode`/`jurusan`/`rombel` + generated `kelas_label` pada `master_data`, `akun`, `jadwal_pelajaran`; tabel referensi `master_jurusan` (+RLS); helper `fn_normal_tingkat`/`fn_pecah_kelas`/`fn_label_kelas`/`fn_enrich_riwayat_kelas`; **trigger sinkron dua arah** label ⇄ kolom terstruktur; RPC `proses_kenaikan_kelas`, `simpan_riwayat_murid`, `fn_akun_export`, `fn_akun_json` dibuat ulang (aditif) |
 | **3 (frontend)** | `web/js/kelas.js` + `web/js/app.js` | modul kelas murni (cermin helper SQL) + seluruh helper kelas lama di `app.js` menjadi **delegasi** ke modul itu, plus integrasi tabel referensi `master_jurusan` |
 
 Tahap 2 **wajib dijalankan lebih dulu** (`gabungan.sql` untuk project baru,
-atau file upgrade-nya untuk project yang sudah berjalan).
+atau blok `upgrade_20261115_kelas_normalisasi.sql` di `gabungan.sql` untuk project yang sudah berjalan).
 
 ### b. `web/js/kelas.js` — satu sumber kebenaran format kelas
 
@@ -857,7 +857,7 @@ kelas, otorisasi wali/pembina, dan laporan menebak dari string gabungan.
 
 | Bagian | Berkas | Isi |
 |---|---|---|
-| **4A (SQL)** | `supabase/sql/upgrade_20261116_wali_kelas_multi.sql` | tabel relasi **`wali_kelas_penugasan`** (guru × TA × kelas, generated `kelas_label`) + trigger sinkron dari kolom akun + helper `fn_kelas_sama`/`fn_wali_list`/`fn_ta_berjalan`/`fn_wali_kelas_list`/`fn_wali_kelas_map`/`fn_kelas_murid`/`fn_guru_wali_ada`; `fn_is_wali_kelas`, `akun_guru_ampu_murid`, `ubah_anggota_ekskul`, `fn_akun_json` dibuat ulang (aditif) |
+| **4A (SQL)** | blok `upgrade_20261116_wali_kelas_multi.sql` di `supabase/sql/gabungan.sql` | tabel relasi **`wali_kelas_penugasan`** (guru × TA × kelas, generated `kelas_label`) + trigger sinkron dari kolom akun + helper `fn_kelas_sama`/`fn_wali_list`/`fn_ta_berjalan`/`fn_wali_kelas_list`/`fn_wali_kelas_map`/`fn_kelas_murid`/`fn_guru_wali_ada`; `fn_is_wali_kelas`, `akun_guru_ampu_murid`, `ubah_anggota_ekskul`, `fn_akun_json` dibuat ulang (aditif) |
 | **4A (frontend)** | `web/js/kelas.js`, `web/js/app.js`, `web/js/utils.js` (+`.example`) | `penugasan[TA].wali` menjadi **array kelas**; form penugasan memakai **checkbox wali** (bukan satu dropdown); kolom lama `wali_kelas` tetap ditulis sebagai cerminan **gabungan koma** |
 | **4A (uji)** | `supabase/sql/uji_wali_kelas_multi.sql`, `scripts/uji-kelas.mjs`, `scripts/uji-wali-pglite.mjs` | uji SQL 40+ pemeriksaan (bertransaksi + `rollback`) & 222 pemeriksaan `npm run test:kelas`; uji PGlite opsional menjalankan migrasi di Postgres asli (WASM) |
 
@@ -878,8 +878,8 @@ Aturan yang berlaku:
 
 Cara memakai & verifikasi:
 
-- Jalankan migrasinya (project berjalan: berkas di atas; project baru:
-  `gabungan.sql` terbaru — blok terakhir).
+- Jalankan migrasinya (project berjalan: blok yang sama di `gabungan.sql`;
+  project baru: `gabungan.sql` terbaru — blok terakhir).
 - **Uji manual tanpa efek samping:** tempel `supabase/sql/uji_wali_kelas_multi.sql`
   ke SQL Editor → semua baris `✔ …` dan diakhiri `UJI WALI MULTI LULUS`
   (seluruh uji di dalam satu transaksi yang di-`rollback`, data uji `UJIWM-*`

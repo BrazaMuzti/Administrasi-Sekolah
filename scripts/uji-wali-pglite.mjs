@@ -27,8 +27,19 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const baca = (p) => readFileSync(p, 'utf8');
-const baru = baca(join(ROOT, 'supabase', 'sql', 'upgrade_20261116_wali_kelas_multi.sql'));
-const lama15 = baca(join(ROOT, 'supabase', 'sql', 'upgrade_20261115_kelas_normalisasi.sql'));
+// Sejak konsolidasi, berkas migrasi satu-per-satu DIHAPUS — ambil bloknya dari
+// `gabungan.sql` (sumber kebenaran tunggal) lewat marker `-- [n/M] nama.sql`.
+const GABUNGAN = baca(join(ROOT, 'supabase', 'sql', 'gabungan.sql'));
+const blok = (nama) => {
+  const esc = nama.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = GABUNGAN.match(new RegExp('^-- \\[\\d+\\/\\d+\\] ' + esc + '\\s*$', 'm'));
+  if (!m) throw new Error('blok tidak ditemukan di gabungan.sql: ' + nama);
+  const sisa = GABUNGAN.slice(m.index + m[0].length);
+  const akhir = sisa.search(/^-- \[\d+\/\d+\] .+\.sql\s*$/m);
+  return akhir < 0 ? sisa : sisa.slice(0, akhir);
+};
+const baru = blok('upgrade_20261116_wali_kelas_multi.sql');
+const lama15 = blok('upgrade_20261115_kelas_normalisasi.sql');
 
 function ekstrak(src, header, end = '$$;') {
   const i = src.indexOf(header);
