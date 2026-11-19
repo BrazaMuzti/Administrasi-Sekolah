@@ -25770,6 +25770,13 @@ let currentTabRemedial = 'pelaksanaan';
 let adminHeaderState = {};
 let adminRowsCache = {};
 let kegiatanFilterGuru = '';
+let kegiatanFilterSemester = '';
+let kegiatanFilterBulan = '';
+let kegiatanFilterKelas = '';
+let kegiatanFilterCari = '';
+let kegiatanDipilihIds = new Set();
+let kegiatanHalamanSaatIni = 1;
+const KEGIATAN_PER_HALAMAN = 15;
 let cacheGuruAdmin = [];
 let cacheDokumenGuru = [];
 
@@ -25916,51 +25923,224 @@ async function renderKegiatanHarian(box) {
     if (!isAdmin) q = q.eq('nis_guru', nip);
     const { data, error } = await q;
     if (error) throw error;
-    let rows = data || [];
-    if (isAdmin && kegiatanFilterGuru) rows = rows.filter(r => String(r.nis_guru || '') === String(kegiatanFilterGuru));
-    rows.sort((a, b) => String(a.tanggal || '').localeCompare(String(b.tanggal || '')) ||
-      ((parseInt(a.jam_ke, 10) || 99) - (parseInt(b.jam_ke, 10) || 99)) ||
-      String(a.kelas || '').localeCompare(String(b.kelas || '')));
+    let allRows = data || [];
+
+    // Filter daftar guru (jika admin)
+    if (isAdmin && kegiatanFilterGuru) {
+      allRows = allRows.filter(r => String(r.nis_guru || '') === String(kegiatanFilterGuru));
+    }
+
+    // Filter Semester (Ganjil: Juli-Desember, Genap: Januari-Juni)
+    if (kegiatanFilterSemester) {
+      allRows = allRows.filter(r => {
+        if (r.semester) return String(r.semester).toLowerCase() === kegiatanFilterSemester.toLowerCase();
+        const m = (r.tanggal || '').slice(5, 7);
+        const smt = ['07','08','09','10','11','12'].includes(m) ? 'Ganjil' : 'Genap';
+        return smt.toLowerCase() === kegiatanFilterSemester.toLowerCase();
+      });
+    }
+
+    // Filter Bulan (1 - 12)
+    if (kegiatanFilterBulan) {
+      const blnPad = String(kegiatanFilterBulan).padStart(2, '0');
+      allRows = allRows.filter(r => (r.tanggal || '').slice(5, 7) === blnPad);
+    }
+
+    // Filter Kelas
+    if (kegiatanFilterKelas) {
+      allRows = allRows.filter(r => String(r.kelas || '').trim() === String(kegiatanFilterKelas).trim());
+    }
+
+    // Filter Pencarian Teks Bebas (Materi, KD, KBM, Mapel, Keterangan)
+    if (kegiatanFilterCari) {
+      const cari = kegiatanFilterCari.toLowerCase().trim();
+      allRows = allRows.filter(r =>
+        (r.materi && r.materi.toLowerCase().includes(cari)) ||
+        (r.kompetensi_dasar && r.kompetensi_dasar.toLowerCase().includes(cari)) ||
+        (r.kegiatan_kbm && r.kegiatan_kbm.toLowerCase().includes(cari)) ||
+        (r.mapel && r.mapel.toLowerCase().includes(cari)) ||
+        (r.pencapaian && r.pencapaian.toLowerCase().includes(cari)) ||
+        (r.kelas && r.kelas.toLowerCase().includes(cari))
+      );
+    }
+
+    // Urutkan tanggal desc / asc
+    allRows.sort((a, b) =>
+      String(b.tanggal || '').localeCompare(String(a.tanggal || '')) ||
+      ((parseInt(b.jam_ke, 10) || 0) - (parseInt(a.jam_ke, 10) || 0)) ||
+      String(a.kelas || '').localeCompare(String(b.kelas || ''))
+    );
+
+    // Cache filtered rows untuk export & batch operations
+    window.__kegiatanHarianFiltered = allRows;
+
+    // Pagination
+    const totalData = allRows.length;
+    const totalHalaman = Math.max(1, Math.ceil(totalData / KEGIATAN_PER_HALAMAN));
+    if (kegiatanHalamanSaatIni > totalHalaman) kegiatanHalamanSaatIni = totalHalaman;
+    if (kegiatanHalamanSaatIni < 1) kegiatanHalamanSaatIni = 1;
+    const startIndex = (kegiatanHalamanSaatIni - 1) * KEGIATAN_PER_HALAMAN;
+    const paginatedRows = allRows.slice(startIndex, startIndex + KEGIATAN_PER_HALAMAN);
+
+    // Opsi Kelas dari Master Data
+    const listKelas = urutAz([...new Set((masterDataCache || []).map(m => mdVal(m, "Tingkat/Kelas", "tingkat_kelas")).filter(Boolean))]);
+    const listBulan = [
+      { no: '07', nama: 'Juli' }, { no: '08', nama: 'Agustus' }, { no: '09', nama: 'September' },
+      { no: '10', nama: 'Oktober' }, { no: '11', nama: 'November' }, { no: '12', nama: 'Desember' },
+      { no: '01', nama: 'Januari' }, { no: '02', nama: 'Februari' }, { no: '03', nama: 'Maret' },
+      { no: '04', nama: 'April' }, { no: '05', nama: 'Mei' }, { no: '06', nama: 'Juni' }
+    ];
 
     const guruFilterHTML = isAdmin ? `
-      <div><label class="text-[9px] font-bold text-slate-400 uppercase">Guru</label>
-        <select onchange="kegiatanFilterGuru = this.value; renderAdministrasiGuru(document.getElementById('main-content'));" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none">
+      <div>
+        <label class="text-[9px] font-bold text-slate-400 uppercase">Guru</label>
+        <select onchange="kegiatanFilterGuru = this.value; kegiatanHalamanSaatIni = 1; renderTabAdminGuru();" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none">
           <option value="">Semua Guru</option>
           ${cacheGuruAdmin.map(g => `<option value="${escJs(g.nis_nip)}" ${kegiatanFilterGuru === String(g.nis_nip) ? 'selected' : ''}>${escapeHtml(namaDenganGelar(g.nama_lengkap, g.gelar_depan, g.gelar_belakang))}</option>`).join('')}
-        </select></div>` : '';
+        </select>
+      </div>` : '';
 
-    const rowsHTML = rows.length === 0
-      ? `<tr><td colspan="7" class="p-6 text-center text-slate-500 italic">Belum ada kegiatan harian. Isi <b class="text-amber-300">"Agenda Guru / Jurnal Harian"</b> saat menyimpan Hadir Tatap Muka — entri otomatis muncul di sini dan tetap dapat diedit/dihapus.</td></tr>`
-      : rows.map((r, i) => `<tr class="hover:bg-white/5 border-b border-white/5 transition">
-          <td class="px-3 py-2.5 text-center">${i + 1}</td>
-          <td class="px-3 py-2.5 whitespace-nowrap text-sky-300 font-bold">${escapeHtml((r.hari || hariDariTanggalLengkap(r.tanggal) || '-') + ', ' + fmtTglKalender(r.tanggal))}</td>
-          <td class="px-3 py-2.5 text-center font-bold text-yellow-300">${escapeHtml(r.jam_ke || '-')}</td>
-          <td class="px-3 py-2.5"><span class="bg-indigo-900/50 text-indigo-300 px-2 py-0.5 rounded text-[10px] font-bold">${escapeHtml(r.kelas || '-')}</span><div class="text-[9px] text-slate-400 mt-0.5">${escapeHtml(r.mapel || '')}</div></td>
-          <td class="px-3 py-2.5 max-w-[280px]"><div class="text-[11px] whitespace-normal break-words">${escapeHtml(uraianKegiatan(r))}</div></td>
-          <td class="px-3 py-2.5 max-w-[170px]"><div class="text-[11px] whitespace-normal break-words">${escapeHtml(r.pencapaian || '-')}</div></td>
-          <td class="px-3 py-2.5 text-center whitespace-nowrap">
-            <button onclick="formKegiatanHarian('${r_id(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition mr-1" title="Edit"><i class="fa-solid fa-pen"></i></button>
-            <button onclick="hapusKegiatanHarian('${r_id(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash"></i></button>
-          </td>
-        </tr>`).join('');
+    const badgeVerifikasi = (status) => {
+      const st = String(status || 'Draft').trim();
+      if (st === 'Terverifikasi') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"><i class="fa-solid fa-check-double text-[8px]"></i> Terverifikasi</span>`;
+      if (st === 'Selesai') return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30"><i class="fa-solid fa-circle-check text-[8px]"></i> Selesai</span>`;
+      return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30"><i class="fa-solid fa-clock text-[8px]"></i> Draft</span>`;
+    };
+
+    const isAllChecked = paginatedRows.length > 0 && paginatedRows.every(r => kegiatanDipilihIds.has(String(r.id)));
+
+    const rowsHTML = paginatedRows.length === 0
+      ? `<tr><td colspan="9" class="p-8 text-center text-slate-500 italic">Belum ada kegiatan harian yang cocok. Gunakan tombol <b class="text-sky-400">"Tambah Kegiatan"</b> atau simpan presensi di <b class="text-amber-300">"Hadir Tatap Muka"</b>.</td></tr>`
+      : paginatedRows.map((r, i) => {
+          const isChecked = kegiatanDipilihIds.has(String(r.id));
+          const lampiranBtn = r.lampiran_url ? `<a href="${escapeHtml(r.lampiran_url)}" target="_blank" rel="noopener" class="text-sky-400 hover:text-sky-300 text-[10px] ml-1" title="Lihat Lampiran"><i class="fa-solid fa-paperclip"></i></a>` : '';
+          return `<tr class="hover:bg-white/5 border-b border-white/5 transition ${isChecked ? 'bg-sky-950/30' : ''}">
+            <td class="px-2 py-2 text-center">
+              <input type="checkbox" onchange="togglePilihSatuKegiatan('${r_id(r.id)}', this.checked)" class="rounded bg-black/40 border-white/30 text-sky-500 focus:ring-0 cursor-pointer" ${isChecked ? 'checked' : ''}>
+            </td>
+            <td class="px-2 py-2 text-center text-slate-400 text-[10px]">${startIndex + i + 1}</td>
+            <td class="px-3 py-2 whitespace-nowrap text-sky-300 font-bold">
+              <div>${escapeHtml((r.hari || hariDariTanggalLengkap(r.tanggal) || '-') + ', ' + fmtTglKalender(r.tanggal))}</div>
+              <div class="text-[9px] text-slate-400 font-normal">Pertemuan ke-${escapeHtml(r.pertemuan || '1')} · Jam ke: <span class="text-amber-300 font-bold">${escapeHtml(r.jam_ke || '-')}</span></div>
+            </td>
+            <td class="px-3 py-2">
+              <span class="bg-indigo-900/60 text-indigo-300 px-2 py-0.5 rounded text-[10px] font-bold">${escapeHtml(r.kelas || '-')}</span>
+              <div class="text-[9px] text-slate-400 mt-0.5">${escapeHtml(r.mapel || '')}</div>
+            </td>
+            <td class="px-3 py-2 max-w-[260px]">
+              <div class="text-[11px] whitespace-normal break-words">${escapeHtml(uraianKegiatan(r))}</div>
+              ${lampiranBtn}
+            </td>
+            <td class="px-3 py-2 max-w-[150px]">
+              <div class="text-[11px] whitespace-normal break-words text-slate-300">${escapeHtml(r.pencapaian || '-')}</div>
+            </td>
+            <td class="px-2 py-2 text-center whitespace-nowrap">
+              ${badgeVerifikasi(r.status_verifikasi)}
+            </td>
+            <td class="px-3 py-2 text-center whitespace-nowrap">
+              <div class="inline-flex items-center gap-1">
+                <button onclick="bukaSinkronHadirTatapMuka('${r_id(r.id)}')" class="w-7 h-7 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded transition" title="Buka / Sinkronkan ke Hadir Tatap Muka"><i class="fa-solid fa-clipboard-user text-xs"></i></button>
+                <button onclick="duplikatKegiatanHarian('${r_id(r.id)}')" class="w-7 h-7 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white rounded transition" title="Gandakan / Salin Kegiatan"><i class="fa-solid fa-copy text-xs"></i></button>
+                <button onclick="formKegiatanHarian('${r_id(r.id)}')" class="w-7 h-7 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded transition" title="Edit Kegiatan"><i class="fa-solid fa-pen text-xs"></i></button>
+                <button onclick="hapusKegiatanHarian('${r_id(r.id)}')" class="w-7 h-7 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded transition" title="Hapus"><i class="fa-solid fa-trash text-xs"></i></button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
 
     box.innerHTML = `
       <div class="p-4 space-y-3">
-        <div class="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-wrap items-end gap-3">
-          <div><label class="text-[9px] font-bold text-slate-400 uppercase">Tahun Pelajaran</label>
-            <input value="${escapeHtml(currentTahun || '-')}" readonly class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-[11px] text-slate-400 outline-none"></div>
-          ${guruFilterHTML}
-          <span class="text-[10px] text-slate-400 self-center ml-auto"><i class="fa-solid fa-circle-info mr-1"></i>${rows.length} kegiatan · diurutkan berdasarkan Hari/Tanggal</span>
+        <!-- TOOLBAR ATAS: FILTERS & AKSI GLOBAL -->
+        <div class="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-wrap items-end justify-between gap-3">
+          <div class="flex flex-wrap items-end gap-2.5">
+            <div>
+              <label class="text-[9px] font-bold text-slate-400 uppercase">Tahun</label>
+              <input value="${escapeHtml(currentTahun || '-')}" readonly class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-[11px] text-slate-400 outline-none w-24">
+            </div>
+            <div>
+              <label class="text-[9px] font-bold text-slate-400 uppercase">Semester</label>
+              <select onchange="kegiatanFilterSemester = this.value; kegiatanHalamanSaatIni = 1; renderTabAdminGuru();" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none">
+                <option value="">Semua</option>
+                <option value="Ganjil" ${kegiatanFilterSemester === 'Ganjil' ? 'selected' : ''}>Ganjil</option>
+                <option value="Genap" ${kegiatanFilterSemester === 'Genap' ? 'selected' : ''}>Genap</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[9px] font-bold text-slate-400 uppercase">Bulan</label>
+              <select onchange="kegiatanFilterBulan = this.value; kegiatanHalamanSaatIni = 1; renderTabAdminGuru();" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none">
+                <option value="">Semua Bulan</option>
+                ${listBulan.map(b => `<option value="${b.no}" ${kegiatanFilterBulan === b.no ? 'selected' : ''}>${b.nama}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="text-[9px] font-bold text-slate-400 uppercase">Kelas</label>
+              <select onchange="kegiatanFilterKelas = this.value; kegiatanHalamanSaatIni = 1; renderTabAdminGuru();" class="bg-black/40 border border-white/20 rounded px-2 py-1.5 text-[11px] text-white outline-none">
+                <option value="">Semua Kelas</option>
+                ${listKelas.map(k => `<option value="${escJs(k)}" ${kegiatanFilterKelas === k ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
+              </select>
+            </div>
+            ${guruFilterHTML}
+            <div>
+              <label class="text-[9px] font-bold text-slate-400 uppercase">Cari Kegiatan</label>
+              <div class="relative">
+                <input type="text" id="filter-cari-kegiatan" value="${escapeHtml(kegiatanFilterCari)}" placeholder="Ketik kata kunci..." oninput="kegiatanFilterCari = this.value; kegiatanHalamanSaatIni = 1; renderTabAdminGuru();" class="bg-black/40 border border-white/20 rounded pl-7 pr-2 py-1.5 text-[11px] text-white outline-none w-44 focus:border-sky-400">
+                <i class="fa-solid fa-magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- TOMBOL AKSI UTAMA -->
+          <div class="flex gap-1.5 flex-wrap items-center">
+            <button onclick="formKegiatanHarian(null)" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition shadow flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> <span>Buat Baru</span></button>
+            <button onclick="exportKegiatanHarianExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5" title="Export Excel"><i class="fa-solid fa-file-excel"></i> <span>Excel</span></button>
+            <button onclick="cetakKegiatanHarianPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5" title="Cetak / Export PDF"><i class="fa-solid fa-file-pdf"></i> <span>Cetak PDF</span></button>
+            ${kegiatanDipilihIds.size > 0 ? `
+              <button onclick="hapusMassalKegiatanHarian()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 animate-pulse" title="Hapus Terpilih"><i class="fa-solid fa-trash-can"></i> <span>Hapus (${kegiatanDipilihIds.size})</span></button>
+              ${isAdmin ? `<button onclick="verifikasiMassalKegiatanHarian()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5" title="Verifikasi Terpilih"><i class="fa-solid fa-stamp"></i> <span>Verifikasi (${kegiatanDipilihIds.size})</span></button>` : ''}
+            ` : ''}
+          </div>
         </div>
+
+        <!-- TABEL DATA -->
         <div class="bg-white/5 border border-white/10 rounded-xl p-3">
-          <h3 class="text-xs font-bold text-white uppercase tracking-wider mb-2"><i class="fa-solid fa-book-open-reader text-amber-400 mr-1"></i> Kegiatan Harian Guru</h3>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <i class="fa-solid fa-book-open-reader text-amber-400"></i> Jurnal & Kegiatan Harian Guru
+            </h3>
+            <span class="text-[10px] text-slate-400">${totalData} data ditemukan · ${kegiatanDipilihIds.size} dipilih</span>
+          </div>
           <div class="overflow-auto custom-scrollbar">
             <table class="w-full text-left">
               <thead class="bg-slate-900 text-[10px] uppercase text-slate-400">
-                <tr><th class="px-3 py-2 text-center w-10">No</th><th class="px-3 py-2">Hari/Tanggal</th><th class="px-3 py-2 text-center">Jam ke</th><th class="px-3 py-2">Kelas</th><th class="px-3 py-2">Materi Pembahasan / Uraian Kegiatan</th><th class="px-3 py-2">Keterangan Pencapaian</th><th class="px-3 py-2 text-center w-24">Aksi</th></tr>
+                <tr>
+                  <th class="px-2 py-2 text-center w-8">
+                    <input type="checkbox" onchange="togglePilihSemuaKegiatan(this.checked)" class="rounded bg-black/40 border-white/30 text-sky-500 focus:ring-0 cursor-pointer" ${isAllChecked ? 'checked' : ''} title="Pilih Semua Halaman Ini">
+                  </th>
+                  <th class="px-2 py-2 text-center w-10">No</th>
+                  <th class="px-3 py-2">Hari / Tanggal</th>
+                  <th class="px-3 py-2">Kelas / Mapel</th>
+                  <th class="px-3 py-2">Materi Pembahasan / Uraian Kegiatan</th>
+                  <th class="px-3 py-2">Keterangan Pencapaian</th>
+                  <th class="px-2 py-2 text-center w-24">Status</th>
+                  <th class="px-3 py-2 text-center w-36">Aksi</th>
+                </tr>
               </thead>
               <tbody class="text-xs text-slate-200">${rowsHTML}</tbody>
             </table>
+          </div>
+
+          <!-- PAGINATION -->
+          <div class="flex items-center justify-between mt-3 pt-3 border-t border-white/10 text-[11px] text-slate-400">
+            <div>
+              Menampilkan <span class="text-white font-bold">${totalData > 0 ? startIndex + 1 : 0}</span> - <span class="text-white font-bold">${Math.min(startIndex + KEGIATAN_PER_HALAMAN, totalData)}</span> dari <span class="text-white font-bold">${totalData}</span> entri
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button onclick="kegiatanGantiHalaman(1)" ${kegiatanHalamanSaatIni === 1 ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition"><i class="fa-solid fa-angles-left text-[9px]"></i></button>
+              <button onclick="kegiatanGantiHalaman(${kegiatanHalamanSaatIni - 1})" ${kegiatanHalamanSaatIni === 1 ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition"><i class="fa-solid fa-angle-left text-[9px]"></i></button>
+              <span class="px-2 text-slate-300">Halaman <b class="text-white">${kegiatanHalamanSaatIni}</b> / ${totalHalaman}</span>
+              <button onclick="kegiatanGantiHalaman(${kegiatanHalamanSaatIni + 1})" ${kegiatanHalamanSaatIni >= totalHalaman ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition"><i class="fa-solid fa-angle-right text-[9px]"></i></button>
+              <button onclick="kegiatanGantiHalaman(${totalHalaman})" ${kegiatanHalamanSaatIni >= totalHalaman ? 'disabled' : ''} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition"><i class="fa-solid fa-angles-right text-[9px]"></i></button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -25969,63 +26149,461 @@ async function renderKegiatanHarian(box) {
   }
 }
 
-/** Popup edit kegiatan harian (semua isian; kelas/mapel tampil readonly). */
-async function formKegiatanHarian(id) {
-  let r;
+function kegiatanGantiHalaman(hal) {
+  kegiatanHalamanSaatIni = hal;
+  renderTabAdminGuru();
+}
+
+function togglePilihSatuKegiatan(id, diceklis) {
+  if (diceklis) kegiatanDipilihIds.add(String(id));
+  else kegiatanDipilihIds.delete(String(id));
+  renderTabAdminGuru();
+}
+
+function togglePilihSemuaKegiatan(diceklis) {
+  const baris = window.__kegiatanHarianFiltered || [];
+  const startIndex = (kegiatanHalamanSaatIni - 1) * KEGIATAN_PER_HALAMAN;
+  const halamanRows = baris.slice(startIndex, startIndex + KEGIATAN_PER_HALAMAN);
+  if (diceklis) {
+    halamanRows.forEach(r => kegiatanDipilihIds.add(String(r.id)));
+  } else {
+    halamanRows.forEach(r => kegiatanDipilihIds.delete(String(r.id)));
+  }
+  renderTabAdminGuru();
+}
+
+/** Modal Tambah/Edit Kegiatan Harian Guru */
+async function formKegiatanHarian(id, duplikatData = null) {
+  let r = {};
+  const isEdit = !!id;
+  const isDuplikat = !!duplikatData;
+
   try {
-    const { data, error } = await supaClient.from('jurnal_guru').select('*').eq('id', id).maybeSingle();
-    if (error || !data) return showToast('error', 'Data tidak ditemukan.');
-    r = data;
+    if (isEdit) {
+      const { data, error } = await supaClient.from('jurnal_guru').select('*').eq('id', id).maybeSingle();
+      if (error || !data) return showToast('error', 'Data tidak ditemukan.');
+      r = data;
+    } else if (isDuplikat) {
+      r = { ...duplikatData };
+    }
   } catch (e) { return showToast('error', e.message || 'Gagal memuat.'); }
+
+  const listKelas = urutAz([...new Set((masterDataCache || []).map(m => mdVal(m, "Tingkat/Kelas", "tingkat_kelas")).filter(Boolean))]);
+  const listMapel = urutAz([...new Set((masterDataCache || []).map(m => m["Mata Pelajaran"]).filter(Boolean))]);
+  const defaultTgl = r.tanggal ? String(r.tanggal).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const defaultPertemuan = isDuplikat ? (parseInt(r.pertemuan, 10) || 1) + 1 : (r.pertemuan || 1);
+  const defaultStatus = r.status_verifikasi || 'Draft';
+
+  const modalTitle = isDuplikat ? 'Gandakan Kegiatan Harian' : (isEdit ? 'Edit Kegiatan Harian' : 'Tambah Kegiatan Harian Baru');
+
   Swal.fire({
-    title: '<div class="text-lg font-bold">Edit Kegiatan Harian</div>',
+    title: `<div class="text-base font-bold text-sky-300"><i class="fa-solid fa-book-open-reader mr-1.5"></i> ${modalTitle}</div>`,
+    width: 620,
     html: `
-      <div class="text-left text-[11px] text-slate-300 mt-2 grid grid-cols-2 gap-3">
-        <div><label class="font-bold text-amber-300">Kelas / Mapel</label><input value="${escapeHtml((r.kelas || '-') + ' · ' + (r.mapel || '-'))}" readonly class="w-full bg-slate-800 border border-white/10 rounded px-2 py-1.5 mt-1 text-slate-400 outline-none"></div>
-        <div><label class="font-bold text-amber-300">Pertemuan Ke-</label><input id="kh_pertemuan" type="number" min="1" value="${escJs(r.pertemuan || 1)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
-        <div><label class="font-bold text-amber-300">Hari/Tanggal *</label><input id="kh_tanggal" type="date" value="${escJs(String(r.tanggal || '').slice(0, 10))}" style="color-scheme:dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
-        <div><label class="font-bold text-amber-300">Jam ke</label><input id="kh_jamke" value="${escJs(r.jam_ke || '')}" placeholder="mis. 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
-        <div class="col-span-2"><label class="font-bold text-amber-300">Kompetensi Dasar</label><input id="kh_kd" value="${escJs(r.kompetensi_dasar || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
-        <div class="col-span-2"><label class="font-bold text-amber-300">Materi</label><input id="kh_materi" value="${escJs(r.materi || '')}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none"></div>
-        <div class="col-span-2"><label class="font-bold text-amber-300">Kegiatan Belajar Mengajar</label><textarea id="kh_kbm" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(r.kegiatan_kbm || '')}</textarea></div>
-        <div class="col-span-2"><label class="font-bold text-amber-300">Permasalahan dalam Proses KBM</label><textarea id="kh_masalah" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(r.permasalahan || '')}</textarea></div>
-        <div class="col-span-2"><label class="font-bold text-amber-300">Keterangan Pencapaian</label><textarea id="kh_pencapaian" rows="2" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none">${escapeHtml(r.pencapaian || '')}</textarea></div>
+      <div class="text-left text-[11px] text-slate-300 mt-2 grid grid-cols-2 gap-3 max-h-[68vh] overflow-y-auto px-1 custom-scrollbar">
+        <div>
+          <label class="font-bold text-amber-300">Kelas *</label>
+          <select id="kh_kelas" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+            ${listKelas.map(k => `<option value="${escJs(k)}" ${k === (r.kelas || '') ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="font-bold text-amber-300">Mata Pelajaran *</label>
+          <select id="kh_mapel" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+            ${listMapel.map(m => `<option value="${escJs(m)}" ${m === (r.mapel || '') ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="font-bold text-amber-300">Hari/Tanggal *</label>
+          <input id="kh_tanggal" type="date" value="${escJs(defaultTgl)}" style="color-scheme:dark;" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div>
+          <label class="font-bold text-amber-300">Pertemuan Ke- *</label>
+          <input id="kh_pertemuan" type="number" min="1" value="${escJs(defaultPertemuan)}" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div>
+          <label class="font-bold text-amber-300">Jam ke</label>
+          <input id="kh_jamke" value="${escJs(r.jam_ke || '')}" placeholder="mis. 1-2 atau 1" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div>
+          <label class="font-bold text-amber-300">Status Verifikasi</label>
+          <select id="kh_status" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+            <option value="Draft" ${defaultStatus === 'Draft' ? 'selected' : ''}>Draft</option>
+            <option value="Selesai" ${defaultStatus === 'Selesai' ? 'selected' : ''}>Selesai</option>
+            ${isAdminAktif() ? `<option value="Terverifikasi" ${defaultStatus === 'Terverifikasi' ? 'selected' : ''}>Terverifikasi (Kepsek)</option>` : ''}
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Kompetensi Dasar / Capaian Pembelajaran</label>
+          <input id="kh_kd" value="${escJs(r.kompetensi_dasar || '')}" placeholder="KD atau Elemen CP" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Materi Pokok / Pembahasan *</label>
+          <input id="kh_materi" value="${escJs(r.materi || '')}" placeholder="Topik atau judul materi pembahasan" class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Kegiatan Belajar Mengajar (KBM)</label>
+          <textarea id="kh_kbm" rows="2" placeholder="Uraian ringkas proses pembelajaran..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">${escapeHtml(r.kegiatan_kbm || '')}</textarea>
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Permasalahan dalam Proses KBM</label>
+          <textarea id="kh_masalah" rows="2" placeholder="Kendala / masalah siswa atau fasilitas..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">${escapeHtml(r.permasalahan || '')}</textarea>
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Keterangan Pencapaian</label>
+          <textarea id="kh_pencapaian" rows="2" placeholder="mis. 30 siswa tuntas, 2 siswa butuh bimbingan..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">${escapeHtml(r.pencapaian || '')}</textarea>
+        </div>
+        <div class="col-span-2">
+          <label class="font-bold text-amber-300">Lampiran URL (Google Drive / Foto / Dokumen)</label>
+          <input id="kh_lampiran" value="${escJs(r.lampiran_url || '')}" placeholder="https://..." class="w-full bg-black/40 border border-white/20 rounded px-2 py-1.5 mt-1 text-white outline-none focus:border-sky-400">
+        </div>
+        <div class="col-span-2 pt-1 border-t border-white/10">
+          <label class="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white">
+            <input type="checkbox" id="kh_buka_absen" class="rounded bg-black/40 border-white/30 text-sky-500 focus:ring-0">
+            <span>Buka & sinkronkan langsung ke tabel Hadir Tatap Muka setelah simpan</span>
+          </label>
+        </div>
       </div>`,
-    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: 'Simpan',
+    background: '#1e293b', color: '#fff', showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-save mr-1"></i> Simpan',
     preConfirm: () => {
       const tgl = (document.getElementById('kh_tanggal').value || '').trim();
       if (!tgl) { Swal.showValidationMessage('Hari/Tanggal wajib diisi!'); return false; }
       const p = parseInt(document.getElementById('kh_pertemuan').value, 10);
       if (!p || p < 1) { Swal.showValidationMessage('Pertemuan ke- minimal 1.'); return false; }
+      const kelas = (document.getElementById('kh_kelas')?.value || '').trim();
+      const mapel = (document.getElementById('kh_mapel')?.value || '').trim();
+      const materi = (document.getElementById('kh_materi')?.value || '').trim();
+      if (!kelas) { Swal.showValidationMessage('Pilih kelas!'); return false; }
+      if (!mapel) { Swal.showValidationMessage('Pilih mata pelajaran!'); return false; }
+      if (!materi) { Swal.showValidationMessage('Materi pembahasan wajib diisi!'); return false; }
       const ambil = id => (document.getElementById(id)?.value || '').trim();
-      return { tanggal: tgl, pertemuan: p, jam_ke: ambil('kh_jamke'), kompetensi_dasar: ambil('kh_kd'), materi: ambil('kh_materi'), kegiatan_kbm: ambil('kh_kbm'), permasalahan: ambil('kh_masalah'), pencapaian: ambil('kh_pencapaian') };
+      return {
+        tanggal: tgl,
+        pertemuan: p,
+        kelas,
+        mapel,
+        jam_ke: ambil('kh_jamke'),
+        status_verifikasi: ambil('kh_status'),
+        kompetensi_dasar: ambil('kh_kd'),
+        materi,
+        kegiatan_kbm: ambil('kh_kbm'),
+        permasalahan: ambil('kh_masalah'),
+        pencapaian: ambil('kh_pencapaian'),
+        lampiran_url: ambil('kh_lampiran'),
+        bukaAbsen: !!document.getElementById('kh_buka_absen')?.checked
+      };
     }
   }).then(async (res) => {
-    if (!res.isConfirmed) return;
+    if (!res.isConfirmed || !res.value) return;
     Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
     try {
-      const payload = { ...res.value, hari: hariDariTanggalLengkap(res.value.tanggal), updated_at: new Date().toISOString() };
-      const { error } = await supaClient.from('jurnal_guru').update(payload).eq('id', id);
-      if (error) throw error;
-      Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Tersimpan!', showConfirmButton: false, timer: 1400, background: '#1e293b', color: '#fff' });
-      renderAdministrasiGuru(document.getElementById('main-content'));
+      const nip = nipGuruAktif();
+      const v = res.value;
+      const smt = ['07','08','09','10','11','12'].includes(v.tanggal.slice(5, 7)) ? 'Ganjil' : 'Genap';
+      const blnIndex = parseInt(v.tanggal.slice(5, 7), 10) - 1;
+      const namaBulanArr = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      const bulanNama = namaBulanArr[blnIndex] || '';
+
+      const payload = {
+        nis_guru: r.nis_guru || nip,
+        tahun: currentTahun,
+        semester: smt,
+        bulan: bulanNama,
+        kelas: v.kelas,
+        mapel: v.mapel,
+        pertemuan: v.pertemuan,
+        tanggal: v.tanggal,
+        hari: hariDariTanggalLengkap(v.tanggal),
+        jam_ke: v.jam_ke,
+        kompetensi_dasar: v.kompetensi_dasar,
+        materi: v.materi,
+        kegiatan_kbm: v.kegiatan_kbm,
+        permasalahan: v.permasalahan,
+        pencapaian: v.pencapaian,
+        status_verifikasi: v.status_verifikasi,
+        lampiran_url: v.lampiran_url,
+        updated_at: new Date().toISOString()
+      };
+
+      if (isEdit) {
+        const { error } = await supaClient.from('jurnal_guru').update(payload).eq('id', id);
+        if (error) throw error;
+        showToast('success', 'Kegiatan harian diperbarui');
+      } else {
+        const { error } = await supaClient.from('jurnal_guru').upsert(payload, { onConflict: 'nis_guru,kelas,mapel,tahun,pertemuan' });
+        if (error) throw error;
+        showToast('success', isDuplikat ? 'Kegiatan berhasil digandakan' : 'Kegiatan baru tersimpan');
+      }
+
+      renderTabAdminGuru();
+
+      if (v.bukaAbsen) {
+        bukaLompatKeHadirTatapMuka(v.kelas, v.mapel, v.tanggal);
+      }
     } catch (e) {
-      Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || '', background: '#1e293b', color: '#fff' });
+      Swal.fire({ icon: 'error', title: 'Gagal Menyimpan', text: e.message || '', background: '#1e293b', color: '#fff' });
     }
   });
 }
 
+/** Gandakan kegiatan harian dari baris terpilih */
+async function duplikatKegiatanHarian(id) {
+  try {
+    const { data, error } = await supaClient.from('jurnal_guru').select('*').eq('id', id).maybeSingle();
+    if (error || !data) return showToast('error', 'Data tidak ditemukan.');
+    formKegiatanHarian(null, data);
+  } catch (e) {
+    showToast('error', e.message || 'Gagal menyalin data');
+  }
+}
+
+/** Hapus satu kegiatan harian */
 async function hapusKegiatanHarian(id) {
-  const konf = await Swal.fire({ title: 'Hapus kegiatan harian ini?', text: 'Data jurnal akan dihapus permanen.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444', confirmButtonText: 'Ya, Hapus', cancelButtonText: 'Batal', background: '#1e293b', color: '#fff' });
+  const konf = await Swal.fire({
+    title: 'Hapus kegiatan harian ini?',
+    text: 'Data jurnal akan dihapus permanen.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#ef4444',
+    confirmButtonText: 'Ya, Hapus',
+    cancelButtonText: 'Batal',
+    background: '#1e293b',
+    color: '#fff'
+  });
   if (!konf.isConfirmed) return;
   try {
     const { error } = await supaClient.from('jurnal_guru').delete().eq('id', id);
     if (error) throw error;
+    kegiatanDipilihIds.delete(String(id));
     showToast('success', 'Kegiatan harian dihapus');
-    renderAdministrasiGuru(document.getElementById('main-content'));
+    renderTabAdminGuru();
   } catch (e) {
     Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || '', background: '#1e293b', color: '#fff' });
   }
+}
+
+/** Hapus massal kegiatan yang dipilih */
+async function hapusMassalKegiatanHarian() {
+  const ids = Array.from(kegiatanDipilihIds);
+  if (ids.length === 0) return showToast('error', 'Pilih minimal satu kegiatan terlebih dahulu.');
+  const konf = await Swal.fire({
+    title: `Hapus ${ids.length} kegiatan terpilih?`,
+    text: 'Seluruh data kegiatan yang dicentang akan dihapus permanen.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#ef4444',
+    confirmButtonText: `Ya, Hapus ${ids.length} Data`,
+    cancelButtonText: 'Batal',
+    background: '#1e293b',
+    color: '#fff'
+  });
+  if (!konf.isConfirmed) return;
+  Swal.fire({ title: 'Menghapus...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+  try {
+    const { error } = await supaClient.from('jurnal_guru').delete().in('id', ids);
+    if (error) throw error;
+    kegiatanDipilihIds.clear();
+    Swal.fire({ icon: 'success', title: 'Berhasil', text: `${ids.length} kegiatan telah dihapus.`, background: '#1e293b', color: '#fff', timer: 1500 });
+    renderTabAdminGuru();
+  } catch (e) {
+    Swal.fire({ icon: 'error', title: 'Gagal', text: e.message || '', background: '#1e293b', color: '#fff' });
+  }
+}
+
+/** Verifikasi massal oleh Admin / Kepala Sekolah */
+async function verifikasiMassalKegiatanHarian() {
+  const ids = Array.from(kegiatanDipilihIds);
+  if (ids.length === 0) return showToast('error', 'Pilih minimal satu kegiatan.');
+  Swal.fire({ title: 'Memverifikasi...', allowOutsideClick: false, background: '#1e293b', color: '#fff', didOpen: () => Swal.showLoading() });
+  try {
+    const { error } = await supaClient.from('jurnal_guru').update({ status_verifikasi: 'Terverifikasi', updated_at: new Date().toISOString() }).in('id', ids);
+    if (error) throw error;
+    kegiatanDipilihIds.clear();
+    showToast('success', `${ids.length} kegiatan berhasil diverifikasi`);
+    renderTabAdminGuru();
+  } catch (e) {
+    Swal.fire({ icon: 'error', title: 'Gagal Verifikasi', text: e.message || '', background: '#1e293b', color: '#fff' });
+  }
+}
+
+/** Pintasan navigasi langsung ke menu Hadir Tatap Muka untuk tanggal & kelas terkait */
+async function bukaSinkronHadirTatapMuka(id) {
+  try {
+    const { data, error } = await supaClient.from('jurnal_guru').select('*').eq('id', id).maybeSingle();
+    if (error || !data) return showToast('error', 'Data tidak ditemukan.');
+    bukaLompatKeHadirTatapMuka(data.kelas, data.mapel, data.tanggal);
+  } catch (e) {
+    showToast('error', e.message || 'Gagal membuka presensi');
+  }
+}
+
+function bukaLompatKeHadirTatapMuka(kelas, mapel, tanggal) {
+  changeMenu('absensi', 'Hadir Tatap Muka');
+  setTimeout(() => {
+    const selM = document.getElementById('select-mapel');
+    const selK = document.getElementById('select-kelas');
+    const selB = document.getElementById('select-bulan');
+    if (selM && mapel) {
+      let matched = [...selM.options].find(o => o.value === mapel || o.value.endsWith('|' + mapel));
+      if (matched) selM.value = matched.value;
+    }
+    if (selK && kelas) {
+      let matchedK = [...selK.options].find(o => o.value === kelas);
+      if (matchedK) selK.value = matchedK.value;
+    }
+    if (selB && tanggal) {
+      const blnIndex = parseInt(String(tanggal).slice(5, 7), 10) - 1;
+      const namaBulanArr = ['Juli','Agustus','September','Oktober','November','Desember','Januari','Februari','Maret','April','Mei','Juni'];
+      const blnNama = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'][blnIndex];
+      let matchedB = [...selB.options].find(o => o.value === blnNama);
+      if (matchedB) selB.value = matchedB.value;
+    }
+    loadDataMuridDanAbsen();
+    const tglHari = parseInt(String(tanggal).slice(8, 10), 10);
+    if (tglHari && typeof window.bukaInputAbsenModalMasal === 'function') {
+      setTimeout(() => {
+        try { window.bukaInputAbsenModalMasal(tglHari); } catch(e){}
+      }, 700);
+    }
+  }, 400);
+}
+
+/** Export Kegiatan Harian ke Excel */
+function exportKegiatanHarianExcel() {
+  if (typeof XLSX === 'undefined') return showToast('error', 'Library SheetJS tidak ditemukan.');
+  const rows = window.__kegiatanHarianFiltered || [];
+  if (!rows.length) return showToast('error', 'Tidak ada data kegiatan untuk diexport.');
+  const idn = typeof barisIdentitasMaster === 'function' ? barisIdentitasMaster() : {};
+  const namaSekolah = idn["Nama Sekolah"] || 'SEKOLAH';
+
+  const aoa = [
+    [`JURNAL KEGIATAN HARIAN GURU — ${namaSekolah.toUpperCase()}`],
+    [`Tahun Pelajaran: ${currentTahun} | Semester: ${kegiatanFilterSemester || 'Semua'} | Kelas: ${kegiatanFilterKelas || 'Semua Kelas'}`],
+    [],
+    ['No', 'Hari/Tanggal', 'Jam Ke', 'Pertemuan', 'Kelas', 'Mata Pelajaran', 'Kompetensi Dasar / CP', 'Materi Pembahasan', 'Kegiatan KBM', 'Permasalahan', 'Keterangan Pencapaian', 'Status Verifikasi']
+  ];
+
+  rows.forEach((r, i) => {
+    aoa.push([
+      i + 1,
+      `${r.hari || hariDariTanggalLengkap(r.tanggal) || ''}, ${String(r.tanggal || '').slice(0, 10)}`,
+      r.jam_ke || '',
+      r.pertemuan || 1,
+      r.kelas || '',
+      r.mapel || '',
+      r.kompetensi_dasar || '',
+      r.materi || '',
+      r.kegiatan_kbm || '',
+      r.permasalahan || '',
+      r.pencapaian || '',
+      r.status_verifikasi || 'Draft'
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Kegiatan_Harian");
+  XLSX.writeFile(wb, `Kegiatan_Harian_Guru_${(currentTahun || '').replace(/\//g, '-')}.xlsx`);
+  showToast('success', 'File Excel Kegiatan Harian berhasil diunduh.');
+}
+
+/** Cetak / Export PDF Kegiatan Harian Guru */
+async function cetakKegiatanHarianPDF() {
+  const rows = window.__kegiatanHarianFiltered || [];
+  if (!rows.length) return showToast('error', 'Tidak ada data kegiatan untuk dicetak.');
+  const idn = typeof barisIdentitasMaster === 'function' ? barisIdentitasMaster() : {};
+  const namaSekolah = idn["Nama Sekolah"] || 'SEKOLAH';
+  const alamat = idn["Alamat Sekolah"] || '';
+  const logo = idn["URL LOGO 1"] || idn["URL LOGO 2"] || '';
+  const kepsek = idn["Kepala Sekolah"] || (typeof namaKepsekGlobal !== 'undefined' ? namaKepsekGlobal : '') || '_____________________';
+  const nipKepsek = idn["NIP Kepala Sekolah"] || '';
+  const u = (currentUser || {}).user || {};
+  const namaGuru = namaDenganGelar(u["Nama Lengkap"] || u["Nama Guru"] || '', u["Gelar Depan"], u["Gelar Belakang"]) || '_____________________';
+  const nipGuru = u["ID Akun Guru"] || u["NIP"] || '—';
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr>
+      <td style="border:1px solid #333;padding:4px;text-align:center;font-size:9pt;">${i + 1}</td>
+      <td style="border:1px solid #333;padding:4px;font-size:9pt;white-space:nowrap;"><b>${escapeHtml(r.hari || hariDariTanggalLengkap(r.tanggal) || '')}</b><br>${fmtTglKalender(r.tanggal)}</td>
+      <td style="border:1px solid #333;padding:4px;text-align:center;font-size:9pt;">${escapeHtml(r.jam_ke || '-')}</td>
+      <td style="border:1px solid #333;padding:4px;font-size:9pt;"><b>${escapeHtml(r.kelas || '-')}</b><br><span style="font-size:8pt;color:#475569;">${escapeHtml(r.mapel || '')}</span></td>
+      <td style="border:1px solid #333;padding:4px;font-size:9pt;">
+        ${r.kompetensi_dasar ? `<div><b>KD/CP:</b> ${escapeHtml(r.kompetensi_dasar)}</div>` : ''}
+        <div><b>Materi:</b> ${escapeHtml(r.materi || '-')}</div>
+        ${r.kegiatan_kbm ? `<div style="font-size:8.5pt;margin-top:2px;"><b>KBM:</b> ${escapeHtml(r.kegiatan_kbm)}</div>` : ''}
+        ${r.permasalahan ? `<div style="font-size:8pt;color:#dc2626;margin-top:2px;"><i>Masalah: ${escapeHtml(r.permasalahan)}</i></div>` : ''}
+      </td>
+      <td style="border:1px solid #333;padding:4px;font-size:9pt;">${escapeHtml(r.pencapaian || '-')}</td>
+      <td style="border:1px solid #333;padding:4px;text-align:center;font-size:8.5pt;">${escapeHtml(r.status_verifikasi || 'Draft')}</td>
+    </tr>
+  `).join('');
+
+  const isi = `
+    <div style="font-family:'Times New Roman', serif; color:#000; padding:10px;">
+      <!-- KOP SURAT -->
+      <table style="width:100%; border-bottom:3px double #000; padding-bottom:8px; margin-bottom:12px;">
+        <tr>
+          ${logo ? `<td style="width:75px; text-align:center; vertical-align:middle;"><img src="${escapeHtml(logo)}" style="max-height:65px; max-width:65px;"></td>` : ''}
+          <td style="text-align:center; vertical-align:middle;">
+            <div style="font-size:14pt; font-weight:bold; text-transform:uppercase;">${escapeHtml(namaSekolah)}</div>
+            <div style="font-size:10pt;">${escapeHtml(alamat)}</div>
+            <div style="font-size:12pt; font-weight:bold; margin-top:4px; text-transform:uppercase;">AGENDA & KEGIATAN HARIAN GURU</div>
+            <div style="font-size:9.5pt;">Tahun Pelajaran ${escapeHtml(currentTahun)} ${kegiatanFilterSemester ? '· Semester ' + escapeHtml(kegiatanFilterSemester) : ''}</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- IDENTITAS GURU -->
+      <table style="width:100%; font-size:9.5pt; margin-bottom:10px;">
+        <tr>
+          <td style="width:15%;"><b>Nama Guru</b></td>
+          <td style="width:35%;">: ${escapeHtml(namaGuru)}</td>
+          <td style="width:15%;"><b>Kelas Diampu</b></td>
+          <td style="width:35%;">: ${escapeHtml(kegiatanFilterKelas || 'Semua Kelas')}</td>
+        </tr>
+        <tr>
+          <td><b>NIP / ID</b></td>
+          <td>: ${escapeHtml(nipGuru)}</td>
+          <td><b>Tanggal Cetak</b></td>
+          <td>: ${fmtTglKalender(new Date().toISOString().slice(0, 10))}</td>
+        </tr>
+      </table>
+
+      <!-- TABEL DATA -->
+      <table style="width:100%; border-collapse:collapse; margin-bottom:15px;">
+        <thead>
+          <tr style="background:#f1f5f9;">
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:30px;">No</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:95px;">Hari / Tanggal</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:45px;">Jam Ke</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:90px;">Kelas / Mapel</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt;">Materi Pembahasan / Uraian Kegiatan</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:130px;">Keterangan Pencapaian</th>
+            <th style="border:1px solid #333; padding:5px; font-size:9pt; width:65px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+
+      <!-- TANDA TANGAN -->
+      <table style="width:100%; border:none; margin-top:25px; font-size:10pt; page-break-inside:avoid;">
+        <tr>
+          <td style="width:50%; border:none; text-align:center; vertical-align:top;">
+            Mengetahui,<br>Kepala Sekolah<br><br><br><br><br>
+            <b><u>${escapeHtml(kepsek)}</u></b><br>
+            ${nipKepsek ? 'NIP. ' + escapeHtml(nipKepsek) : ''}
+          </td>
+          <td style="width:50%; border:none; text-align:center; vertical-align:top;">
+            Guru Mata Pelajaran<br><br><br><br><br><br>
+            <b><u>${escapeHtml(namaGuru)}</u></b><br>
+            ${nipGuru && nipGuru !== '—' ? 'NIP. ' + escapeHtml(nipGuru) : ''}
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  bukaCetakHTML(`Laporan_Kegiatan_Harian_Guru_${(currentTahun || '').replace(/\//g, '-')}`, isi, { orientasi: 'lanskap', margin: 1, kertas: 'A4', font: 'Times New Roman', ukuranFont: 10 });
 }
 
 // ---------------- C2: PELAKSANAAN PENGAYAAN & REMEDIAL ----------------

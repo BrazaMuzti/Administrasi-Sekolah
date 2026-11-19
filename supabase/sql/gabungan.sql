@@ -1671,6 +1671,8 @@ create policy "kalender_hapus_auth" on kalender_pendidikan
 alter table jurnal_guru add column if not exists hari text default '';
 alter table jurnal_guru add column if not exists jam_ke text default '';
 alter table jurnal_guru add column if not exists pencapaian text default '';
+alter table jurnal_guru add column if not exists status_verifikasi text default 'Draft';
+alter table jurnal_guru add column if not exists lampiran_url text default '';
 
 -- ========== 2) REMEDIAL: FORMAT PELAKSANAAN ==========
 create table if not exists remedial_pelaksanaan (
